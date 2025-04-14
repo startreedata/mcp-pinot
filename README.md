@@ -88,14 +88,18 @@ vi ~/Library/Application\ Support/Claude/claude_desktop_config.json
               "--directory",
               "/path/to/mcp-pinot",
               "run",
-              "server.py"
-          ]
+              "mcp_pinot/server.py"
+          ],
+          "env": {
+          }
       }
   }
 }
 
 ```
 Replace `/path/to/mcp-pinot` with the absolute path to the folder where you cloned this repo.
+
+You could also configure environment variables here instead of the `.env` file, in case you want to connect to multiple pinot clusters.
 
 ---
 

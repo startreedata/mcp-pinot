@@ -19,14 +19,14 @@ PINOT_BROKER_PORT = int(os.getenv("PINOT_BROKER_PORT", "443"))
 PINOT_BROKER_SCHEME = os.getenv("PINOT_BROKER_SCHEME", "https")
 PINOT_USERNAME = os.getenv("PINOT_USERNAME")
 PINOT_PASSWORD = os.getenv("PINOT_PASSWORD")
-
-# Construct token from username and password
-PINOT_TOKEN = f"Bearer st-{PINOT_USERNAME}-{PINOT_PASSWORD}"
+PINOT_USE_MSQE = os.getenv("PINOT_USE_MSQE", "false").lower() == "true"
+PINOT_TOKEN = os.getenv("PINOT_TOKEN", "")
 
 HEADERS = {
-    "Authorization": PINOT_TOKEN,
     "accept": "application/json",
 }
+if PINOT_TOKEN:
+    HEADERS["Authorization"] = PINOT_TOKEN
 
 conn = connect(
     host=PINOT_BROKER_HOST,
@@ -35,6 +35,7 @@ conn = connect(
     scheme=PINOT_BROKER_SCHEME,
     username=PINOT_USERNAME,
     password=PINOT_PASSWORD,
+    use_multistage_engine=PINOT_USE_MSQE,
 )
 
 

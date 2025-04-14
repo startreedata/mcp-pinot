@@ -58,6 +58,17 @@ PINOT_BROKER_SCHEME=https
 PINOT_USERNAME=pinotuser
 PINOT_PASSWORD=supersecure
 PINOT_TOKEN=Bearer st-token
+PINOT_USE_MSQE=true
+```
+
+If you are running Pinot quickstart locally, here is the `.env` file:
+
+```
+PINOT_CONTROLLER_URL=http://localhost:9000
+PINOT_BROKER_HOST=localhost
+PINOT_BROKER_PORT=8000
+PINOT_BROKER_SCHEME=http
+PINOT_USE_MSQE=true
 ```
 
 ---

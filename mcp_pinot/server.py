@@ -15,6 +15,7 @@ from mcp_pinot.utils.pinot_client import (
     PINOT_USERNAME,
     PINOT_PASSWORD,
     PINOT_TOKEN,
+    PINOT_USE_MSQE,
     HEADERS,
     conn,
     Pinot

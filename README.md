@@ -15,6 +15,7 @@ This project is a Python-based [Model Context Protocol (MCP)](https://github.com
 ## 🚀 Quick Start
 
 ### 1. Install `uv` (if not already installed)
+
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
@@ -23,6 +24,7 @@ Then **restart your terminal** to register the `uv` command.
 ---
 
 ### 2. Clone and set up the project
+
 ```bash
 git clone git@github.com:startreedata/mcp-pinot.git
 cd mcp-pinot
@@ -32,6 +34,7 @@ pip install -e .
 ---
 
 ### 3. Install dependencies
+
 ```bash
 uv add httpx
 uv add pinotdb
@@ -43,6 +46,7 @@ uv add requests
 ---
 
 ### 4. Configure Pinot Cluster connection
+
 ```bash
 cp .env.example .env
 ```
@@ -74,11 +78,30 @@ PINOT_USE_MSQE=true
 ---
 
 ### 5. Run the server
+
 ```bash
 uv --directory . run mcp_pinot/server.py
 ```
 
 You should see logs indicating that the server is running and listening on STDIO.
+
+---
+
+### 6.(Optional) Test locally with Pinot Quickstart
+
+Start Pinot QuickStart using docker:
+
+```bash
+docker run --name pinot-quickstart -p 2123:2123 -p 9000:9000 -p 8000:8000 -d apachepinot/pinot:latest QuickStart -type batch
+```
+
+Query MCP Server
+
+```bash
+uv --directory . run tests/test_service/test_pinot_quickstart.py
+```
+
+This quickstart just check all the tools and query airlineStats table.
 
 ---
 

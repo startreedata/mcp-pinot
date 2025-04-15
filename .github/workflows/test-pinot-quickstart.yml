@@ -1,0 +1,67 @@
+name: Test Pinot Quickstart
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-pinot-quickstart:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Install dependencies
+      run: |
+        uv venv
+        source .venv/bin/activate
+        uv pip install -e ".[dev]"
+    
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Start Pinot containers
+      run: |
+        docker run -d \
+          --name pinot-quickstart \
+          -p 9000:9000 \
+          -p 8000:8000 \
+          apachepinot/pinot:latest \
+          QuickStart -type batch
+        .github/scripts/setup_python_test_env.sh
+    
+    - name: Create test environment file
+      run: |
+        cat > .env << EOL
+        PINOT_CONTROLLER_URL=http://localhost:9000
+        PINOT_BROKER_HOST=localhost
+        PINOT_BROKER_PORT=8000
+        PINOT_BROKER_SCHEME=http
+        PINOT_USE_MSQE=true
+        EOL
+    
+    - name: Run quickstart test
+      run: |
+        source .venv/bin/activate
+        uv --directory . run tests/test_service/test_pinot_quickstart.py
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        docker stop pinot-quickstart || true
+        docker rm pinot-quickstart || true 

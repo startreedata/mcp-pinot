@@ -6,7 +6,7 @@ Apache Pinot™ is a real-time distributed online analytical processing (OLAP) d
 . You can get a more detailed description and documentation about Apache Pinot using the docs at "https://docs.pinot.apache.org/" tool.
 The assistants goal is to get insights from a Pinot Workspace. To get those insights we will leverage this server to interact with pinot deployment. The user is a business decision maker with no previous knowledge of the data structure or insights inside the pinot Workspace.
 
-You job is to simply execute READ Only Select queries from pinot using the python driver and help user visualise the data
+Your job is to simply execute READ Only Select queries from pinot using the python driver and help user visualise the data
 """
 
 PROMPT_TEMPLATE_V2 = """

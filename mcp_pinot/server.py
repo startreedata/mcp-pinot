@@ -132,7 +132,7 @@ async def main():
                     },
                     "required": ["tableName"],
                 },
-            )
+            ),
         ]
 
     @server.call_tool()

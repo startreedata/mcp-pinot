@@ -23,15 +23,15 @@ from mcp_pinot.utils.pinot_client import (
 
 from mcp_pinot.prompts import PROMPT_TEMPLATE
 
-logger = logging.getLogger("pinot_mcp_claude")
+logger = logging.getLogger("pinot_mcp_table_ops_claude")
 logger.setLevel(logging.INFO)
 
 # Use the imported Pinot class and connection values
 pinot_instance = Pinot()
 
 async def main():
-    logger.info("Starting Pinot MCP Server")
-    server = Server("pinot_mcp_claude")
+    logger.info("Starting Pinot MCP Table Ops Server")
+    server = Server("pinot_mcp_table_ops_claude")
 
     @server.list_prompts()
     async def handle_list_prompts() -> list[types.Prompt]:
@@ -511,7 +511,7 @@ async def main():
                 read_stream,
                 write_stream,
                 InitializationOptions(
-                    server_name="pinot_mcp_claude",
+                    server_name="pinot_mcp_table_ops_claude",
                     server_version="0.1.0",
                     capabilities=server.get_capabilities(
                         notification_options=NotificationOptions(),

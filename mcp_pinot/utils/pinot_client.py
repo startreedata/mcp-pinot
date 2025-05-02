@@ -20,6 +20,7 @@ PINOT_BROKER_SCHEME = os.getenv("PINOT_BROKER_SCHEME", "https")
 PINOT_USERNAME = os.getenv("PINOT_USERNAME")
 PINOT_PASSWORD = os.getenv("PINOT_PASSWORD")
 PINOT_USE_MSQE = os.getenv("PINOT_USE_MSQE", "false").lower() == "true"
+PINOT_DATABASE = os.getenv("PINOT_DATABASE", "")
 PINOT_TOKEN = os.getenv("PINOT_TOKEN", "")
 
 HEADERS = {
@@ -27,6 +28,9 @@ HEADERS = {
 }
 if PINOT_TOKEN:
     HEADERS["Authorization"] = PINOT_TOKEN
+
+if PINOT_DATABASE:
+    HEADERS["database"] = PINOT_DATABASE
 
 conn = connect(
     host=PINOT_BROKER_HOST,
@@ -36,6 +40,7 @@ conn = connect(
     username=PINOT_USERNAME,
     password=PINOT_PASSWORD,
     use_multistage_engine=PINOT_USE_MSQE,
+    database=PINOT_DATABASE,
 )
 
 

@@ -63,6 +63,7 @@ PINOT_USERNAME=pinotuser
 PINOT_PASSWORD=supersecure
 PINOT_TOKEN=Bearer st-token
 PINOT_USE_MSQE=true
+PINOT_DATABASE=default
 ```
 
 If you are running Pinot quickstart locally, here is the `.env` file:

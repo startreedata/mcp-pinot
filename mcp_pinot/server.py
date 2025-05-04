@@ -24,8 +24,16 @@ from mcp_pinot.utils.pinot_client import (
 
 from mcp_pinot.prompts import PROMPT_TEMPLATE
 
+# Configure logging
 logger = logging.getLogger("pinot_mcp_claude")
 logger.setLevel(logging.INFO)
+
+# Add console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
 # Use the imported Pinot class and connection values
 pinot_instance = Pinot()

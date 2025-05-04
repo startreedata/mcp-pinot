@@ -106,9 +106,27 @@ This quickstart just check all the tools and query airlineStats table.
 
 ---
 
+## 🐳 Docker Build
+
+### 1. Build the Docker image
+
+```bash
+docker build -t mcp-pinot .
+```
+
+### 2. Run the container
+
+```bash
+docker run -v $(pwd)/.env:/app/.env mcp-pinot
+```
+
+Note: Make sure to have your `.env` file configured with the appropriate Pinot cluster settings before running the container.
+
+---
+
 ## 🧠 Claude Desktop Integration
 
-### 1. Open Claude’s config file
+### 1. Open Claude's config file
 ```bash
 vi ~/Library/Application\ Support/Claude/claude_desktop_config.json
 ```

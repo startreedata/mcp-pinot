@@ -51,6 +51,9 @@ class Pinot:
     def _execute_query(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         logger.debug(f"Executing query: {query}")
         curs = conn.cursor()
+        if PINOT_DATABASE:
+            # Remove database name from query
+            query = query.replace(f"{PINOT_DATABASE}.", "")
         curs.execute(query)
         df = pd.DataFrame(curs, columns=[item[0] for item in curs.description])
         return df.to_dict(orient="records")

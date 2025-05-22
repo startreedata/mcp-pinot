@@ -38,8 +38,8 @@ Can you do a histogram plot on the GitHub events against time
 ### Sample Prompts
 Once Claude is running, click the hammer 🛠️ icon and try these prompts:
 
-> Can you help me analyse my data in Pinot? Use the Pinot tool and look at the list of tables to begin with.
-> Can you do a histogram plot on the GitHub events against time
+- Can you help me analyse my data in Pinot? Use the Pinot tool and look at the list of tables to begin with.
+- Can you do a histogram plot on the GitHub events against time
 
 
 ## Quick Start

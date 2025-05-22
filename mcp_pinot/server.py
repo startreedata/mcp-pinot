@@ -2,14 +2,12 @@
 # File: mcp_pinot/server.py
 # --------------------------
 import asyncio
-import logging
 from typing import Any
 
 import mcp.types as types
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
-import sys
 from mcp_pinot.utils.pinot_client import (
     PINOT_CONTROLLER_URL,
     PINOT_USERNAME,
@@ -21,19 +19,11 @@ from mcp_pinot.utils.pinot_client import (
     conn,
     Pinot
 )
-
+from mcp_pinot.utils.logging_config import get_logger
 from mcp_pinot.prompts import PROMPT_TEMPLATE
 
-# Configure logging
-logger = logging.getLogger("pinot_mcp_claude")
-logger.setLevel(logging.INFO)
-
-# Add console handler
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
+# Get the configured logger
+logger = get_logger()
 
 # Use the imported Pinot class and connection values
 pinot_instance = Pinot()
@@ -206,6 +196,7 @@ async def main():
             )
     except Exception as e:
         import traceback
+        import sys
         logger.error(f"Error running MCP server: {e}")
         logger.error(traceback.format_exc())
         print(f"Error running MCP server: {e}", file=sys.stderr)

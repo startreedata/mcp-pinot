@@ -1,4 +1,3 @@
-import logging
 from typing import Any
 import pandas as pd
 import requests
@@ -6,11 +5,12 @@ import mcp.types as types
 from pinotdb import connect
 import os
 from dotenv import load_dotenv
+from .logging_config import get_logger
 
 # Load environment variables from .env file
 load_dotenv()
 
-logger = logging.getLogger("pinot_mcp_claude")
+logger = get_logger()
 
 # Get configuration from environment variables
 PINOT_CONTROLLER_URL = os.getenv("PINOT_CONTROLLER_URL")

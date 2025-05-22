@@ -10,8 +10,6 @@
 - [Try a Prompt](#try-a-prompt)
 - [Developer Notes](#developer-notes)
 
----
-
 ## Overview
 
 This project is a Python-based [Model Context Protocol (MCP)](https://github.com/anthropic-ai/mcp) server for interacting with Apache Pinot. It is designed to integrate with Claude Desktop to enable real-time analytics and metadata queries on a Pinot cluster.
@@ -22,8 +20,6 @@ It allows you to
 - View index/column-level metadata
 - Designed to assist business users via Claude integration
 - and much more.
-
----
 
 ## Quick Start
 
@@ -51,23 +47,18 @@ uv pip install -e . # Install dependencies
 # uv pip install -e .[dev] 
 ```
 
----
-
 ### Configure Pinot Cluster
 The MCP server expects a uvicorn config style `.env` file in the root directory to configure the Pinot cluster connection. This repo includes a sample `.env.example` file that assumes a pinot quickstart setup.
 ```bash
 mv .env.example .env
 ```
 
----
 ### Run the server
 
 ```bash
 uv --directory . run mcp_pinot/server.py
 ```
 You should see logs indicating that the server is running and listening on STDIO.
-
----
 
 ### Launch Pinot Quickstart (Optional)
 
@@ -84,26 +75,6 @@ uv --directory . run tests/test_service/test_pinot_quickstart.py
 ```
 
 This quickstart just checks all the tools and queries the airlineStats table.
-
----
-
-## Docker Build
-
-### Build the Docker image
-
-```bash
-docker build -t mcp-pinot .
-```
-
-### Run the container
-
-```bash
-docker run -v $(pwd)/.env:/app/.env mcp-pinot
-```
-
-Note: Make sure to have your `.env` file configured with the appropriate Pinot cluster settings before running the container.
-
----
 
 ## Claude Desktop Integration
 
@@ -137,21 +108,15 @@ Replace `/path/to/mcp-pinot` with the absolute path to the folder where you clon
 
 You could also configure environment variables here instead of the `.env` file, in case you want to connect to multiple pinot clusters as MCP servers.
 
----
-
 ### Restart Claude Desktop
 
 Claude will now auto-launch the MCP server on startup and recognize the new Pinot-based tools.
-
----
 
 ## Pinot MCP In Action
 
 Once Claude is running, click the hammer 🛠️ icon and try this prompt:
 
 > Can you help me analyse my data in Pinot? Use the Pinot tool and look at the list of tables to begin with.
-
----
 
 ## Developer
 
@@ -166,7 +131,18 @@ pip install -e ".[dev]"
 
 ### Test
 Test the repo with:
-
 ```bash
 pytest
 ```
+
+### Build the Docker image
+```bash
+docker build -t mcp-pinot .
+```
+
+### Run the container
+```bash
+docker run -v $(pwd)/.env:/app/.env mcp-pinot
+```
+
+Note: Make sure to have your `.env` file configured with the appropriate Pinot cluster settings before running the container.

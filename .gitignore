@@ -172,3 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Ignore everything in assets except images
+assets/*
+!assets/*.png
+!assets/*.jpg
+!assets/*.jpeg
+!assets/*.gif

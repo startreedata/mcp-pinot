@@ -22,7 +22,6 @@ def setup_logger(name: str = DEFAULT_LOGGER_NAME) -> logging.Logger:
     # Only configure if not already configured (prevent duplicate handlers)
     if not logger.handlers:
         logger.setLevel(logging.INFO)
-        logger.propagate = False  # Prevent propagation to root logger
         
         # Create console handler
         console_handler = logging.StreamHandler(sys.stdout)

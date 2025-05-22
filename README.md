@@ -54,48 +54,22 @@ uv pip install -e . # Install dependencies
 ---
 
 ### Configure Pinot Cluster
-
-The MCP server expects a `.env` file in the root directory to configure the Pinot cluster connection. You can create one by running the following command, which will set up a sample configuration. Remember to replace the placeholder values with your actual Pinot cluster details.
-
+The MCP server expects a uvicorn config style `.env` file in the root directory to configure the Pinot cluster connection. This repo includes a sample `.env.example` file that assumes a pinot quickstart setup.
 ```bash
-cat <<EOL > .env
-PINOT_CONTROLLER_URL=https://pinot.xxx.yyy.startree.cloud
-PINOT_BROKER_HOST=broker.pinot.xxx.yyy.startree.cloud
-PINOT_BROKER_PORT=443
-PINOT_BROKER_SCHEME=https
-PINOT_USERNAME=pinotuser
-PINOT_PASSWORD=supersecure
-PINOT_TOKEN=Bearer st-token
-PINOT_USE_MSQE=true
-PINOT_DATABASE=default
-EOL
-```
-
-If you are running Pinot quickstart locally, you can create the appropriate `.env` file by running:
-
-```bash
-cat <<EOL > .env
-PINOT_CONTROLLER_URL=http://localhost:9000
-PINOT_BROKER_HOST=localhost
-PINOT_BROKER_PORT=8000
-PINOT_BROKER_SCHEME=http
-PINOT_USE_MSQE=true
-EOL
+mv .env.example .env
 ```
 
 ---
-
 ### Run the server
 
 ```bash
 uv --directory . run mcp_pinot/server.py
 ```
-
 You should see logs indicating that the server is running and listening on STDIO.
 
 ---
 
-### (Optional) Test locally with Pinot Quickstart
+### Launch Pinot Quickstart (Optional)
 
 Start Pinot QuickStart using docker:
 
@@ -146,11 +120,12 @@ vi ~/Library/Application\ Support/Claude/claude_desktop_config.json
           "command": "/path/to/uv",
           "args": [
               "--directory",
-              "/path/to/mcp-pinot",
+              "/path/to/mcp-pinot-repo",
               "run",
               "mcp_pinot/server.py"
           ],
           "env": {
+            // You can also include your .env config here
           }
       }
   }
@@ -170,7 +145,7 @@ Claude will now auto-launch the MCP server on startup and recognize the new Pino
 
 ---
 
-## Try a Prompt
+## Pinot MCP In Action
 
 Once Claude is running, click the hammer 🛠️ icon and try this prompt:
 
@@ -178,16 +153,18 @@ Once Claude is running, click the hammer 🛠️ icon and try this prompt:
 
 ---
 
-## Developer Notes
+## Developer
 
 - All tools are defined in the `Pinot` class in `utils/pinot_client.py`
 
+### Build
 Build the project with
 
 ```bash
 pip install -e ".[dev]"
 ```
 
+### Test
 Test the repo with:
 
 ```bash

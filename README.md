@@ -16,60 +16,49 @@
 
 This project is a Python-based [Model Context Protocol (MCP)](https://github.com/anthropic-ai/mcp) server for interacting with Apache Pinot. It is designed to integrate with Claude Desktop to enable real-time analytics and metadata queries on a Pinot cluster.
 
----
-
-## Features
-
+It allows you to
 - List tables, segments, and schema info from Pinot
 - Execute read-only SQL queries
 - View index/column-level metadata
 - Designed to assist business users via Claude integration
+- and much more.
 
 ---
 
 ## Quick Start
 
-### Install `uv` (if not already installed)
+### Prerequisites
+
+#### Install uv (if not already installed)
+[uv](https://github.com/astral-sh/uv) is a fast Python package installer and resolver, written in Rust. It's designed to be a drop-in replacement for pip with significantly better performance.
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Reload your bashrc/zshrc to take effect. Alternatively, restart your terminal
+# source ~/.bashrc
 ```
-Then **restart your terminal** to register the `uv` command.
 
----
 
-### Clone and set up the project
-
+### Installation
 ```bash
+# Clone the repository
 git clone git@github.com:startreedata/mcp-pinot.git
 cd mcp-pinot
-pip install -e .
+uv pip install -e . # Install dependencies
+
+# For development dependencies (including testing tools), use:
+# uv pip install -e .[dev] 
 ```
 
 ---
 
-### Install dependencies
+### Configure Pinot Cluster
+
+The MCP server expects a `.env` file in the root directory to configure the Pinot cluster connection. You can create one by running the following command, which will set up a sample configuration. Remember to replace the placeholder values with your actual Pinot cluster details.
 
 ```bash
-uv add httpx
-uv add pinotdb
-uv add "mcp[cli]"
-uv add pandas
-uv add requests
-```
-
----
-
-### Configure Pinot Cluster connection
-
-```bash
-cp .env.example .env
-```
-Edit `.env` file with all the corresponding Pinot configurations.
-
-Below is a sample config file for `.env`:
-
-```
+cat <<EOL > .env
 PINOT_CONTROLLER_URL=https://pinot.xxx.yyy.startree.cloud
 PINOT_BROKER_HOST=broker.pinot.xxx.yyy.startree.cloud
 PINOT_BROKER_PORT=443
@@ -79,16 +68,19 @@ PINOT_PASSWORD=supersecure
 PINOT_TOKEN=Bearer st-token
 PINOT_USE_MSQE=true
 PINOT_DATABASE=default
+EOL
 ```
 
-If you are running Pinot quickstart locally, here is the `.env` file:
+If you are running Pinot quickstart locally, you can create the appropriate `.env` file by running:
 
-```
+```bash
+cat <<EOL > .env
 PINOT_CONTROLLER_URL=http://localhost:9000
 PINOT_BROKER_HOST=localhost
 PINOT_BROKER_PORT=8000
 PINOT_BROKER_SCHEME=http
 PINOT_USE_MSQE=true
+EOL
 ```
 
 ---

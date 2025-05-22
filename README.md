@@ -1,4 +1,5 @@
-# MCP Pinot Server
+
+# Pinot MCP Server
 
 ## Table of Contents
 
@@ -20,6 +21,26 @@ It allows you to
 - View index/column-level metadata
 - Designed to assist business users via Claude integration
 - and much more.
+
+## Pinot MCP in Action
+
+See Pinot MCP in action below:
+
+### Fetching Metadata
+![Pinot MCP fetching metadata](assets/pinot-mcp-in-action.png)
+
+### Fetching Data, followed by analysis
+
+Prompt:
+Can you do a histogram plot on the GitHub events against time
+![Pinot MCP fetching data and analyzing table](assets/github-events-analysis.png)
+
+### Sample Prompts
+Once Claude is running, click the hammer 🛠️ icon and try these prompts:
+
+> Can you help me analyse my data in Pinot? Use the Pinot tool and look at the list of tables to begin with.
+> Can you do a histogram plot on the GitHub events against time
+
 
 ## Quick Start
 
@@ -111,12 +132,6 @@ You could also configure environment variables here instead of the `.env` file, 
 ### Restart Claude Desktop
 
 Claude will now auto-launch the MCP server on startup and recognize the new Pinot-based tools.
-
-## Pinot MCP In Action
-
-Once Claude is running, click the hammer 🛠️ icon and try this prompt:
-
-> Can you help me analyse my data in Pinot? Use the Pinot tool and look at the list of tables to begin with.
 
 ## Developer
 

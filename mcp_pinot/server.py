@@ -61,6 +61,11 @@ async def main():
     async def handle_list_tools() -> list[types.Tool]:
         return [
             types.Tool(
+                name="test-connection",
+                description="Test the Pinot connection and return diagnostic information",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            types.Tool(
                 name="read-query",
                 description="Execute a SELECT query on the Pinot database",
                 inputSchema={
@@ -140,7 +145,11 @@ async def main():
     ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
         """Handle tool execution requests"""
         try:
-            if name == "read-query":
+            if name == "test-connection":
+                results = pinot_instance.test_connection()
+                return [types.TextContent(type="text", text=str(results))]
+
+            elif name == "read-query":
                 if not arguments["query"].strip().upper().startswith("SELECT"):
                     raise ValueError("Only SELECT queries are allowed for read-query")
                 results = pinot_instance._execute_query(query=arguments["query"])

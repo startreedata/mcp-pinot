@@ -1,5 +1,5 @@
 #!/bin/sh
-echo "Starting server"
+echo "Starting MCP Pinot Server"
 
 # Load environment variables from .env file if it exists
 if [ -f /app/config/.env ]; then
@@ -7,5 +7,11 @@ if [ -f /app/config/.env ]; then
     export $(cat /app/config/.env | xargs)
 fi
 
-# Run Python with unbuffered output
-PYTHONUNBUFFERED=1 python -c "import asyncio; from mcp_pinot.server import main; asyncio.run(main())" 
+# Check if we're in development mode (if .env exists in current directory)
+if [ -f .env ]; then
+    echo "Loading environment variables from .env"
+    export $(cat .env | xargs)
+fi
+
+# Run the CLI with unbuffered output
+PYTHONUNBUFFERED=1 python -m mcp_pinot.cli 

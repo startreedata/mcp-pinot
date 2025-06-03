@@ -3,25 +3,28 @@ import pandas as pd
 import requests
 import mcp.types as types
 from pinotdb import connect
-import os
-from dotenv import load_dotenv
 from .logging_config import get_logger
-
-# Load environment variables from .env file
-load_dotenv()
+from .config import get_config_manager
 
 logger = get_logger()
 
-# Get configuration from environment variables
-PINOT_CONTROLLER_URL = os.getenv("PINOT_CONTROLLER_URL")
-PINOT_BROKER_HOST = os.getenv("PINOT_BROKER_HOST")
-PINOT_BROKER_PORT = int(os.getenv("PINOT_BROKER_PORT", "443"))
-PINOT_BROKER_SCHEME = os.getenv("PINOT_BROKER_SCHEME", "https")
-PINOT_USERNAME = os.getenv("PINOT_USERNAME")
-PINOT_PASSWORD = os.getenv("PINOT_PASSWORD")
-PINOT_USE_MSQE = os.getenv("PINOT_USE_MSQE", "false").lower() == "true"
-PINOT_DATABASE = os.getenv("PINOT_DATABASE", "")
-PINOT_TOKEN = os.getenv("PINOT_TOKEN", "")
+# Get configuration from the config manager
+config = get_config_manager()
+
+# Get configuration values
+PINOT_CONTROLLER_URL = config.get("PINOT_CONTROLLER_URL")
+
+# Parse broker configuration from URL
+broker_config = config.get_broker_config()
+PINOT_BROKER_HOST = broker_config.get("host")
+PINOT_BROKER_PORT = broker_config.get("port", 443)
+PINOT_BROKER_SCHEME = broker_config.get("scheme", "https")
+
+PINOT_USERNAME = config.get("PINOT_USERNAME")
+PINOT_PASSWORD = config.get("PINOT_PASSWORD")
+PINOT_USE_MSQE = config.get("PINOT_USE_MSQE", False)
+PINOT_DATABASE = config.get("PINOT_DATABASE", "")
+PINOT_TOKEN = config.get("PINOT_TOKEN", "")
 
 HEADERS = {
     "accept": "application/json",
@@ -32,17 +35,24 @@ if PINOT_TOKEN:
 if PINOT_DATABASE:
     HEADERS["database"] = PINOT_DATABASE
 
-conn = connect(
-    host=PINOT_BROKER_HOST,
-    port=PINOT_BROKER_PORT,
-    path="/query/sql",
-    scheme=PINOT_BROKER_SCHEME,
-    username=PINOT_USERNAME,
-    password=PINOT_PASSWORD,
-    use_multistage_engine=PINOT_USE_MSQE,
-    database=PINOT_DATABASE,
-)
+# Initialize connection - this will be created after config is validated
+conn = None
 
+def initialize_connection():
+    """Initialize the Pinot connection after configuration is validated"""
+    global conn
+    if conn is None:
+        conn = connect(
+            host=PINOT_BROKER_HOST,
+            port=PINOT_BROKER_PORT,
+            path="/query/sql",
+            scheme=PINOT_BROKER_SCHEME,
+            username=PINOT_USERNAME,
+            password=PINOT_PASSWORD,
+            use_multistage_engine=PINOT_USE_MSQE,
+            database=PINOT_DATABASE,
+        )
+    return conn
 
 class Pinot:
     def __init__(self):
@@ -50,6 +60,7 @@ class Pinot:
 
     def _execute_query(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         logger.debug(f"Executing query: {query}")
+        conn = initialize_connection()
         curs = conn.cursor()
         if PINOT_DATABASE:
             # Remove database name from query

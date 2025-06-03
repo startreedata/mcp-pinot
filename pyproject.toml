@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mcp-pinot = "mcp_pinot.server:main"
+mcp-pinot = "mcp_pinot.cli:cli_main"
 
 [project.urls]
 Home = "http://github.com/startreedata/mcp-pinot"

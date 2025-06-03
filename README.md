@@ -1,4 +1,3 @@
-
 # Pinot MCP Server
 
 ## Table of Contents
@@ -6,6 +5,7 @@
 - [Overview](#overview)
 - [Features](#features)
 - [Quick Start](#quick-start)
+- [Configuration](#configuration)
 - [Docker Build](#docker-build)
 - [Claude Desktop Integration](#claude-desktop-integration)
 - [Try a Prompt](#try-a-prompt)
@@ -20,6 +20,7 @@ It allows you to
 - Execute read-only SQL queries
 - View index/column-level metadata
 - Designed to assist business users via Claude integration
+- Interactive CLI configuration setup
 - and much more.
 
 ## Pinot MCP in Action
@@ -68,18 +69,131 @@ uv pip install -e . # Install dependencies
 # uv pip install -e .[dev] 
 ```
 
-### Configure Pinot Cluster
-The MCP server expects a uvicorn config style `.env` file in the root directory to configure the Pinot cluster connection. This repo includes a sample `.env.example` file that assumes a pinot quickstart setup.
+## Configuration
+
+The MCP Pinot Server supports multiple ways to configure your Pinot cluster connection:
+
+### 1. Interactive CLI Setup (Recommended for first-time users)
+
+Simply run the server, and it will automatically prompt you for missing configuration:
+
 ```bash
-mv .env.example .env
+mcp-pinot
 ```
+
+If required configurations are missing, you'll see an interactive setup like:
+
+```
+============================================================
+🔧 MCP Pinot Server Configuration
+============================================================
+Some required configurations are missing.
+Please provide the following information:
+
+📋 Missing Required Configurations:
+  • PINOT_CONTROLLER_URL: URL of the Pinot Controller (e.g., http://localhost:9000)
+  • PINOT_BROKER_URL: Complete URL of the Pinot Broker (e.g., https://localhost:443 or http://pinot-broker.yourcompany.com:8099)
+
+PINOT_CONTROLLER_URL: URL of the Pinot Controller (e.g., http://localhost:9000) [REQUIRED]: http://localhost:9000
+PINOT_BROKER_URL: Complete URL of the Pinot Broker (e.g., https://localhost:443) [REQUIRED]: https://localhost:443
+
+Configure optional settings? (y/N): y
+PINOT_USERNAME: Username for Pinot authentication (optional): myuser
+PINOT_PASSWORD: Password for Pinot authentication (optional): [hidden input]
+
+✅ Configuration complete!
+```
+
+### 2. Environment Variables
+
+Set the following environment variables:
+
+```bash
+export PINOT_CONTROLLER_URL="http://localhost:9000"
+export PINOT_BROKER_URL="https://localhost:443"  # Complete broker URL including scheme, host and port
+export PINOT_USERNAME="myuser"  # Optional
+export PINOT_PASSWORD="mypass"  # Optional
+export PINOT_TOKEN="Bearer xyz123"  # Optional, alternative to username/password
+export PINOT_DATABASE="mydb"  # Optional
+export PINOT_USE_MSQE="true"  # Optional, defaults to false
+```
+
+### 3. .env File
+
+Create a `.env` file in the root directory:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your configuration
+vi .env
+```
+
+Example `.env` file:
+```
+PINOT_CONTROLLER_URL=http://localhost:9000
+PINOT_BROKER_URL=https://localhost:443
+PINOT_USERNAME=myuser
+PINOT_PASSWORD=mypass
+PINOT_USE_MSQE=false
+```
+
+### Configuration Commands
+
+```bash
+# Show current configuration (passwords will be masked)
+mcp-pinot --show-config
+
+# Show help and configuration options
+mcp-pinot --help
+
+# Show version
+mcp-pinot --version
+```
+
+### Required Configuration
+
+- **PINOT_CONTROLLER_URL**: URL of the Pinot Controller - the central management service that coordinates your Pinot cluster. This is typically running on port 9000.
+  - Examples: `http://localhost:9000` (local), `https://pinot-controller.yourcompany.com` (production)
+
+- **PINOT_BROKER_URL**: Complete URL of the Pinot Broker - the query processing service that handles SQL queries. This includes the scheme (http/https), hostname, and port in a single URL.
+  - Examples: `https://localhost:443` (local with HTTPS), `http://localhost:8099` (local with HTTP), `https://pinot-broker.yourcompany.com:8099` (production)
+  - The URL is automatically parsed to extract the host, port, and scheme components
+  - If no port is specified, defaults to 443 for https and 8099 for http
+
+### Optional Configuration
+
+- **PINOT_USERNAME**: Username for Pinot authentication (if your cluster requires login)
+  - Leave empty if your Pinot cluster doesn't use authentication (common in development)
+  - For production clusters with security enabled: `admin`, `analyst`, `service-account`, etc.
+
+- **PINOT_PASSWORD**: Password for Pinot authentication (if your cluster requires login, will be masked in displays)
+  - Only needed when PINOT_USERNAME is set
+  - This will be securely prompted and masked during input
+
+- **PINOT_TOKEN**: Bearer token or API key for token-based authentication (alternative to username/password, will be masked)
+  - Format: `Bearer your-jwt-token` or `your-api-key`
+  - Common in cloud-managed Pinot services or when using JWT authentication
+  - Use either this OR username/password, not both
+
+- **PINOT_DATABASE**: Database name for multi-tenant Pinot deployments
+  - Most single-tenant Pinot clusters don't need this (leave empty)
+  - In multi-tenant setups, this isolates your tables and queries to a specific database namespace
+  - Examples: `analytics`, `prod`, `team-data`
+
+- **PINOT_USE_MSQE**: Enable Multi-Stage Query Engine (MSQE) - `true` or `false` (default: `false`)
+  - Pinot's new distributed query engine that supports complex SQL operations like JOINs, subqueries, and window functions
+  - Set to `true` for advanced SQL features, `false` for standard Pinot queries
+  - MSQE requires Pinot 0.11+ and may have different performance characteristics
 
 ### Run the server
 
 ```bash
-uv --directory . run mcp_pinot/server.py
+mcp-pinot
 ```
-You should see logs indicating that the server is running and listening on STDIO.
+
+You should see the configuration summary and then logs indicating that the server is running and listening on STDIO.
 
 ### Launch Pinot Quickstart (Optional)
 
@@ -114,20 +228,26 @@ vi ~/Library/Application\ Support/Claude/claude_desktop_config.json
               "--directory",
               "/path/to/mcp-pinot-repo",
               "run",
-              "mcp_pinot/server.py"
+              "mcp-pinot"
           ],
           "env": {
-            // You can also include your .env config here
+            // You can also include your .env config here instead of prompting
+            // "PINOT_CONTROLLER_URL": "http://localhost:9000",
+            // "PINOT_BROKER_URL": "https://localhost:443"
           }
       }
   }
 }
 ```
+
 Replace `/path/to/uv` with the absolute path to the uv command, you can run `which uv` to figure it out.
 
 Replace `/path/to/mcp-pinot` with the absolute path to the folder where you cloned this repo.
 
-You could also configure environment variables here instead of the `.env` file, in case you want to connect to multiple pinot clusters as MCP servers.
+**Note**: When running via Claude Desktop, the interactive configuration prompts won't work. Make sure to either:
+1. Set up your configuration via `.env` file, or
+2. Include environment variables in the Claude Desktop config, or  
+3. Run `mcp-pinot` once manually to set up configuration before using with Claude
 
 ### Restart Claude Desktop
 

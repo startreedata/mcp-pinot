@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 import pandas as pd
-from mcp_pinot.utils.pinot_client import Pinot, conn
+from mcp_pinot.utils.pinot_client import Pinot
 
 # Mock data for testing
 MOCK_TABLE_DATA = [
@@ -17,12 +17,14 @@ MOCK_QUERY_RESULT = pd.DataFrame([
 @pytest.fixture
 def mock_connection():
     """Fixture to mock the Pinot connection."""
-    with patch("mcp_pinot.utils.pinot_client.connect") as mock_connect:
+    with patch("mcp_pinot.utils.pinot_client.initialize_connection") as mock_init_conn:
+        mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.description = [("id",), ("name",)]
         mock_cursor.__iter__.return_value = [(1, "Test 1"), (2, "Test 2")]
-        mock_connect.return_value.cursor.return_value = mock_cursor
-        yield mock_connect
+        mock_conn.cursor.return_value = mock_cursor
+        mock_init_conn.return_value = mock_conn
+        yield mock_init_conn
 
 @pytest.fixture
 def mock_requests():
@@ -39,15 +41,8 @@ def test_pinot_init():
     assert isinstance(pinot.insights, list)
     assert len(pinot.insights) == 0
 
-@patch("mcp_pinot.utils.pinot_client.conn")
-def test_execute_query(mock_conn, mock_connection):
+def test_execute_query(mock_connection):
     """Test the execute_query function."""
-    # Set up the mock cursor
-    mock_cursor = MagicMock()
-    mock_cursor.description = [("id",), ("name",)]
-    mock_cursor.__iter__.return_value = [(1, "Test 1"), (2, "Test 2")]
-    mock_conn.cursor.return_value = mock_cursor
-    
     pinot = Pinot()
     result = pinot._execute_query("SELECT * FROM my_table")
     assert isinstance(result, list)
@@ -55,23 +50,21 @@ def test_execute_query(mock_conn, mock_connection):
     assert result[0]["id"] == 1
     assert result[0]["name"] == "Test 1"
 
-@patch("mcp_pinot.utils.pinot_client.conn")
-def test_execute_query_empty_result(mock_conn, mock_connection):
+def test_execute_query_empty_result(mock_connection):
     """Test execute_query with an empty result set."""
-    mock_cursor = MagicMock()
-    mock_cursor.description = [("id",), ("name",)]
+    # Modify the mock to return empty results
+    mock_conn = mock_connection.return_value
+    mock_cursor = mock_conn.cursor.return_value
     mock_cursor.__iter__.return_value = []
-    mock_conn.cursor.return_value = mock_cursor
     
     pinot = Pinot()
     result = pinot._execute_query("SELECT * FROM my_table WHERE id = 999")
     assert isinstance(result, list)
     assert len(result) == 0
 
-@patch("mcp_pinot.utils.pinot_client.conn")
-def test_execute_query_with_error(mock_conn, mock_connection):
+def test_execute_query_with_error(mock_connection):
     """Test execute_query with a database error."""
-    mock_conn.cursor.side_effect = Exception("Database error")
+    mock_connection.side_effect = Exception("Database error")
     
     pinot = Pinot()
     with pytest.raises(Exception, match="Database error"):

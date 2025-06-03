@@ -8,6 +8,7 @@ import mcp.types as types
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
+from mcp_pinot.utils.config import ensure_config
 from mcp_pinot.utils.pinot_client import (
     PINOT_CONTROLLER_URL,
     PINOT_USERNAME,
@@ -16,7 +17,6 @@ from mcp_pinot.utils.pinot_client import (
     PINOT_USE_MSQE,
     PINOT_DATABASE,
     HEADERS,
-    conn,
     Pinot
 )
 from mcp_pinot.utils.logging_config import get_logger
@@ -29,6 +29,10 @@ logger = get_logger()
 pinot_instance = Pinot()
 
 async def main():
+    # Ensure configuration is complete before starting
+    logger.info("Checking Pinot MCP Server configuration...")
+    ensure_config()
+    
     logger.info("Starting Pinot MCP Server")
     server = Server("pinot_mcp_claude")
 

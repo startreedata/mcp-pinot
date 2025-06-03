@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 import pandas as pd
-from mcp_pinot.utils.pinot_client import Pinot, conn
+from mcp_pinot.utils.pinot_client import Pinot
 
 # Mock data for testing
 MOCK_TABLE_DATA = [
@@ -39,14 +39,20 @@ def test_pinot_init():
     assert isinstance(pinot.insights, list)
     assert len(pinot.insights) == 0
 
-@patch("mcp_pinot.utils.pinot_client.conn")
-def test_execute_query(mock_conn, mock_connection):
+@patch("mcp_pinot.utils.pinot_client.make_http_request")
+@patch("mcp_pinot.utils.pinot_client.get_connection")
+def test_execute_query(mock_get_conn, mock_http_request):
     """Test the execute_query function."""
-    # Set up the mock cursor
+    # Mock HTTP request to fail so it falls back to PinotDB
+    mock_http_request.side_effect = Exception("HTTP failed")
+    
+    # Set up the mock connection and cursor for PinotDB fallback
+    mock_conn = MagicMock()
     mock_cursor = MagicMock()
     mock_cursor.description = [("id",), ("name",)]
-    mock_cursor.__iter__.return_value = [(1, "Test 1"), (2, "Test 2")]
+    mock_cursor.fetchall.return_value = [(1, "Test 1"), (2, "Test 2")]
     mock_conn.cursor.return_value = mock_cursor
+    mock_get_conn.return_value = mock_conn
     
     pinot = Pinot()
     result = pinot._execute_query("SELECT * FROM my_table")
@@ -55,42 +61,62 @@ def test_execute_query(mock_conn, mock_connection):
     assert result[0]["id"] == 1
     assert result[0]["name"] == "Test 1"
 
-@patch("mcp_pinot.utils.pinot_client.conn")
-def test_execute_query_empty_result(mock_conn, mock_connection):
+@patch("mcp_pinot.utils.pinot_client.make_http_request")
+@patch("mcp_pinot.utils.pinot_client.get_connection")
+def test_execute_query_empty_result(mock_get_conn, mock_http_request):
     """Test execute_query with an empty result set."""
+    # Mock HTTP request to fail so it falls back to PinotDB
+    mock_http_request.side_effect = Exception("HTTP failed")
+    
+    # Set up the mock connection and cursor for PinotDB fallback
+    mock_conn = MagicMock()
     mock_cursor = MagicMock()
     mock_cursor.description = [("id",), ("name",)]
-    mock_cursor.__iter__.return_value = []
+    mock_cursor.fetchall.return_value = []
     mock_conn.cursor.return_value = mock_cursor
+    mock_get_conn.return_value = mock_conn
     
     pinot = Pinot()
     result = pinot._execute_query("SELECT * FROM my_table WHERE id = 999")
     assert isinstance(result, list)
     assert len(result) == 0
 
-@patch("mcp_pinot.utils.pinot_client.conn")
-def test_execute_query_with_error(mock_conn, mock_connection):
+@patch("mcp_pinot.utils.pinot_client.make_http_request")
+@patch("mcp_pinot.utils.pinot_client.get_connection")
+def test_execute_query_with_error(mock_get_conn, mock_http_request):
     """Test execute_query with a database error."""
-    mock_conn.cursor.side_effect = Exception("Database error")
+    # Mock HTTP request to fail
+    mock_http_request.side_effect = Exception("HTTP failed")
+    
+    # Mock PinotDB connection to also fail
+    mock_get_conn.side_effect = Exception("Database error")
     
     pinot = Pinot()
     with pytest.raises(Exception, match="Database error"):
         pinot._execute_query("SELECT * FROM my_table")
 
-def test_pinot_get_tables(mock_requests):
+@patch("mcp_pinot.utils.pinot_client.make_http_request")
+def test_pinot_get_tables(mock_http_request):
     """Test the _get_tables method."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"tables": ["table1", "table2"]}
+    mock_http_request.return_value = mock_response
+    
     pinot = Pinot()
     tables = pinot._get_tables()
     assert isinstance(tables, list)
     assert "table1" in tables
     assert "table2" in tables
 
-def test_pinot_get_table_detail(mock_requests):
+@patch("mcp_pinot.utils.pinot_client.make_http_request")
+def test_pinot_get_table_detail(mock_http_request):
     """Test the _get_table_detail method."""
-    mock_requests.get.return_value.json.return_value = {
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
         "tableName": "test_table",
         "columnCount": 5
     }
+    mock_http_request.return_value = mock_response
     
     pinot = Pinot()
     detail = pinot._get_table_detail("test_table")

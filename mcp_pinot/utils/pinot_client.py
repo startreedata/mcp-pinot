@@ -12,9 +12,9 @@ from .logging_config import get_logger
 logger = get_logger()
 
 # Timeout configurations for authenticated clusters
-REQUEST_TIMEOUT = 90  # 90 seconds for HTTP requests
+REQUEST_TIMEOUT = 60  # 60 seconds for HTTP requests
 CONNECTION_TIMEOUT = 60  # 60 seconds for connection establishment
-QUERY_TIMEOUT = 120  # 2 minutes for query execution
+QUERY_TIMEOUT = 60  # 60 seconds for query execution
 
 @dataclass
 class PinotConfig:

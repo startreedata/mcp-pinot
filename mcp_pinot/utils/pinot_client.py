@@ -1,93 +1,393 @@
-from typing import Any
+from typing import Any, Dict, Tuple
 import pandas as pd
 import requests
 import mcp.types as types
 from pinotdb import connect
 import os
+import base64
+from dataclasses import dataclass
 from dotenv import load_dotenv
 from .logging_config import get_logger
 
-# Load environment variables from .env file
-load_dotenv()
-
 logger = get_logger()
 
-# Get configuration from environment variables
-PINOT_CONTROLLER_URL = os.getenv("PINOT_CONTROLLER_URL")
-PINOT_BROKER_HOST = os.getenv("PINOT_BROKER_HOST")
-PINOT_BROKER_PORT = int(os.getenv("PINOT_BROKER_PORT", "443"))
-PINOT_BROKER_SCHEME = os.getenv("PINOT_BROKER_SCHEME", "https")
-PINOT_USERNAME = os.getenv("PINOT_USERNAME")
-PINOT_PASSWORD = os.getenv("PINOT_PASSWORD")
-PINOT_USE_MSQE = os.getenv("PINOT_USE_MSQE", "false").lower() == "true"
-PINOT_DATABASE = os.getenv("PINOT_DATABASE", "")
-PINOT_TOKEN = os.getenv("PINOT_TOKEN", "")
+# Timeout configurations for authenticated clusters
+REQUEST_TIMEOUT = 60  # 60 seconds for HTTP requests
+CONNECTION_TIMEOUT = 60  # 60 seconds for connection establishment
+QUERY_TIMEOUT = 60  # 60 seconds for query execution
 
-HEADERS = {
-    "accept": "application/json",
-}
-if PINOT_TOKEN:
-    HEADERS["Authorization"] = PINOT_TOKEN
+@dataclass
+class PinotConfig:
+    """Configuration container for Pinot connection settings"""
+    controller_url: str
+    broker_host: str
+    broker_port: int
+    broker_scheme: str
+    username: str | None
+    password: str | None
+    token: str | None
+    database: str
+    use_msqe: bool
 
-if PINOT_DATABASE:
-    HEADERS["database"] = PINOT_DATABASE
+def load_config() -> PinotConfig:
+    """Load and return Pinot configuration from environment variables"""
+    load_dotenv(override=True)
+    
+    return PinotConfig(
+        controller_url=os.getenv("PINOT_CONTROLLER_URL", ""),
+        broker_host=os.getenv("PINOT_BROKER_HOST", ""),
+        broker_port=int(os.getenv("PINOT_BROKER_PORT", "443")),
+        broker_scheme=os.getenv("PINOT_BROKER_SCHEME", "https"),
+        username=os.getenv("PINOT_USERNAME"),
+        password=os.getenv("PINOT_PASSWORD"),
+        token=os.getenv("PINOT_TOKEN"),
+        database=os.getenv("PINOT_DATABASE", ""),
+        use_msqe=os.getenv("PINOT_USE_MSQE", "false").lower() == "true"
+    )
 
-conn = connect(
-    host=PINOT_BROKER_HOST,
-    port=PINOT_BROKER_PORT,
-    path="/query/sql",
-    scheme=PINOT_BROKER_SCHEME,
-    username=PINOT_USERNAME,
-    password=PINOT_PASSWORD,
-    use_multistage_engine=PINOT_USE_MSQE,
-    database=PINOT_DATABASE,
-)
+def create_auth_headers(config: PinotConfig) -> Dict[str, str]:
+    """Create HTTP headers with authentication based on configuration"""
+    headers = {
+        "accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    
+    if config.token:
+        headers["Authorization"] = config.token
+    elif config.username and config.password:
+        credentials = base64.b64encode(f"{config.username}:{config.password}".encode()).decode()
+        headers["Authorization"] = f"Basic {credentials}"
+    
+    if config.database:
+        headers["database"] = config.database
+    
+    return headers
+
+def get_auth_credentials(config: PinotConfig) -> Tuple[str | None, str | None]:
+    """Extract authentication credentials for PinotDB connection"""
+    if config.token:
+        if config.token.startswith("Bearer "):
+            return "", config.token  # Empty username, full Bearer token as password
+        else:
+            return "", config.token
+    elif config.username and config.password:
+        return config.username, config.password
+    return None, None
+
+def make_http_request(url: str, headers: Dict[str, str], method: str = "GET", json_data: Dict = None) -> requests.Response:
+    """Make HTTP request with standard timeout and error handling"""
+    try:
+        if method.upper() == "POST":
+            response = requests.post(
+                url,
+                headers=headers,
+                json=json_data,
+                timeout=(CONNECTION_TIMEOUT, REQUEST_TIMEOUT),
+                verify=True
+            )
+        else:
+            response = requests.get(
+                url,
+                headers=headers,
+                timeout=(CONNECTION_TIMEOUT, REQUEST_TIMEOUT),
+                verify=True
+            )
+        response.raise_for_status()
+        return response
+    except requests.exceptions.Timeout:
+        logger.error(f"HTTP request timeout for {url}")
+        raise
+    except Exception as e:
+        logger.error(f"HTTP request failed for {url}: {e}")
+        raise
+
+# Initialize global configuration
+_config = load_config()
+_headers = create_auth_headers(_config)
+
+# Backward compatibility - keep these for existing code
+PINOT_CONTROLLER_URL = _config.controller_url
+PINOT_BROKER_HOST = _config.broker_host
+PINOT_BROKER_PORT = _config.broker_port
+PINOT_BROKER_SCHEME = _config.broker_scheme
+PINOT_USERNAME = _config.username
+PINOT_PASSWORD = _config.password
+PINOT_USE_MSQE = _config.use_msqe
+PINOT_DATABASE = _config.database
+PINOT_TOKEN = _config.token
+HEADERS = _headers
+
+# URL pattern constants
+class PinotEndpoints:
+    QUERY_SQL = "query/sql"
+    TABLES = "tables"
+    TABLE_SIZE = "tables/{}/size"
+    SEGMENTS = "segments/{}"
+    SEGMENT_METADATA = "segments/{}/metadata"
+    SEGMENT_DETAIL = "segments/{}_{}/{}/metadata?columns=*"
+    TABLE_CONFIG = "tableConfigs/{}"
+
+# Global connection variable to reuse connections
+_conn = None
+
+def test_connection_query(connection) -> None:
+    """Test connection with a simple query"""
+    test_cursor = connection.cursor()
+    test_cursor.execute("SELECT 1")
+    test_result = test_cursor.fetchall()
+    logger.debug(f"Connection test successful: {test_result}")
+
+def create_connection(config: PinotConfig = None) -> connect:
+    """Create Pinot connection with proper authentication handling"""
+    if config is None:
+        config = load_config()
+    
+    try:
+        auth_username, auth_password = get_auth_credentials(config)
+        
+        logger.debug(f"Creating connection to {config.broker_host}:{config.broker_port} with MSQE={config.use_msqe}")
+        logger.debug(f"Database: {config.database}, Auth method: {'token' if config.token else 'username/password'}")
+        
+        connection = connect(
+            host=config.broker_host,
+            port=config.broker_port,
+            path="/query/sql",
+            scheme=config.broker_scheme,
+            username=auth_username,
+            password=auth_password,
+            use_multistage_engine=config.use_msqe,
+            database=config.database,
+            extra_conn_args={
+                'timeout': QUERY_TIMEOUT,
+                'verify': True,
+                'retries': 3,
+                'backoff_factor': 1.0
+            }
+        )
+        
+        test_connection_query(connection)
+        return connection
+        
+    except Exception as e:
+        logger.error(f"Failed to create Pinot connection: {e}")
+        logger.error(f"Connection details - Host: {config.broker_host}, Port: {config.broker_port}, Scheme: {config.broker_scheme}")
+        raise
+
+def get_connection():
+    """Get or create a reusable connection"""
+    global _conn
+    try:
+        if _conn is None:
+            _conn = create_connection()
+        else:
+            # Test if connection is still alive
+            test_connection_query(_conn)
+        return _conn
+    except Exception as e:
+        logger.warning(f"Connection test failed, creating new connection: {e}")
+        _conn = create_connection()
+        return _conn
+
+# Initialize connection
+try:
+    conn = get_connection()
+    logger.info("Initial Pinot connection established successfully")
+except Exception as e:
+    logger.error(f"Failed to establish initial connection: {e}")
+    conn = None
 
 
 class Pinot:
     def __init__(self):
         self.insights: list[str] = []
 
+    def test_connection(self) -> dict[str, Any]:
+        """Test the connection and return diagnostic information"""
+        result = {
+            "connection_test": False,
+            "query_test": False,
+            "tables_test": False,
+            "error": None,
+            "config": {
+                "broker_host": PINOT_BROKER_HOST,
+                "broker_port": PINOT_BROKER_PORT,
+                "broker_scheme": PINOT_BROKER_SCHEME,
+                "controller_url": PINOT_CONTROLLER_URL,
+                "database": PINOT_DATABASE,
+                "use_msqe": PINOT_USE_MSQE,
+                "has_token": bool(PINOT_TOKEN),
+                "has_username": bool(PINOT_USERNAME),
+                "timeout_config": {
+                    "connection": CONNECTION_TIMEOUT,
+                    "request": REQUEST_TIMEOUT
+                }
+            }
+        }
+        
+        try:
+            # Test basic connection
+            conn = get_connection()
+            result["connection_test"] = True
+            
+            # Test simple query
+            curs = conn.cursor()
+            curs.execute("SELECT 1 as test_column")
+            test_result = curs.fetchall()
+            result["query_test"] = True
+            result["query_result"] = test_result
+            
+            # Test tables listing
+            tables = self._get_tables()
+            result["tables_test"] = True
+            result["tables_count"] = len(tables)
+            result["sample_tables"] = tables[:5] if tables else []
+            
+        except Exception as e:
+            result["error"] = str(e)
+            logger.error(f"Connection test failed: {e}")
+        
+        return result
+
+    def _execute_query_http(self, query: str) -> list[dict[str, Any]]:
+        """Alternative query execution using HTTP requests directly to broker"""
+        broker_url = f"{PINOT_BROKER_SCHEME}://{PINOT_BROKER_HOST}:{PINOT_BROKER_PORT}/{PinotEndpoints.QUERY_SQL}"
+        logger.debug(f"Executing query via HTTP: {query[:100]}...")
+        
+        payload = {
+            "sql": query,
+            "queryOptions": f"timeoutMs={QUERY_TIMEOUT * 1000}"
+        }
+        
+        response = make_http_request(broker_url, HEADERS, "POST", payload)
+        result_data = response.json()
+        
+        # Check for query errors in response
+        if 'exceptions' in result_data and result_data['exceptions']:
+            raise Exception(f"Query error: {result_data['exceptions']}")
+        
+        # Parse the result into pandas-like format
+        if 'resultTable' in result_data:
+            columns = result_data['resultTable']['dataSchema']['columnNames']
+            rows = result_data['resultTable']['rows']
+            
+            # Convert to list of dictionaries
+            result = [dict(zip(columns, row)) for row in rows]
+            logger.debug(f"HTTP query executed successfully, returned {len(result)} rows")
+            return result
+        else:
+            logger.warning("No resultTable in response, returning empty result")
+            return []
+
     def _execute_query(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        logger.debug(f"Executing query: {query}")
-        curs = conn.cursor()
-        if PINOT_DATABASE:
-            # Remove database name from query
+        logger.debug(f"Executing query: {query[:100]}...")  # Log first 100 chars
+        
+        # Use HTTP as primary method since it works reliably with authenticated clusters
+        try:
+            return self._execute_query_http(query)
+        except Exception as e:
+            logger.warning(f"HTTP query failed: {e}, trying PinotDB fallback")
+            try:
+                return self._execute_query_pinotdb(query, params)
+            except Exception as pinotdb_error:
+                logger.error(f"Both HTTP and PinotDB queries failed. HTTP: {e}, PinotDB: {pinotdb_error}")
+                raise
+    
+    def _preprocess_query(self, query: str) -> str:
+        """Preprocess query by removing database prefix and adding timeout options"""
+        # Remove database prefix if present
+        if PINOT_DATABASE and f"{PINOT_DATABASE}." in query:
             query = query.replace(f"{PINOT_DATABASE}.", "")
-        curs.execute(query)
-        df = pd.DataFrame(curs, columns=[item[0] for item in curs.description])
-        return df.to_dict(orient="records")
+            logger.debug(f"Removed database prefix, query now: {query[:100]}...")
+        
+        # Add query timeout hint if not present
+        if "SET timeoutMs" not in query.upper() and "OPTION" not in query.upper():
+            timeout_ms = QUERY_TIMEOUT * 1000  # Convert to milliseconds
+            if query.strip().endswith(';'):
+                query = query.rstrip(';')
+            query = f"{query} OPTION(timeoutMs={timeout_ms})"
+            logger.debug(f"Added timeout option: {timeout_ms}ms")
+        
+        return query
+    
+    def _execute_query_pinotdb(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """Original pinotdb-based query execution"""
+        logger.debug(f"Executing query via PinotDB: {query[:100]}...")
+        try:
+            current_conn = get_connection()
+            curs = current_conn.cursor()
+            
+            query = self._preprocess_query(query)
+            logger.debug(f"Final query: {query}")
+            
+            curs.execute(query)
+            
+            # Get column names and fetch results
+            columns = [item[0] for item in curs.description] if curs.description else []
+            df = pd.DataFrame(curs.fetchall(), columns=columns)
+            
+            result = df.to_dict(orient="records")
+            logger.debug(f"Query executed successfully, returned {len(result)} rows")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Query execution failed: {e}")
+            logger.error(f"Query was: {query}")
+            # Reset connection on error
+            global _conn
+            _conn = None
+            raise
 
     def _get_tables(self, params: dict[str, Any] | None = None) -> list[str]:
-        url = f"{PINOT_CONTROLLER_URL}/tables"
-        return requests.get(url, headers=HEADERS).json()["tables"]
+        url = f"{PINOT_CONTROLLER_URL}/{PinotEndpoints.TABLES}"
+        logger.debug(f"Fetching tables from: {url}")
+        response = make_http_request(url, HEADERS)
+        tables = response.json()["tables"]
+        logger.debug(f"Successfully fetched {len(tables)} tables")
+        return tables
 
     def _get_table_detail(self, tableName: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        url = f"{PINOT_CONTROLLER_URL}/tables/{tableName}/size"
-        return requests.get(url, headers=HEADERS).json()
+        url = f"{PINOT_CONTROLLER_URL}/{PinotEndpoints.TABLE_SIZE.format(tableName)}"
+        logger.debug(f"Fetching table details for {tableName} from: {url}")
+        response = make_http_request(url, HEADERS)
+        return response.json()
 
     def _get_segment__metadata_detail(self, tableName: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        url = f"{PINOT_CONTROLLER_URL}/segments/{tableName}/metadata"
-        return requests.get(url, headers=HEADERS).json()
+        url = f"{PINOT_CONTROLLER_URL}/{PinotEndpoints.SEGMENT_METADATA.format(tableName)}"
+        logger.debug(f"Fetching segment metadata for {tableName} from: {url}")
+        response = make_http_request(url, HEADERS)
+        return response.json()
 
     def _get_segments(self, tableName: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        url = f"{PINOT_CONTROLLER_URL}/segments/{tableName}"
-        return requests.get(url, headers=HEADERS).json()
+        url = f"{PINOT_CONTROLLER_URL}/{PinotEndpoints.SEGMENTS.format(tableName)}"
+        logger.debug(f"Fetching segments for {tableName} from: {url}")
+        response = make_http_request(url, HEADERS)
+        return response.json()
 
     def _get_index_column_detail(self, tableName: str, segmentName: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         for type_suffix in ["REALTIME", "OFFLINE"]:
-            url = f"{PINOT_CONTROLLER_URL}/segments/{tableName}_{type_suffix}/{segmentName}/metadata?columns=*"
-            response = requests.get(url, headers=HEADERS)
-            if response.status_code == 200:
+            url = f"{PINOT_CONTROLLER_URL}/{PinotEndpoints.SEGMENT_DETAIL.format(tableName, type_suffix, segmentName)}"
+            logger.debug(f"Trying to fetch index column details from: {url}")
+            try:
+                response = make_http_request(url, HEADERS)
                 return response.json()
+            except Exception as e:
+                logger.error(f"Failed to fetch index column details for {tableName}_{type_suffix}/{segmentName}: {e}")
+                continue
         raise ValueError("Index column detail not found")
 
     def _get_tableconfig_schema_detail(self, tableName: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        url = f"{PINOT_CONTROLLER_URL}/tableConfigs/{tableName}"
-        return requests.get(url, headers=HEADERS).json()
+        url = f"{PINOT_CONTROLLER_URL}/{PinotEndpoints.TABLE_CONFIG.format(tableName)}"
+        logger.debug(f"Fetching table config for {tableName} from: {url}")
+        response = make_http_request(url, HEADERS)
+        return response.json()
 
     def list_tools(self) -> list[types.Tool]:
         return [
+            types.Tool(
+                name="test-connection",
+                description="Test the Pinot connection and return diagnostic information",
+                inputSchema={"type": "object", "properties": {}},
+            ),
             types.Tool(
                 name="read-query",
                 description="Execute a SELECT query on the Pinot database",
@@ -160,6 +460,8 @@ class Pinot:
 
     def handle_tool(self, name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
         match name:
+            case "test-connection":
+                return [types.TextContent(type="text", text=str(self.test_connection()))]
             case "read-query":
                 return [types.TextContent(type="text", text=str(self._execute_query(arguments["query"])))]
             case "list-tables":

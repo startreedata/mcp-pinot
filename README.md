@@ -1,4 +1,3 @@
-
 # Pinot MCP Server
 
 ## Table of Contents
@@ -21,6 +20,10 @@ It allows you to
 - View index/column-level metadata
 - Designed to assist business users via Claude integration
 - and much more.
+
+<a href="https://glama.ai/mcp/servers/@startreedata/mcp-pinot">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@startreedata/mcp-pinot/badge" alt="StarTree Server for Apache Pinot MCP server" />
+</a>
 
 ## Pinot MCP in Action
 

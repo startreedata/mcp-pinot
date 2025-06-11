@@ -35,7 +35,7 @@ if PINOT_DATABASE:
 conn = connect(
     host=PINOT_BROKER_HOST,
     port=PINOT_BROKER_PORT,
-    path="/query/sql",
+    path="/sql",
     scheme=PINOT_BROKER_SCHEME,
     username=PINOT_USERNAME,
     password=PINOT_PASSWORD,

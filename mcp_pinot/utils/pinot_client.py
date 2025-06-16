@@ -11,10 +11,13 @@ from .logging_config import get_logger
 
 logger = get_logger()
 
+# Load environment variables for timeout configurations
+load_dotenv(override=True)
+
 # Timeout configurations for authenticated clusters
-REQUEST_TIMEOUT = 60  # 60 seconds for HTTP requests
-CONNECTION_TIMEOUT = 60  # 60 seconds for connection establishment
-QUERY_TIMEOUT = 60  # 60 seconds for query execution
+REQUEST_TIMEOUT = int(os.getenv("PINOT_REQUEST_TIMEOUT", "60"))  # 60 seconds for HTTP requests
+CONNECTION_TIMEOUT = int(os.getenv("PINOT_CONNECTION_TIMEOUT", "60"))  # 60 seconds for connection establishment
+QUERY_TIMEOUT = int(os.getenv("PINOT_QUERY_TIMEOUT", "60"))  # 60 seconds for query execution
 
 @dataclass
 class PinotConfig:
@@ -219,7 +222,8 @@ class Pinot:
                 "has_username": bool(PINOT_USERNAME),
                 "timeout_config": {
                     "connection": CONNECTION_TIMEOUT,
-                    "request": REQUEST_TIMEOUT
+                    "request": REQUEST_TIMEOUT,
+                    "query": QUERY_TIMEOUT
                 }
             }
         }

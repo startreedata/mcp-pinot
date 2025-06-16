@@ -6,7 +6,7 @@ import asyncio
 import json
 import pytest
 from mcp_pinot.config import load_pinot_config
-from mcp_pinot.utils.pinot_client import PinotClient
+from mcp_pinot.pinot_client import PinotClient
 
 @pytest.mark.skip(reason="Integration test requiring live Pinot cluster")
 async def test_connection():

@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 import pandas as pd
 from mcp_pinot.config import load_pinot_config
-from mcp_pinot.utils.pinot_client import PinotClient
+from mcp_pinot.pinot_client import PinotClient
 
 # Mock data for testing
 MOCK_TABLE_DATA = [

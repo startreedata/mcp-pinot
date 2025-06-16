@@ -9,7 +9,7 @@ from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
 from mcp_pinot.config import load_pinot_config
-from mcp_pinot.utils.pinot_client import PinotClient
+from mcp_pinot.pinot_client import PinotClient
 from mcp_pinot.utils.logging_config import get_logger
 from mcp_pinot.prompts import PROMPT_TEMPLATE
 

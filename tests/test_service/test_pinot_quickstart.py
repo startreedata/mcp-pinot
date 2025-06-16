@@ -1,5 +1,5 @@
 import asyncio
-from mcp_pinot.utils.pinot_client import PinotClient
+from mcp_pinot.pinot_client import PinotClient
 from mcp_pinot.config import load_pinot_config
 import json
 import requests

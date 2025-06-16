@@ -4,8 +4,8 @@ import mcp.types as types
 from pinotdb import connect
 import base64
 import requests
-from ..config import PinotConfig
-from .logging_config import get_logger
+from .config import PinotConfig
+from .utils.logging_config import get_logger
 
 logger = get_logger()
 

@@ -41,7 +41,7 @@ def test_pinot_init():
     assert isinstance(pinot.insights, list)
     assert len(pinot.insights) == 0
 
-@patch("mcp_pinot.utils.pinot_client.make_http_request")
+@patch.object(PinotClient, "http_request")
 def test_execute_query(mock_http_request):
     """Test the execute_query function."""
     # Mock HTTP request to fail so it falls back to PinotDB
@@ -65,7 +65,7 @@ def test_execute_query(mock_http_request):
         assert result[0]["id"] == 1
         assert result[0]["name"] == "Test 1"
 
-@patch("mcp_pinot.utils.pinot_client.make_http_request")
+@patch.object(PinotClient, "http_request")
 def test_execute_query_empty_result(mock_http_request):
     """Test execute_query with an empty result set."""
     # Mock HTTP request to fail so it falls back to PinotDB
@@ -87,7 +87,7 @@ def test_execute_query_empty_result(mock_http_request):
         assert isinstance(result, list)
         assert len(result) == 0
 
-@patch("mcp_pinot.utils.pinot_client.make_http_request")
+@patch.object(PinotClient, "http_request")
 def test_execute_query_with_error(mock_http_request):
     """Test execute_query with a database error."""
     # Mock HTTP request to fail
@@ -104,7 +104,7 @@ def test_execute_query_with_error(mock_http_request):
             pinot.execute_query("SELECT * FROM my_table")
 
 @patch("mcp_pinot.config.load_pinot_config")
-@patch("mcp_pinot.utils.pinot_client.make_http_request")
+@patch.object(PinotClient, "http_request")
 def test_pinot_get_tables(mock_http_request, mock_config):
     """Test the get_tables method."""
     # Mock config
@@ -134,7 +134,7 @@ def test_pinot_get_tables(mock_http_request, mock_config):
     assert "table2" in tables
 
 @patch("mcp_pinot.config.load_pinot_config")
-@patch("mcp_pinot.utils.pinot_client.make_http_request")
+@patch.object(PinotClient, "http_request")
 def test_pinot_get_table_detail(mock_http_request, mock_config):
     """Test the get_table_detail method."""
     # Mock config

@@ -9,14 +9,6 @@ from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
 from mcp_pinot.utils.pinot_client import (
-    PINOT_CONTROLLER_URL,
-    PINOT_USERNAME,
-    PINOT_PASSWORD,
-    PINOT_TOKEN,
-    PINOT_USE_MSQE,
-    PINOT_DATABASE,
-    HEADERS,
-    conn,
     Pinot
 )
 from mcp_pinot.utils.logging_config import get_logger

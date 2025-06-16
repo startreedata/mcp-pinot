@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 import mcp.types as types
 from mcp.server import NotificationOptions
-from mcp_pinot.server import main, pinot_instance
+from mcp_pinot.server import main
 
 @pytest.fixture
 def mock_server():

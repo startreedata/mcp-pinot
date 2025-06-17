@@ -1,5 +1,6 @@
 import asyncio
-from mcp_pinot.utils.pinot_client import Pinot
+from mcp_pinot.pinot_client import PinotClient
+from mcp_pinot.config import load_pinot_config
 import json
 import requests
 import time
@@ -25,7 +26,8 @@ async def main():
     
     try:
         # Initialize Pinot client
-        pinot = Pinot()
+        config = load_pinot_config()
+        pinot = PinotClient(config)
         
         # List available tools
         tools = pinot.list_tools()

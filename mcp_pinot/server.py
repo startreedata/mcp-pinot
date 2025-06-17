@@ -8,25 +8,17 @@ import mcp.types as types
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
-from mcp_pinot.utils.pinot_client import (
-    PINOT_CONTROLLER_URL,
-    PINOT_USERNAME,
-    PINOT_PASSWORD,
-    PINOT_TOKEN,
-    PINOT_USE_MSQE,
-    PINOT_DATABASE,
-    HEADERS,
-    conn,
-    Pinot
-)
+from mcp_pinot.config import load_pinot_config
+from mcp_pinot.pinot_client import PinotClient
 from mcp_pinot.utils.logging_config import get_logger
 from mcp_pinot.prompts import PROMPT_TEMPLATE
 
 # Get the configured logger
 logger = get_logger()
 
-# Use the imported Pinot class and connection values
-pinot_instance = Pinot()
+# Initialize configuration and create client
+pinot_config = load_pinot_config()
+pinot_client = PinotClient(pinot_config)
 
 async def main():
     logger.info("Starting Pinot MCP Server")
@@ -146,40 +138,40 @@ async def main():
         """Handle tool execution requests"""
         try:
             if name == "test-connection":
-                results = pinot_instance.test_connection()
+                results = pinot_client.test_connection()
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "read-query":
                 if not arguments["query"].strip().upper().startswith("SELECT"):
                     raise ValueError("Only SELECT queries are allowed for read-query")
-                results = pinot_instance._execute_query(query=arguments["query"])
+                results = pinot_client.execute_query(query=arguments["query"])
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "table-details":
-                results = pinot_instance._get_table_detail(tableName=arguments["tableName"])
+                results = pinot_client.get_table_detail(tableName=arguments["tableName"])
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "segment-list":
-                results = pinot_instance._get_segments(tableName=arguments["tableName"])
+                results = pinot_client.get_segments(tableName=arguments["tableName"])
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "index-column-details":
-                results = pinot_instance._get_index_column_detail(
+                results = pinot_client.get_index_column_detail(
                     tableName=arguments["tableName"],
                     segmentName=arguments["segmentName"]
                 )
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "segment-metadata-details":
-                results = pinot_instance._get_segment__metadata_detail(tableName=arguments["tableName"])
+                results = pinot_client.get_segment_metadata_detail(tableName=arguments["tableName"])
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "tableconfig-schema-details":
-                results = pinot_instance._get_tableconfig_schema_detail(tableName=arguments["tableName"])
+                results = pinot_client.get_tableconfig_schema_detail(tableName=arguments["tableName"])
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "list-tables":
-                results = pinot_instance._get_tables()
+                results = pinot_client.get_tables()
                 return [types.TextContent(type="text", text=str(results))]
 
             else:

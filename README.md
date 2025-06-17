@@ -60,7 +60,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ### Installation
 ```bash
 # Clone the repository
-git clone git@github.com:startreedata/mcp-pinot.git
+git clone https://github.com/startreedata/mcp-pinot.git
 cd mcp-pinot
 uv pip install -e . # Install dependencies
 

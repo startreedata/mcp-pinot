@@ -1,17 +1,17 @@
 # --------------------------
 # File: mcp_pinot/server.py
 # --------------------------
-import asyncio
 from typing import Any
 
+import mcp.server.stdio
 import mcp.types as types
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
-import mcp.server.stdio
+
 from mcp_pinot.config import load_pinot_config
 from mcp_pinot.pinot_client import PinotClient
-from mcp_pinot.utils.logging_config import get_logger
 from mcp_pinot.prompts import PROMPT_TEMPLATE
+from mcp_pinot.utils.logging_config import get_logger
 
 # Get the configured logger
 logger = get_logger()
@@ -196,8 +196,8 @@ async def main():
                 ),
             )
     except Exception as e:
-        import traceback
         import sys
+        import traceback
         logger.error(f"Error running MCP server: {e}")
         logger.error(traceback.format_exc())
         print(f"Error running MCP server: {e}", file=sys.stderr)

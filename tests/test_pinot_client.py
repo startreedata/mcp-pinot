@@ -1,6 +1,8 @@
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pandas as pd
+import pytest
+
 from mcp_pinot.config import load_pinot_config
 from mcp_pinot.pinot_client import PinotClient
 
@@ -46,10 +48,10 @@ def test_execute_query(mock_http_request):
     """Test the execute_query function."""
     # Mock HTTP request to fail so it falls back to PinotDB
     mock_http_request.side_effect = Exception("HTTP failed")
-    
+
     config = load_pinot_config()
     pinot = PinotClient(config)
-    
+
     # Mock the get_connection method
     with patch.object(pinot, 'get_connection') as mock_get_conn:
         mock_conn = MagicMock()
@@ -58,7 +60,7 @@ def test_execute_query(mock_http_request):
         mock_cursor.fetchall.return_value = [(1, "Test 1"), (2, "Test 2")]
         mock_conn.cursor.return_value = mock_cursor
         mock_get_conn.return_value = mock_conn
-        
+
         result = pinot.execute_query("SELECT * FROM my_table")
         assert isinstance(result, list)
         assert len(result) == 2
@@ -70,10 +72,10 @@ def test_execute_query_empty_result(mock_http_request):
     """Test execute_query with an empty result set."""
     # Mock HTTP request to fail so it falls back to PinotDB
     mock_http_request.side_effect = Exception("HTTP failed")
-    
+
     config = load_pinot_config()
     pinot = PinotClient(config)
-    
+
     # Mock the get_connection method
     with patch.object(pinot, 'get_connection') as mock_get_conn:
         mock_conn = MagicMock()
@@ -82,7 +84,7 @@ def test_execute_query_empty_result(mock_http_request):
         mock_cursor.fetchall.return_value = []
         mock_conn.cursor.return_value = mock_cursor
         mock_get_conn.return_value = mock_conn
-        
+
         result = pinot.execute_query("SELECT * FROM my_table WHERE id = 999")
         assert isinstance(result, list)
         assert len(result) == 0
@@ -92,14 +94,14 @@ def test_execute_query_with_error(mock_http_request):
     """Test execute_query with a database error."""
     # Mock HTTP request to fail
     mock_http_request.side_effect = Exception("HTTP failed")
-    
+
     config = load_pinot_config()
     pinot = PinotClient(config)
-    
+
     # Mock the get_connection method to also fail
     with patch.object(pinot, 'get_connection') as mock_get_conn:
         mock_get_conn.side_effect = Exception("Database error")
-        
+
         with pytest.raises(Exception, match="Database error"):
             pinot.execute_query("SELECT * FROM my_table")
 
@@ -120,12 +122,12 @@ def test_pinot_get_tables(mock_http_request, mock_config):
         database="",
         use_msqe=False
     )
-    
+
     # Mock HTTP response
     mock_response = MagicMock()
     mock_response.json.return_value = {"tables": ["table1", "table2"]}
     mock_http_request.return_value = mock_response
-    
+
     config = load_pinot_config()
     pinot = PinotClient(config)
     tables = pinot.get_tables()
@@ -150,7 +152,7 @@ def test_pinot_get_table_detail(mock_http_request, mock_config):
         database="",
         use_msqe=False
     )
-    
+
     # Mock HTTP response
     mock_response = MagicMock()
     mock_response.json.return_value = {
@@ -158,7 +160,7 @@ def test_pinot_get_table_detail(mock_http_request, mock_config):
         "columnCount": 5
     }
     mock_http_request.return_value = mock_response
-    
+
     config = load_pinot_config()
     pinot = PinotClient(config)
     detail = pinot.get_table_detail("test_table")
@@ -173,9 +175,9 @@ def test_pinot_list_tools():
     tools = pinot.list_tools()
     assert isinstance(tools, list)
     assert len(tools) > 0
-    
+
     # Check that each tool has the required attributes
     for tool in tools:
         assert hasattr(tool, "name")
         assert hasattr(tool, "description")
-        assert hasattr(tool, "inputSchema") 
+        assert hasattr(tool, "inputSchema")

@@ -1,5 +1,6 @@
-import os
 from dataclasses import dataclass
+import os
+
 from dotenv import load_dotenv
 
 
@@ -23,7 +24,7 @@ class PinotConfig:
 def load_pinot_config() -> PinotConfig:
     """Load and return Pinot configuration from environment variables"""
     load_dotenv(override=True)
-    
+
     return PinotConfig(
         controller_url=os.getenv("PINOT_CONTROLLER_URL", ""),
         broker_host=os.getenv("PINOT_BROKER_HOST", ""),

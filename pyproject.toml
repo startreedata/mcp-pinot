@@ -26,6 +26,7 @@ dev = [
     "pytest-asyncio",
     "pytest-mock",
     "pytest-cov",
+    "ruff>=0.1.6",
 ]
 
 [build-system]
@@ -45,6 +46,45 @@ addopts = [
     "--tb=short",
     "--strict-markers",
 ]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+src = ["mcp_pinot"]
+
+[tool.ruff.lint]
+select = [
+    # Phase 1: Foundation rules
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings  
+    "F",      # Pyflakes
+    "I",      # isort
+    "S",      # bandit security
+]
+
+ignore = [
+    # Development necessities
+    "S104",    # bind all interfaces (dev servers)
+    "S108",    # temp files (testing)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "S101",   # assert statements
+    "S106",   # hardcoded passwords in fixtures
+    "S108",   # temp files
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mcp_pinot"]
+force-sort-within-sections = true
+split-on-trailing-comma = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
 [tool.uv.workspace]
 members = [

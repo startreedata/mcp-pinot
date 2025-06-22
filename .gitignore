@@ -179,3 +179,7 @@ assets/*
 !assets/*.jpg
 !assets/*.jpeg
 !assets/*.gif
+
+.idea/
+
+tasks/

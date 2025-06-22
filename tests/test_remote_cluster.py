@@ -4,9 +4,12 @@ Test script for MCP Pinot server functionality against remote StarTree Cloud clu
 """
 import asyncio
 import json
+
 import pytest
+
 from mcp_pinot.config import load_pinot_config
 from mcp_pinot.pinot_client import PinotClient
+
 
 @pytest.mark.skip(reason="Integration test requiring live Pinot cluster")
 async def test_connection():
@@ -91,9 +94,9 @@ async def test_query_execution(pinot):
         # Try a simple count query first using a table that exists
         query = "SELECT COUNT(*) as total_count FROM hubble_events LIMIT 1"
         result = pinot.handle_tool("read-query", {"query": query})
-        
+
         if result and len(result) > 0:
-            print(f"✅ Query executed successfully")
+            print("✅ Query executed successfully")
             for content in result:
                 if hasattr(content, 'text'):
                     response = content.text
@@ -117,9 +120,9 @@ async def test_sample_data_query(pinot):
         # Query for sample data from an existing table
         query = "SELECT * FROM hubble_events LIMIT 5"
         result = pinot.handle_tool("read-query", {"query": query})
-        
+
         if result and len(result) > 0:
-            print(f"✅ Sample data query executed successfully")
+            print("✅ Sample data query executed successfully")
             for content in result:
                 if hasattr(content, 'text'):
                     response = content.text
@@ -131,7 +134,7 @@ async def test_sample_data_query(pinot):
                             print(f"   Sample record keys: {list(data[0].keys()) if data[0] else 'No keys'}")
                         else:
                             print(f"   Data: {response[:200]}...")
-                    except:
+                    except Exception:
                         print(f"   Raw response: {response[:200]}...")
                     break
         else:
@@ -164,13 +167,13 @@ async def main():
     """Run all tests."""
     print("🚀 Starting MCP Pinot Server Tests against Remote StarTree Cloud")
     print("=" * 70)
-    
+
     # Test connection
     pinot_client = await test_connection()
     if not pinot_client:
         print("\n❌ Cannot proceed without connection. Exiting.")
         return
-    
+
     # Run all tests
     tests = [
         test_list_tools(pinot_client),
@@ -180,7 +183,7 @@ async def main():
         test_query_execution(pinot_client),
         test_sample_data_query(pinot_client),
     ]
-    
+
     results = []
     for test in tests:
         try:
@@ -189,7 +192,7 @@ async def main():
         except Exception as e:
             print(f"❌ Test failed with exception: {e}")
             results.append(False)
-    
+
     # Summary
     print("\n" + "=" * 70)
     print("📊 Test Summary:")
@@ -197,11 +200,11 @@ async def main():
     total = len(results)
     print(f"   ✅ Passed: {passed}/{total}")
     print(f"   ❌ Failed: {total - passed}/{total}")
-    
+
     if passed == total:
         print("\n🎉 All tests passed! MCP Pinot server is working correctly with remote StarTree Cloud.")
     else:
         print(f"\n⚠️  {total - passed} test(s) failed. Please check the errors above.")
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

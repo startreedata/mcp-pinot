@@ -9,9 +9,9 @@ def execute_query(query):
     """
     if "SELECT" not in query.upper():
         raise ValueError("Only SELECT queries are allowed")
-        
+
     # Return a sample result
     return [
         {"id": 1, "name": "Test 1"},
         {"id": 2, "name": "Test 2"}
-    ] 
+    ]

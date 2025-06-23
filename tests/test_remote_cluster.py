@@ -137,7 +137,7 @@ async def test_sample_data_query(pinot):
                         data = json.loads(response)
                         if isinstance(data, list) and len(data) > 0:
                             print(f"   Retrieved {len(data)} records")
-                            keys = list(data[0].keys()) if data[0] else 'No keys'
+                            keys = list(data[0].keys()) if data[0] else "No keys"
                             print(f"   Sample record keys: {keys}")
                         else:
                             print(f"   Data: {response[:200]}...")

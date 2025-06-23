@@ -232,9 +232,7 @@ class PinotClient:
 
             # Convert to list of dictionaries
             result = [dict(zip(columns, row)) for row in rows]
-            logger.debug(
-                f"HTTP query returned {len(result)} rows"
-            )
+            logger.debug(f"HTTP query returned {len(result)} rows")
             return result
         else:
             logger.warning("No resultTable in response, returning empty result")

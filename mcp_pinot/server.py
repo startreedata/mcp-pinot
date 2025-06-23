@@ -1,17 +1,17 @@
 # --------------------------
 # File: mcp_pinot/server.py
 # --------------------------
-import asyncio
 from typing import Any
 
-import mcp.types as types
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
+import mcp.types as types
+
 from mcp_pinot.config import load_pinot_config
 from mcp_pinot.pinot_client import PinotClient
-from mcp_pinot.utils.logging_config import get_logger
 from mcp_pinot.prompts import PROMPT_TEMPLATE
+from mcp_pinot.utils.logging_config import get_logger
 
 # Get the configured logger
 logger = get_logger()
@@ -19,6 +19,7 @@ logger = get_logger()
 # Initialize configuration and create client
 pinot_config = load_pinot_config()
 pinot_client = PinotClient(pinot_config)
+
 
 async def main():
     logger.info("Starting Pinot MCP Server")
@@ -30,13 +31,15 @@ async def main():
         return [
             types.Prompt(
                 name="pinot-query",
-                description="A prompt to Query the pinot database with an Pinot MCP Server + Claude",
+                description="Query Pinot database with MCP Server + Claude",
                 arguments=[],
             )
         ]
 
     @server.get_prompt()
-    async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+    async def handle_get_prompt(
+        name: str, arguments: dict[str, str] | None
+    ) -> types.GetPromptResult:
         if name != "pinot-query":
             raise ValueError(f"Unknown prompt: {name}")
         return types.GetPromptResult(
@@ -44,7 +47,9 @@ async def main():
             messages=[
                 types.PromptMessage(
                     role="user",
-                    content=types.TextContent(type="text", text=PROMPT_TEMPLATE.strip()),
+                    content=types.TextContent(
+                        type="text", text=PROMPT_TEMPLATE.strip()
+                    ),
                 )
             ],
         )
@@ -54,7 +59,7 @@ async def main():
         return [
             types.Tool(
                 name="test-connection",
-                description="Test the Pinot connection and return diagnostic information",
+                description="Test Pinot connection and return diagnostics",
                 inputSchema={"type": "object", "properties": {}},
             ),
             types.Tool(
@@ -63,7 +68,10 @@ async def main():
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "SELECT SQL query to execute"},
+                        "query": {
+                            "type": "string",
+                            "description": "SELECT SQL query to execute",
+                        },
                     },
                     "required": ["query"],
                 },
@@ -148,7 +156,9 @@ async def main():
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "table-details":
-                results = pinot_client.get_table_detail(tableName=arguments["tableName"])
+                results = pinot_client.get_table_detail(
+                    tableName=arguments["tableName"]
+                )
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "segment-list":
@@ -158,16 +168,20 @@ async def main():
             elif name == "index-column-details":
                 results = pinot_client.get_index_column_detail(
                     tableName=arguments["tableName"],
-                    segmentName=arguments["segmentName"]
+                    segmentName=arguments["segmentName"],
                 )
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "segment-metadata-details":
-                results = pinot_client.get_segment_metadata_detail(tableName=arguments["tableName"])
+                results = pinot_client.get_segment_metadata_detail(
+                    tableName=arguments["tableName"]
+                )
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "tableconfig-schema-details":
-                results = pinot_client.get_tableconfig_schema_detail(tableName=arguments["tableName"])
+                results = pinot_client.get_tableconfig_schema_detail(
+                    tableName=arguments["tableName"]
+                )
                 return [types.TextContent(type="text", text=str(results))]
 
             elif name == "list-tables":
@@ -196,14 +210,17 @@ async def main():
                 ),
             )
     except Exception as e:
-        import traceback
         import sys
+        import traceback
+
         logger.error(f"Error running MCP server: {e}")
         logger.error(traceback.format_exc())
         print(f"Error running MCP server: {e}", file=sys.stderr)
         print(traceback.format_exc(), file=sys.stderr)
         raise
 
+
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(main())

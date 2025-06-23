@@ -1,11 +1,13 @@
-import os
 from dataclasses import dataclass
+import os
+
 from dotenv import load_dotenv
 
 
 @dataclass
 class PinotConfig:
     """Configuration container for Pinot connection settings"""
+
     controller_url: str
     broker_host: str
     broker_port: int
@@ -23,7 +25,7 @@ class PinotConfig:
 def load_pinot_config() -> PinotConfig:
     """Load and return Pinot configuration from environment variables"""
     load_dotenv(override=True)
-    
+
     return PinotConfig(
         controller_url=os.getenv("PINOT_CONTROLLER_URL", ""),
         broker_host=os.getenv("PINOT_BROKER_HOST", ""),
@@ -36,5 +38,5 @@ def load_pinot_config() -> PinotConfig:
         use_msqe=os.getenv("PINOT_USE_MSQE", "false").lower() == "true",
         request_timeout=int(os.getenv("PINOT_REQUEST_TIMEOUT", "60")),
         connection_timeout=int(os.getenv("PINOT_CONNECTION_TIMEOUT", "60")),
-        query_timeout=int(os.getenv("PINOT_QUERY_TIMEOUT", "60"))
+        query_timeout=int(os.getenv("PINOT_QUERY_TIMEOUT", "60")),
     )

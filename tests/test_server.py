@@ -19,15 +19,14 @@ def mock_server():
         mock_server_class.return_value = mock_server
         yield mock_server
 
+
 @pytest.mark.asyncio
 async def test_handle_list_prompts(mock_server):
     """Test the handle_list_prompts function."""
     # Set up the mock return value
     mock_server.list_prompts.return_value = [
         types.Prompt(
-            name="pinot-query",
-            description="Query the pinot database",
-            arguments=[]
+            name="pinot-query", description="Query the pinot database", arguments=[]
         )
     ]
 
@@ -41,6 +40,7 @@ async def test_handle_list_prompts(mock_server):
     assert "Query the pinot database" in result[0].description
     assert isinstance(result[0].arguments, list)
 
+
 @pytest.mark.asyncio
 async def test_handle_get_prompt_valid(mock_server):
     """Test the handle_get_prompt function with a valid prompt name."""
@@ -52,7 +52,7 @@ async def test_handle_get_prompt_valid(mock_server):
                 role="user",
                 content=types.TextContent(type="text", text="pinot query template"),
             )
-        ]
+        ],
     )
 
     # Call the function
@@ -61,6 +61,7 @@ async def test_handle_get_prompt_valid(mock_server):
     # Check the result
     assert isinstance(result, types.GetPromptResult)
     assert "pinot" in result.messages[0].content.text.lower()
+
 
 @pytest.mark.asyncio
 async def test_handle_get_prompt_invalid(mock_server):
@@ -71,6 +72,7 @@ async def test_handle_get_prompt_invalid(mock_server):
     # Call the function with an invalid prompt name
     with pytest.raises(ValueError, match="Unknown prompt"):
         await mock_server.get_prompt("invalid-prompt", None)
+
 
 @pytest.mark.asyncio
 async def test_handle_list_tools(mock_server):
@@ -83,7 +85,7 @@ async def test_handle_list_tools(mock_server):
             inputSchema={
                 "type": "object",
                 "properties": {},
-            }
+            },
         )
     ]
 
@@ -100,6 +102,7 @@ async def test_handle_list_tools(mock_server):
         assert hasattr(tool, "description")
         assert hasattr(tool, "inputSchema")
 
+
 @pytest.mark.asyncio
 async def test_handle_call_tool(mock_server):
     """Test the handle_call_tool function."""
@@ -109,13 +112,16 @@ async def test_handle_call_tool(mock_server):
     ]
 
     # Call the function
-    result = await mock_server.call_tool("run_select_query", {"sql": "SELECT * FROM my_table"})
+    result = await mock_server.call_tool(
+        "run_select_query", {"sql": "SELECT * FROM my_table"}
+    )
 
     # Check the result
     assert isinstance(result, list)
     assert len(result) == 1
     assert isinstance(result[0], types.TextContent)
     assert result[0].text == "Test result"
+
 
 @pytest.mark.asyncio
 async def test_handle_call_tool_invalid_tool(mock_server):
@@ -126,6 +132,7 @@ async def test_handle_call_tool_invalid_tool(mock_server):
     # Call the function with an invalid tool name
     with pytest.raises(ValueError, match="Unknown tool"):
         await mock_server.call_tool("invalid_tool", {})
+
 
 @pytest.mark.asyncio
 async def test_main_function():
@@ -149,7 +156,10 @@ async def test_main_function():
         with patch("mcp.server.stdio.stdio_server") as mock_stdio_server:
             mock_read_stream = AsyncMock()
             mock_write_stream = AsyncMock()
-            mock_stdio_server.return_value.__aenter__.return_value = (mock_read_stream, mock_write_stream)
+            mock_stdio_server.return_value.__aenter__.return_value = (
+                mock_read_stream,
+                mock_write_stream,
+            )
 
             # Call the main function
             await main()

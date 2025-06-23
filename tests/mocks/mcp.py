@@ -2,6 +2,7 @@
 Mock implementation of the mcp module for testing.
 """
 
+
 def tool(func):
     """
     Mock implementation of the tool decorator.

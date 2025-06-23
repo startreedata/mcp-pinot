@@ -21,6 +21,7 @@ def wait_for_pinot_ready():
         time.sleep(retry_interval)
     return False
 
+
 async def main():
     if not wait_for_pinot_ready():
         print("Pinot is not ready after maximum retries")
@@ -36,9 +37,9 @@ async def main():
         print("Available tools:", tools)
 
         # Execute a query
-        result = pinot.handle_tool("read-query", {
-            "query": "SELECT * FROM airlineStats LIMIT 50"
-        })
+        result = pinot.handle_tool(
+            "read-query", {"query": "SELECT * FROM airlineStats LIMIT 50"}
+        )
         print("Query result:", result)
 
         # Verify the result contains our sample data
@@ -48,6 +49,7 @@ async def main():
     except Exception as e:
         print(f"Error: {e}")
         raise
+
 
 if __name__ == "__main__":
     asyncio.run(main())

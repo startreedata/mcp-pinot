@@ -1,4 +1,3 @@
-
 PROMPT_TEMPLATE_V1 = """
 Apache Pinot is a real-time distributed OLAP datastore purpose-built for low-latency, high-throughput analytics, and perfect for user-facing analytical workloads.
 
@@ -67,6 +66,7 @@ Remember to always prioritize clarity and accuracy in your responses. If you're 
 """
 
 PROMPT_TEMPLATE = PROMPT_TEMPLATE_V2
+
 
 def generate_prompt(topic: str) -> str:
     return PROMPT_TEMPLATE.format(topic=topic)

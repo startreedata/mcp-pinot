@@ -97,9 +97,8 @@ class PinotClient:
         if self.config.token:
             headers["Authorization"] = self.config.token
         elif self.config.username and self.config.password:
-            credentials = base64.b64encode(
-                f"{self.config.username}:{self.config.password}".encode()
-            ).decode()
+            creds_str = f"{self.config.username}:{self.config.password}"
+            credentials = base64.b64encode(creds_str.encode()).decode()
             headers["Authorization"] = f"Basic {credentials}"
 
         if self.config.database:
@@ -108,7 +107,10 @@ class PinotClient:
         return headers
 
     def http_request(
-        self, url: str, method: str = "GET", json_data: Dict = None
+        self,
+        url: str,
+        method: str = "GET",
+        json_data: Dict = None,
     ) -> requests.Response:
         """Make HTTP request with authentication headers and timeout handling"""
         headers = self._create_auth_headers()
@@ -231,7 +233,7 @@ class PinotClient:
             # Convert to list of dictionaries
             result = [dict(zip(columns, row)) for row in rows]
             logger.debug(
-                f"HTTP query executed successfully, returned {len(result)} rows"
+                f"HTTP query returned {len(result)} rows"
             )
             return result
         else:
@@ -239,7 +241,9 @@ class PinotClient:
             return []
 
     def execute_query(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         logger.debug(f"Executing query: {query[:100]}...")  # Log first 100 chars
 
@@ -251,9 +255,11 @@ class PinotClient:
             try:
                 return self.execute_query_pinotdb(query, params)
             except Exception as pinotdb_error:
-                logger.error(
-                    f"Both HTTP and PinotDB queries failed. HTTP: {e}, PinotDB: {pinotdb_error}"
+                error_msg = (
+                    f"Both HTTP and PinotDB queries failed. "
+                    f"HTTP: {e}, PinotDB: {pinotdb_error}"
                 )
+                logger.error(error_msg)
                 raise
 
     def preprocess_query(self, query: str) -> str:
@@ -274,7 +280,9 @@ class PinotClient:
         return query
 
     def execute_query_pinotdb(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Original pinotdb-based query execution"""
         logger.debug(f"Executing query via PinotDB: {query[:100]}...")
@@ -311,51 +319,69 @@ class PinotClient:
         return tables
 
     def get_table_detail(
-        self, tableName: str, params: dict[str, Any] | None = None
+        self,
+        tableName: str,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        url = f"{self.config.controller_url}/{PinotEndpoints.TABLE_SIZE.format(tableName)}"
+        endpoint = PinotEndpoints.TABLE_SIZE.format(tableName)
+        url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching table details for {tableName} from: {url}")
         response = self.http_request(url)
         return response.json()
 
     def get_segment_metadata_detail(
-        self, tableName: str, params: dict[str, Any] | None = None
+        self,
+        tableName: str,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        url = f"{self.config.controller_url}/{PinotEndpoints.SEGMENT_METADATA.format(tableName)}"
+        endpoint = PinotEndpoints.SEGMENT_METADATA.format(tableName)
+        url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching segment metadata for {tableName} from: {url}")
         response = self.http_request(url)
         return response.json()
 
     def get_segments(
-        self, tableName: str, params: dict[str, Any] | None = None
+        self,
+        tableName: str,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        url = (
-            f"{self.config.controller_url}/{PinotEndpoints.SEGMENTS.format(tableName)}"
-        )
+        endpoint = PinotEndpoints.SEGMENTS.format(tableName)
+        url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching segments for {tableName} from: {url}")
         response = self.http_request(url)
         return response.json()
 
     def get_index_column_detail(
-        self, tableName: str, segmentName: str, params: dict[str, Any] | None = None
+        self,
+        tableName: str,
+        segmentName: str,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         for type_suffix in ["REALTIME", "OFFLINE"]:
-            url = f"{self.config.controller_url}/{PinotEndpoints.SEGMENT_DETAIL.format(tableName, type_suffix, segmentName)}"
+            endpoint = PinotEndpoints.SEGMENT_DETAIL.format(
+                tableName, type_suffix, segmentName
+            )
+            url = f"{self.config.controller_url}/{endpoint}"
             logger.debug(f"Trying to fetch index column details from: {url}")
             try:
                 response = self.http_request(url)
                 return response.json()
             except Exception as e:
-                logger.error(
-                    f"Failed to fetch index column details for {tableName}_{type_suffix}/{segmentName}: {e}"
+                error_msg = (
+                    f"Failed to fetch index column details for "
+                    f"{tableName}_{type_suffix}/{segmentName}: {e}"
                 )
+                logger.error(error_msg)
                 continue
         raise ValueError("Index column detail not found")
 
     def get_tableconfig_schema_detail(
-        self, tableName: str, params: dict[str, Any] | None = None
+        self,
+        tableName: str,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        url = f"{self.config.controller_url}/{PinotEndpoints.TABLE_CONFIG.format(tableName)}"
+        endpoint = PinotEndpoints.TABLE_CONFIG.format(tableName)
+        url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching table config for {tableName} from: {url}")
         response = self.http_request(url)
         return response.json()
@@ -364,7 +390,7 @@ class PinotClient:
         return [
             types.Tool(
                 name="test-connection",
-                description="Test the Pinot connection and return diagnostic information",
+                description="Test Pinot connection and return diagnostics",
                 inputSchema={"type": "object", "properties": {}},
             ),
             types.Tool(

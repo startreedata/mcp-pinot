@@ -31,7 +31,7 @@ async def main():
         return [
             types.Prompt(
                 name="pinot-query",
-                description="A prompt to Query the pinot database with an Pinot MCP Server + Claude",
+                description="Query Pinot database with MCP Server + Claude",
                 arguments=[],
             )
         ]
@@ -59,7 +59,7 @@ async def main():
         return [
             types.Tool(
                 name="test-connection",
-                description="Test the Pinot connection and return diagnostic information",
+                description="Test Pinot connection and return diagnostics",
                 inputSchema={"type": "object", "properties": {}},
             ),
             types.Tool(

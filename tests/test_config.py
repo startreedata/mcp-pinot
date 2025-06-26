@@ -198,8 +198,8 @@ class TestLoadPinotConfig:
                 assert config.broker_port == 8443
                 assert config.broker_scheme == "https"
                 assert config.username == "testuser"
-                assert config.password == "testpass"
-                assert config.token == "testtoken"
+                assert config.password == "testpass"  # noqa: S105
+                assert config.token == "testtoken"  # noqa: S105
                 assert config.database == "testdb"
                 assert config.use_msqe is True
                 assert config.request_timeout == 30

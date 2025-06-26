@@ -27,17 +27,15 @@ async def test_connection():
 
 
 @pytest.mark.skip(reason="Integration test requiring live Pinot cluster")
-async def test_list_tools(pinot):
-    """Test listing available tools."""
-    print("\n🔧 Testing tool listing...")
+async def test_connection(pinot):
+    """Test Pinot connection."""
+    print("\n🔧 Testing connection...")
     try:
-        tools = pinot.list_tools()
-        print(f"✅ Found {len(tools)} tools:")
-        for tool in tools:
-            print(f"   - {tool.name}: {tool.description}")
+        result = pinot.test_connection()
+        print(f"✅ Connection test successful: {result}")
         return True
     except Exception as e:
-        print(f"❌ Tool listing failed: {e}")
+        print(f"❌ Connection test failed: {e}")
         return False
 
 
@@ -46,18 +44,15 @@ async def test_list_tables(pinot):
     """Test listing tables."""
     print("\n📋 Testing table listing...")
     try:
-        result = pinot.handle_tool("list-tables", {})
-        if result and len(result) > 0:
-            print(f"✅ Found {len(result)} tables:")
-            for i, content in enumerate(result):
-                if hasattr(content, "text"):
-                    tables = content.text.split("\n")
-                    for table in tables[:5]:  # Show first 5 tables
-                        if table.strip():
-                            print(f"   - {table.strip()}")
-                    if len(tables) > 5:
-                        print(f"   ... and {len(tables) - 5} more tables")
-                    break
+        result = pinot.get_tables()
+        if result:
+            tables = str(result).split("\n")
+            print(f"✅ Found tables:")
+            for table in tables[:5]:  # Show first 5 tables
+                if table.strip():
+                    print(f"   - {table.strip()}")
+            if len(tables) > 5:
+                print(f"   ... and {len(tables) - 5} more tables")
         else:
             print("⚠️  No tables found")
         return True
@@ -71,18 +66,14 @@ async def test_table_details(pinot, table_name="hubble_events"):
     """Test getting table details."""
     print(f"\n📊 Testing table details for '{table_name}'...")
     try:
-        result = pinot.handle_tool("table-details", {"tableName": table_name})
-        if result and len(result) > 0:
+        result = pinot.get_table_detail(table_name)
+        if result:
             print(f"✅ Got table details for {table_name}")
-            # Print a summary of the details
-            for content in result:
-                if hasattr(content, "text"):
-                    details = content.text
-                    if len(details) > 200:
-                        print(f"   Details: {details[:200]}...")
-                    else:
-                        print(f"   Details: {details}")
-                    break
+            details = str(result)
+            if len(details) > 200:
+                print(f"   Details: {details[:200]}...")
+            else:
+                print(f"   Details: {details}")
         else:
             print(f"⚠️  No details found for table {table_name}")
         return True
@@ -98,18 +89,15 @@ async def test_query_execution(pinot):
     try:
         # Try a simple count query first using a table that exists
         query = "SELECT COUNT(*) as total_count FROM hubble_events LIMIT 1"
-        result = pinot.handle_tool("read-query", {"query": query})
+        result = pinot.execute_query(query)
 
-        if result and len(result) > 0:
+        if result:
             print("✅ Query executed successfully")
-            for content in result:
-                if hasattr(content, "text"):
-                    response = content.text
-                    if len(response) > 300:
-                        print(f"   Result: {response[:300]}...")
-                    else:
-                        print(f"   Result: {response}")
-                    break
+            response = str(result)
+            if len(response) > 300:
+                print(f"   Result: {response[:300]}...")
+            else:
+                print(f"   Result: {response}")
         else:
             print("⚠️  Query returned no results")
         return True
@@ -125,25 +113,22 @@ async def test_sample_data_query(pinot):
     try:
         # Query for sample data from an existing table
         query = "SELECT * FROM hubble_events LIMIT 5"
-        result = pinot.handle_tool("read-query", {"query": query})
+        result = pinot.execute_query(query)
 
-        if result and len(result) > 0:
+        if result:
             print("✅ Sample data query executed successfully")
-            for content in result:
-                if hasattr(content, "text"):
-                    response = content.text
-                    try:
-                        # Try to parse as JSON to see structure
-                        data = json.loads(response)
-                        if isinstance(data, list) and len(data) > 0:
-                            print(f"   Retrieved {len(data)} records")
-                            keys = list(data[0].keys()) if data[0] else "No keys"
-                            print(f"   Sample record keys: {keys}")
-                        else:
-                            print(f"   Data: {response[:200]}...")
-                    except Exception:
-                        print(f"   Raw response: {response[:200]}...")
-                    break
+            response = str(result)
+            try:
+                # Try to parse as JSON to see structure
+                data = json.loads(response)
+                if isinstance(data, list) and len(data) > 0:
+                    print(f"   Retrieved {len(data)} records")
+                    keys = list(data[0].keys()) if data[0] else "No keys"
+                    print(f"   Sample record keys: {keys}")
+                else:
+                    print(f"   Data: {response[:200]}...")
+            except Exception:
+                print(f"   Raw response: {response[:200]}...")
         else:
             print("⚠️  Sample query returned no results")
         return True

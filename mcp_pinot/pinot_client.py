@@ -1,7 +1,6 @@
 import base64
 from typing import Any, Dict, Tuple
 
-import mcp.types as types
 import pandas as pd
 from pinotdb import connect
 import requests
@@ -537,5 +536,3 @@ class PinotClient:
         if not tableType and ("OFFLINE" in raw_response or "REALTIME" in raw_response):
             return raw_response
         return raw_response
-
-

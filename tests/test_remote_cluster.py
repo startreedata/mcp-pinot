@@ -27,7 +27,7 @@ async def test_connection():
 
 
 @pytest.mark.skip(reason="Integration test requiring live Pinot cluster")
-async def test_connection(pinot):
+async def test_connection_test(pinot):
     """Test Pinot connection."""
     print("\n🔧 Testing connection...")
     try:
@@ -47,7 +47,7 @@ async def test_list_tables(pinot):
         result = pinot.get_tables()
         if result:
             tables = str(result).split("\n")
-            print(f"✅ Found tables:")
+            print("✅ Found tables:")
             for table in tables[:5]:  # Show first 5 tables
                 if table.strip():
                     print(f"   - {table.strip()}")
@@ -142,13 +142,10 @@ async def test_connection_health(pinot):
     """Test connection health."""
     print("\n🏥 Testing connection health...")
     try:
-        result = pinot.handle_tool("test-connection", {})
-        if result and len(result) > 0:
+        result = pinot.test_connection()
+        if result:
             print("✅ Connection health check passed")
-            for content in result:
-                if hasattr(content, "text"):
-                    print(f"   Status: {content.text}")
-                    break
+            print(f"   Status: {result}")
         else:
             print("⚠️  Health check returned no results")
         return True
@@ -170,7 +167,7 @@ async def main():
 
     # Run all tests
     tests = [
-        test_list_tools(pinot_client),
+        test_connection_test(pinot_client),
         test_connection_health(pinot_client),
         test_list_tables(pinot_client),
         test_table_details(pinot_client),

@@ -170,5 +170,3 @@ def test_pinot_get_table_detail(mock_http_request, mock_config):
     assert isinstance(detail, dict)
     assert detail["tableName"] == "test_table"
     assert detail["columnCount"] == 5
-
-

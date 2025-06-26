@@ -44,7 +44,9 @@ class TestParseBrokerUrl:
 
     def test_parse_url_with_path(self):
         """Test parsing URL with path ignores the path"""
-        host, port, scheme = _parse_broker_url("https://broker.example.com:8443/some/path")
+        host, port, scheme = _parse_broker_url(
+            "https://broker.example.com:8443/some/path"
+        )
         assert host == "broker.example.com"
         assert port == 8443
         assert scheme == "https"

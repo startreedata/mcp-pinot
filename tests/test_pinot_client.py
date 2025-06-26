@@ -170,18 +170,3 @@ def test_pinot_get_table_detail(mock_http_request, mock_config):
     assert isinstance(detail, dict)
     assert detail["tableName"] == "test_table"
     assert detail["columnCount"] == 5
-
-
-def test_pinot_list_tools():
-    """Test the list_tools method."""
-    config = load_pinot_config()
-    pinot = PinotClient(config)
-    tools = pinot.list_tools()
-    assert isinstance(tools, list)
-    assert len(tools) > 0
-
-    # Check that each tool has the required attributes
-    for tool in tools:
-        assert hasattr(tool, "name")
-        assert hasattr(tool, "description")
-        assert hasattr(tool, "inputSchema")

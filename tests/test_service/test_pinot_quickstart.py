@@ -32,18 +32,16 @@ async def main():
         config = load_pinot_config()
         pinot = PinotClient(config)
 
-        # List available tools
-        tools = pinot.list_tools()
-        print("Available tools:", tools)
+        # Test connection
+        connection_result = pinot.test_connection()
+        print("Connection result:", connection_result)
 
         # Execute a query
-        result = pinot.handle_tool(
-            "read-query", {"query": "SELECT * FROM airlineStats LIMIT 50"}
-        )
+        result = pinot.execute_query("SELECT * FROM airlineStats LIMIT 50")
         print("Query result:", result)
 
         # Verify the result contains our sample data
-        if not result or not any("Carrier" in str(r) for r in result):
+        if not result or "Carrier" not in str(result):
             raise Exception("Expected sample column not found in query results")
 
     except Exception as e:

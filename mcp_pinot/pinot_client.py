@@ -36,6 +36,7 @@ def test_connection_query(connection) -> None:
 class PinotEndpoints:
     QUERY_SQL = "query/sql"
     TABLES = "tables"
+    SCHEMAS = "schemas"
     TABLE_SIZE = "tables/{}/size"
     SEGMENTS = "segments/{}"
     SEGMENT_METADATA = "segments/{}/metadata"
@@ -384,6 +385,159 @@ class PinotClient:
         response = self.http_request(url)
         return response.json()
 
+    def create_schema(
+        self,
+        schemaJson: str,
+        override: bool = True,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}"
+        params = {"override": str(override).lower(), "force": str(force).lower()}
+        headers = self._create_auth_headers()
+        headers["Content-Type"] = "application/json"
+        response = requests.post(
+            url,
+            headers=headers,
+            params=params,
+            data=schemaJson,
+            timeout=(self.config.connection_timeout, self.config.request_timeout),
+            verify=True,
+        )
+        response.raise_for_status()
+        try:
+            return response.json()
+        except requests.exceptions.JSONDecodeError:
+            return {
+                "status": "success",
+                "message": "Schema creation request processed.",
+                "response_body": response.text,
+            }
+
+    def update_schema(
+        self,
+        schemaName: str,
+        schemaJson: str,
+        reload: bool = False,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}/{schemaName}"
+        params = {"reload": str(reload).lower(), "force": str(force).lower()}
+        headers = self._create_auth_headers()
+        headers["Content-Type"] = "application/json"
+        response = requests.put(
+            url,
+            headers=headers,
+            params=params,
+            data=schemaJson,
+            timeout=(self.config.connection_timeout, self.config.request_timeout),
+            verify=True,
+        )
+        response.raise_for_status()
+        try:
+            return response.json()
+        except requests.exceptions.JSONDecodeError:
+            return {
+                "status": "success",
+                "message": "Schema update request processed.",
+                "response_body": response.text,
+            }
+
+    def get_schema(self, schemaName: str) -> dict[str, Any]:
+        url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}/{schemaName}"
+        headers = self._create_auth_headers()
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=(self.config.connection_timeout, self.config.request_timeout),
+            verify=True,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def create_table_config(
+        self,
+        tableConfigJson: str,
+        validationTypesToSkip: str | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}"
+        params: dict[str, str] = {}
+        if validationTypesToSkip:
+            params["validationTypesToSkip"] = validationTypesToSkip
+        headers = self._create_auth_headers()
+        headers["Content-Type"] = "application/json"
+        response = requests.post(
+            url,
+            headers=headers,
+            params=params,
+            data=tableConfigJson,
+            timeout=(self.config.connection_timeout, self.config.request_timeout),
+            verify=True,
+        )
+        response.raise_for_status()
+        try:
+            return response.json()
+        except requests.exceptions.JSONDecodeError:
+            return {
+                "status": "success",
+                "message": "Table config creation request processed.",
+                "response_body": response.text,
+            }
+
+    def update_table_config(
+        self,
+        tableName: str,
+        tableConfigJson: str,
+        validationTypesToSkip: str | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}/{tableName}"
+        params: dict[str, str] = {}
+        if validationTypesToSkip:
+            params["validationTypesToSkip"] = validationTypesToSkip
+        headers = self._create_auth_headers()
+        headers["Content-Type"] = "application/json"
+        response = requests.put(
+            url,
+            headers=headers,
+            params=params,
+            data=tableConfigJson,
+            timeout=(self.config.connection_timeout, self.config.request_timeout),
+            verify=True,
+        )
+        response.raise_for_status()
+        try:
+            return response.json()
+        except requests.exceptions.JSONDecodeError:
+            return {
+                "status": "success",
+                "message": "Table config update request processed.",
+                "response_body": response.text,
+            }
+
+    def get_table_config(
+        self,
+        tableName: str,
+        tableType: str | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}/{tableName}"
+        params: dict[str, str] = {}
+        if tableType:
+            params["type"] = tableType
+        headers = self._create_auth_headers()
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=(self.config.connection_timeout, self.config.request_timeout),
+            verify=True,
+        )
+        response.raise_for_status()
+        raw_response = response.json()
+        if tableType and tableType.upper() in raw_response:
+            return raw_response[tableType.upper()]
+        if not tableType and ("OFFLINE" in raw_response or "REALTIME" in raw_response):
+            return raw_response
+        return raw_response
+
     def list_tools(self) -> list[types.Tool]:
         return [
             types.Tool(
@@ -466,6 +620,81 @@ class PinotClient:
                     "required": ["tableName"],
                 },
             ),
+            types.Tool(
+                name="create-schema",
+                description="Create a new schema",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "schemaJson": {"type": "string"},
+                        "override": {"type": "boolean", "default": True},
+                        "force": {"type": "boolean", "default": False},
+                    },
+                    "required": ["schemaJson"],
+                },
+            ),
+            types.Tool(
+                name="update-schema",
+                description="Update an existing schema",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "schemaName": {"type": "string"},
+                        "schemaJson": {"type": "string"},
+                        "reload": {"type": "boolean", "default": False},
+                        "force": {"type": "boolean", "default": False},
+                    },
+                    "required": ["schemaName", "schemaJson"],
+                },
+            ),
+            types.Tool(
+                name="get-schema",
+                description="Fetch a schema by name",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "schemaName": {"type": "string"},
+                    },
+                    "required": ["schemaName"],
+                },
+            ),
+            types.Tool(
+                name="create-table-config",
+                description="Create table configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tableConfigJson": {"type": "string"},
+                        "validationTypesToSkip": {"type": "string"},
+                    },
+                    "required": ["tableConfigJson"],
+                },
+            ),
+            types.Tool(
+                name="update-table-config",
+                description="Update table configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tableName": {"type": "string"},
+                        "tableConfigJson": {"type": "string"},
+                        "validationTypesToSkip": {"type": "string"},
+                    },
+                    "required": ["tableName", "tableConfigJson"],
+                },
+            ),
+            types.Tool(
+                name="get-table-config",
+                description="Get table configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tableName": {"type": "string"},
+                        "tableType": {"type": "string"},
+                    },
+                    "required": ["tableName"],
+                },
+            ),
         ]
 
     def handle_tool(
@@ -523,6 +752,76 @@ class PinotClient:
                         type="text",
                         text=str(
                             self.get_tableconfig_schema_detail(arguments["tableName"])
+                        ),
+                    )
+                ]
+            case "create-schema":
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=str(
+                            self.create_schema(
+                                arguments["schemaJson"],
+                                arguments.get("override", True),
+                                arguments.get("force", False),
+                            )
+                        ),
+                    )
+                ]
+            case "update-schema":
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=str(
+                            self.update_schema(
+                                arguments["schemaName"],
+                                arguments["schemaJson"],
+                                arguments.get("reload", False),
+                                arguments.get("force", False),
+                            )
+                        ),
+                    )
+                ]
+            case "get-schema":
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=str(self.get_schema(arguments["schemaName"])),
+                    )
+                ]
+            case "create-table-config":
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=str(
+                            self.create_table_config(
+                                arguments["tableConfigJson"],
+                                arguments.get("validationTypesToSkip"),
+                            )
+                        ),
+                    )
+                ]
+            case "update-table-config":
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=str(
+                            self.update_table_config(
+                                arguments["tableName"],
+                                arguments["tableConfigJson"],
+                                arguments.get("validationTypesToSkip"),
+                            )
+                        ),
+                    )
+                ]
+            case "get-table-config":
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=str(
+                            self.get_table_config(
+                                arguments["tableName"], arguments.get("tableType")
+                            )
                         ),
                     )
                 ]

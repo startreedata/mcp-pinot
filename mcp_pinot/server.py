@@ -137,6 +137,81 @@ async def main():
                     "required": ["tableName"],
                 },
             ),
+            types.Tool(
+                name="create-schema",
+                description="Create a new schema",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "schemaJson": {"type": "string"},
+                        "override": {"type": "boolean", "default": True},
+                        "force": {"type": "boolean", "default": False},
+                    },
+                    "required": ["schemaJson"],
+                },
+            ),
+            types.Tool(
+                name="update-schema",
+                description="Update an existing schema",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "schemaName": {"type": "string"},
+                        "schemaJson": {"type": "string"},
+                        "reload": {"type": "boolean", "default": False},
+                        "force": {"type": "boolean", "default": False},
+                    },
+                    "required": ["schemaName", "schemaJson"],
+                },
+            ),
+            types.Tool(
+                name="get-schema",
+                description="Fetch a schema by name",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "schemaName": {"type": "string"},
+                    },
+                    "required": ["schemaName"],
+                },
+            ),
+            types.Tool(
+                name="create-table-config",
+                description="Create table configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tableConfigJson": {"type": "string"},
+                        "validationTypesToSkip": {"type": "string"},
+                    },
+                    "required": ["tableConfigJson"],
+                },
+            ),
+            types.Tool(
+                name="update-table-config",
+                description="Update table configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tableName": {"type": "string"},
+                        "tableConfigJson": {"type": "string"},
+                        "validationTypesToSkip": {"type": "string"},
+                    },
+                    "required": ["tableName", "tableConfigJson"],
+                },
+            ),
+            types.Tool(
+                name="get-table-config",
+                description="Get table configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tableName": {"type": "string"},
+                        "tableType": {"type": "string"},
+                    },
+                    "required": ["tableName"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -181,6 +256,49 @@ async def main():
             elif name == "tableconfig-schema-details":
                 results = pinot_client.get_tableconfig_schema_detail(
                     tableName=arguments["tableName"]
+                )
+                return [types.TextContent(type="text", text=str(results))]
+
+            elif name == "create-schema":
+                results = pinot_client.create_schema(
+                    arguments["schemaJson"],
+                    arguments.get("override", True),
+                    arguments.get("force", False),
+                )
+                return [types.TextContent(type="text", text=str(results))]
+
+            elif name == "update-schema":
+                results = pinot_client.update_schema(
+                    arguments["schemaName"],
+                    arguments["schemaJson"],
+                    arguments.get("reload", False),
+                    arguments.get("force", False),
+                )
+                return [types.TextContent(type="text", text=str(results))]
+
+            elif name == "get-schema":
+                results = pinot_client.get_schema(schemaName=arguments["schemaName"])
+                return [types.TextContent(type="text", text=str(results))]
+
+            elif name == "create-table-config":
+                results = pinot_client.create_table_config(
+                    arguments["tableConfigJson"],
+                    arguments.get("validationTypesToSkip"),
+                )
+                return [types.TextContent(type="text", text=str(results))]
+
+            elif name == "update-table-config":
+                results = pinot_client.update_table_config(
+                    arguments["tableName"],
+                    arguments["tableConfigJson"],
+                    arguments.get("validationTypesToSkip"),
+                )
+                return [types.TextContent(type="text", text=str(results))]
+
+            elif name == "get-table-config":
+                results = pinot_client.get_table_config(
+                    tableName=arguments["tableName"],
+                    tableType=arguments.get("tableType"),
                 )
                 return [types.TextContent(type="text", text=str(results))]
 

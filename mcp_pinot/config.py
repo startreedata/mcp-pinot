@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+import logging
 import os
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -22,15 +24,77 @@ class PinotConfig:
     query_timeout: int = 60
 
 
+def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
+    """Parse broker URL and return (host, port, scheme)"""
+    try:
+        parsed = urlparse(broker_url)
+
+        # Check if we got valid components
+        if not parsed.scheme and not parsed.netloc:
+            raise ValueError(f"Invalid URL format: {broker_url}")
+
+        host = parsed.hostname or "localhost"
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        scheme = parsed.scheme or "http"
+        return host, port, scheme
+    except Exception as e:
+        logging.warning(
+            f"Failed to parse PINOT_BROKER_URL '{broker_url}': {e}. Using defaults."
+        )
+        return "localhost", 80, "http"
+
+
 def load_pinot_config() -> PinotConfig:
     """Load and return Pinot configuration from environment variables"""
     load_dotenv(override=True)
 
+    # Get the broker URL if provided
+    broker_url = os.getenv("PINOT_BROKER_URL")
+
+    # Parse defaults from URL if provided
+    if broker_url:
+        url_host, url_port, url_scheme = _parse_broker_url(broker_url)
+    else:
+        # Default to Pinot quickstart values
+        url_host, url_port, url_scheme = "localhost", 8000, "http"
+
+    # Get individual broker configs with URL as fallback
+    broker_host = os.getenv("PINOT_BROKER_HOST", url_host)
+    broker_port = int(os.getenv("PINOT_BROKER_PORT", str(url_port)))
+    broker_scheme = os.getenv("PINOT_BROKER_SCHEME", url_scheme)
+
+    # Issue warnings if individual configs override URL values
+    if broker_url:
+        if (
+            os.getenv("PINOT_BROKER_HOST")
+            and os.getenv("PINOT_BROKER_HOST") != url_host
+        ):
+            logging.warning(
+                f"PINOT_BROKER_HOST='{broker_host}' overrides host "
+                f"'{url_host}' from PINOT_BROKER_URL"
+            )
+        if (
+            os.getenv("PINOT_BROKER_PORT")
+            and int(os.getenv("PINOT_BROKER_PORT")) != url_port
+        ):
+            logging.warning(
+                f"PINOT_BROKER_PORT='{broker_port}' overrides port "
+                f"'{url_port}' from PINOT_BROKER_URL"
+            )
+        if (
+            os.getenv("PINOT_BROKER_SCHEME")
+            and os.getenv("PINOT_BROKER_SCHEME") != url_scheme
+        ):
+            logging.warning(
+                f"PINOT_BROKER_SCHEME='{broker_scheme}' overrides scheme "
+                f"'{url_scheme}' from PINOT_BROKER_URL"
+            )
+
     return PinotConfig(
-        controller_url=os.getenv("PINOT_CONTROLLER_URL", ""),
-        broker_host=os.getenv("PINOT_BROKER_HOST", ""),
-        broker_port=int(os.getenv("PINOT_BROKER_PORT", "443")),
-        broker_scheme=os.getenv("PINOT_BROKER_SCHEME", "https"),
+        controller_url=os.getenv("PINOT_CONTROLLER_URL", "http://localhost:9000"),
+        broker_host=broker_host,
+        broker_port=broker_port,
+        broker_scheme=broker_scheme,
         username=os.getenv("PINOT_USERNAME"),
         password=os.getenv("PINOT_PASSWORD"),
         token=os.getenv("PINOT_TOKEN"),

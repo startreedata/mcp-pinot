@@ -18,6 +18,7 @@ It allows you to
 - List tables, segments, and schema info from Pinot
 - Execute read-only SQL queries
 - View index/column-level metadata
+- Modify table configurations, including adding indexes
 - Designed to assist business users via Claude integration
 - and much more.
 

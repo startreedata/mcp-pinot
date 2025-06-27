@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -170,3 +171,28 @@ def test_pinot_get_table_detail(mock_http_request, mock_config):
     assert isinstance(detail, dict)
     assert detail["tableName"] == "test_table"
     assert detail["columnCount"] == 5
+
+
+@patch.object(PinotClient, "update_table_config")
+@patch.object(PinotClient, "get_table_config")
+def test_add_index_to_table_config(mock_get_cfg, mock_update_cfg):
+    mock_get_cfg.return_value = {"tableName": "test_table", "tableIndexConfig": {}}
+    mock_update_cfg.return_value = {"status": "success"}
+
+    config = load_pinot_config()
+    pinot = PinotClient(config)
+
+    result = pinot.add_index_to_table_config(
+        "test_table",
+        "OFFLINE",
+        "myCol",
+        "inverted",
+    )
+
+    mock_get_cfg.assert_called_once_with("test_table", tableType="OFFLINE")
+    mock_update_cfg.assert_called_once()
+    updated_json = mock_update_cfg.call_args.args[1]
+    updated = json.loads(updated_json)
+    assert "invertedIndexColumns" in updated["tableIndexConfig"]
+    assert "myCol" in updated["tableIndexConfig"]["invertedIndexColumns"]
+    assert result == {"status": "success"}

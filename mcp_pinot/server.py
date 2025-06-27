@@ -212,6 +212,20 @@ async def main():
                     "required": ["tableName"],
                 },
             ),
+            types.Tool(
+                name="add-index",
+                description="Add an index to a table configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tableName": {"type": "string"},
+                        "tableType": {"type": "string"},
+                        "columnName": {"type": "string"},
+                        "indexType": {"type": "string"},
+                    },
+                    "required": ["tableName", "tableType", "columnName", "indexType"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -299,6 +313,15 @@ async def main():
                 results = pinot_client.get_table_config(
                     tableName=arguments["tableName"],
                     tableType=arguments.get("tableType"),
+                )
+                return [types.TextContent(type="text", text=str(results))]
+
+            elif name == "add-index":
+                results = pinot_client.add_index_to_table_config(
+                    tableName=arguments["tableName"],
+                    tableType=arguments["tableType"],
+                    columnName=arguments["columnName"],
+                    indexType=arguments["indexType"],
                 )
                 return [types.TextContent(type="text", text=str(results))]
 

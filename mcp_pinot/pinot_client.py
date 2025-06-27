@@ -536,3 +536,39 @@ class PinotClient:
         if not tableType and ("OFFLINE" in raw_response or "REALTIME" in raw_response):
             return raw_response
         return raw_response
+
+    def add_index_to_table_config(
+        self,
+        tableName: str,
+        tableType: str,
+        columnName: str,
+        indexType: str,
+    ) -> dict[str, Any]:
+        """Add an index to a table configuration and update it."""
+        import json
+
+        config = self.get_table_config(tableName=tableName, tableType=tableType)
+
+        index_key_map = {
+            "inverted": "invertedIndexColumns",
+            "sorted": "sortedColumn",
+            "range": "rangeIndexColumns",
+            "bloom": "bloomFilterColumns",
+            "json": "jsonIndexColumns",
+            "text": "textIndexColumns",
+            "fst": "fstIndexColumns",
+        }
+
+        key = index_key_map.get(indexType.lower())
+        if not key:
+            raise ValueError(f"Unsupported index type: {indexType}")
+
+        table_index_config = config.setdefault("tableIndexConfig", {})
+        columns = table_index_config.get(key, [])
+        if isinstance(columns, str):
+            columns = [columns]
+        if columnName not in columns:
+            columns.append(columnName)
+        table_index_config[key] = columns
+
+        return self.update_table_config(tableName, json.dumps(config))

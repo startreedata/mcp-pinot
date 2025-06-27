@@ -36,6 +36,7 @@ You have access to the following tools to assist in your analysis:
 6. segment-list: List all segments for a specific table
 7. segment-metadata-details: Get metadata details for a specific segment
 8. tableconfig-schema-details: Get combined table configuration and schema details
+9. add-index: Add an index to a table configuration
 
 When a user provides a query, follow these steps:
 

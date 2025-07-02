@@ -12,6 +12,9 @@ dependencies = [
     "httpx>=0.27.2",
     "pandas>=2.2.3",
     "requests>=2.32.3",
+    "rpds-py>=0.18.1",
+    "pydantic==2.11.7",
+    "pydantic-core==2.33.2"
 ]
 
 [project.scripts]
@@ -34,7 +37,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["mcp_pinot"]
+packages = ["mcp_pinot", "mcp_pinot.utils"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -90,3 +93,7 @@ line-ending = "auto"
 members = [
     "mcp-pinot",
 ]
+
+
+[tool.uv.pip]
+target = "mcp_pinot/lib"

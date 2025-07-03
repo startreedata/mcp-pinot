@@ -1,0 +1,48 @@
+name: Publish DXT
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  build-dxt:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+
+    - name: Install DXT CLI
+      run: npm install -g @anthropic-ai/dxt
+
+    - name: Build DXT file
+      run: |
+        uv pip install -r pyproject.toml --target mcp_pinot/lib
+        uv pip install . --target mcp_pinot/lib
+        dxt pack
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mcp-pinot-dxt
+        path: '*.dxt'
+
+    - name: Upload Release Asset
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: '*.dxt'

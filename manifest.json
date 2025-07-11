@@ -1,0 +1,111 @@
+{
+  "dxt_version": "0.1",
+  "name": "mcp-pinot",
+  "display_name": "Apache Pinot MCP Server",
+  "version": "1.0.0",
+  "description": "An MCP server that lets Claude (or any MCP compatible agent) explore and query Apache Pinot clusters.",
+  "long_description": "This extension exposes a rich toolset for real-time analytics on Apache Pinot: listing tables, segments, schemas, running read-only SQL, and managing table or schema configs. It’s fully Python-based and runs over STDIO, making it easy to embed inside Claude Desktop or other MCP hosts.",
+  "author": {
+    "name": "StarTree",
+    "url": "https://startree.ai/"
+  },
+  "icon": "assets/pinot_logo.png",
+  "screenshots": [
+    "assets/github-events-analysis.png",
+    "assets/pinot-mcp-in-action.png"
+  ],
+  "server": {
+    "type": "python",
+    "entry_point": "mcp_pinot/server.py",
+    "mcp_config": {
+      "command": "python3",
+      "args": ["${__dirname}/mcp_pinot/server.py"],
+      "env": {
+        "PYTHONPATH": "${__dirname}/mcp_pinot/lib",
+        "PINOT_CONTROLLER_URL": "${user_config.controller_url}",
+        "PINOT_BROKER_URL": "${user_config.broker_url}",
+        "PINOT_USERNAME": "${user_config.username}",
+        "PINOT_PASSWORD": "${user_config.password}",
+        "PINOT_TOKEN": "${user_config.token}",
+        "PINOT_USE_MSQE": "${user_config.use_msqe}",
+        "PINOT_REQUEST_TIMEOUT": "${user_config.request_timeout}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "test-connection",            "description": "Test Pinot connection and return diagnostics" },
+    { "name": "read-query",                 "description": "Execute a SELECT query on the Pinot database" },
+    { "name": "list-tables",                "description": "List all tables in Pinot" },
+    { "name": "table-details",              "description": "Get table size details" },
+    { "name": "segment-list",               "description": "List segments for a table" },
+    { "name": "index-column-details",       "description": "Get index/column details for a segment" },
+    { "name": "segment-metadata-details",   "description": "Get metadata for segments of a table" },
+    { "name": "tableconfig-schema-details", "description": "Get table config and schema" },
+    { "name": "create-schema",              "description": "Create a new schema" },
+    { "name": "update-schema",              "description": "Update an existing schema" },
+    { "name": "get-schema",                 "description": "Fetch a schema by name" },
+    { "name": "create-table-config",        "description": "Create table configuration" },
+    { "name": "update-table-config",        "description": "Update table configuration" },
+    { "name": "get-table-config",           "description": "Get table configuration" }
+  ],
+  "keywords": ["pinot", "database", "analytics", "mcp", "python"],
+  "license": "Apache-2.0",
+  "user_config": {
+    "controller_url": {
+      "type": "string",
+      "title": "Pinot Controller URL",
+      "description": "HTTP(S) endpoint of the Pinot Controller",
+      "default": "http://localhost:9000",
+      "required": false
+    },
+    "broker_url": {
+      "type": "string",
+      "title": "Pinot Broker URL",
+      "description": "HTTP(S) endpoint of the Pinot Broker (host:port)",
+      "default": "http://localhost:8000",
+      "required": false
+    },
+    "username": {
+      "type": "string",
+      "title": "Username",
+      "description": "Pinot basic-auth username (optional)",
+      "default": "",
+      "required": false
+    },
+    "password": {
+      "type": "string",
+      "title": "Password",
+      "description": "Pinot basic-auth password (optional)",
+      "default": "",
+      "required": false
+    },
+    "token": {
+      "type": "string",
+      "title": "Auth Token",
+      "description": "Bearer token for Pinot (overrides username/password)",
+      "default": "",
+      "required": false
+    },
+    "use_msqe": {
+      "type": "boolean",
+      "title": "Use MSQE",
+      "description": "Enable Multi-Stage Query Engine (Pinot > 1.1)",
+      "default": true,
+      "required": false
+    },
+    "request_timeout": {
+      "type": "number",
+      "title": "Request Timeout (s)",
+      "description": "Per-request timeout in seconds",
+      "default": 60,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.10.0 <4"
+    }
+  }
+}

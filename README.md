@@ -136,6 +136,25 @@ You could also configure environment variables here instead of the `.env` file, 
 
 Claude will now auto-launch the MCP server on startup and recognize the new Pinot-based tools.
 
+## Using DXT Extension
+
+Apache Pinot MCP server now supports DXT desktop extensions file 
+
+To use it, you first need to install dxt via 
+```
+npm install -g @anthropic-ai/dxt
+```
+
+then you can run the following commands:
+
+```bash
+uv pip install -r pyproject.toml --target mcp_pinot/lib
+uv pip install . --target mcp_pinot/lib 
+dxt pack
+```
+
+After this you'll get a .dxt file in your dir. Double click on that file to install it in claude desktop
+
 ## Developer
 
 - All tools are defined in the `Pinot` class in `utils/pinot_client.py`

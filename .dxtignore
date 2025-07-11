@@ -1,0 +1,10 @@
+.git/
+.github/
+Dockerfile
+run.sh
+tests/
+*.pyc
+__pycache__/
+dist/
+*.egg-info/
+.env

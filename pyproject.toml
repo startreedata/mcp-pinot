@@ -94,6 +94,3 @@ members = [
     "mcp-pinot",
 ]
 
-
-[tool.uv.pip]
-target = "mcp_pinot/lib"

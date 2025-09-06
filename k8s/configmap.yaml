@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-pinot-config
+data:
+  controller_url: "http://pinot-controller:9000"
+  broker_url: "http://pinot-broker:8000"
+  use_msqe: "false"
+  request_timeout: "60"

@@ -24,6 +24,18 @@ class PinotConfig:
     query_timeout: int = 60
 
 
+@dataclass
+class ServerConfig:
+    """Configuration container for MCP server transport settings"""
+
+    transport: str = "both"  # "stdio", "http", or "both"
+    host: str = "0.0.0.0"
+    port: int = 8080
+    ssl_keyfile: str | None = None
+    ssl_certfile: str | None = None
+    endpoint: str = "/sse"
+
+
 def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
     """Parse broker URL and return (host, port, scheme)"""
     try:
@@ -103,4 +115,18 @@ def load_pinot_config() -> PinotConfig:
         request_timeout=int(os.getenv("PINOT_REQUEST_TIMEOUT", "60")),
         connection_timeout=int(os.getenv("PINOT_CONNECTION_TIMEOUT", "60")),
         query_timeout=int(os.getenv("PINOT_QUERY_TIMEOUT", "60")),
+    )
+
+
+def load_server_config() -> ServerConfig:
+    """Load and return MCP server configuration from environment variables"""
+    load_dotenv(override=True)
+
+    return ServerConfig(
+        transport=os.getenv("MCP_TRANSPORT", "both").lower(),
+        host=os.getenv("MCP_HOST", "0.0.0.0"),
+        port=int(os.getenv("MCP_PORT", "8080")),
+        ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
+        ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
+        endpoint=os.getenv("MCP_ENDPOINT", "/sse"),
     )

@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.6.0",
     "pinotdb>=5.6.0",
-    "uvicorn>=0.34.0",
+    "uvicorn[standard]>=0.34.0",
     "python-dotenv>=1.0.1",
     "httpx>=0.27.2",
     "pandas>=2.2.3",
@@ -77,6 +77,22 @@ ignore = [
     "S106",   # hardcoded passwords in fixtures
     "S108",   # temp files
 ]
+"simple_query_builtin.py" = [
+    "S310",   # URL open for demo/testing purposes
+]
+"examples/*" = [
+    "S310",   # URL open for demo/testing purposes
+]
+"test_http_with_server.py" = [
+    "S310",   # URL open for demo/testing purposes
+]
+"tests/test_http_live.py" = [
+    "S310",   # URL open for testing purposes
+]
+"tests/test_service/*" = [
+    "S310",   # URL open for integration testing
+    "S110",   # try-except-pass for connection retries
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["mcp_pinot"]
@@ -92,5 +108,14 @@ line-ending = "auto"
 [tool.uv.workspace]
 members = [
     "mcp-pinot",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
+    "pytest-cov>=6.1.1",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.12.0",
 ]
 

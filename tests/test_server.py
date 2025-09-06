@@ -136,33 +136,38 @@ async def test_handle_call_tool_invalid_tool(mock_server):
 
 @pytest.mark.asyncio
 async def test_main_function():
-    """Test the main function."""
-    # Mock the Server class and its methods
-    with patch("mcp_pinot.server.Server") as mock_server_class:
-        mock_server = MagicMock()
-        mock_server.run = AsyncMock()
+    """Test the main function with STDIO transport only."""
+    # Mock the server config to use STDIO only to avoid port conflicts
+    with patch("mcp_pinot.server.server_config") as mock_server_config:
+        mock_server_config.transport = "stdio"
 
-        # Set up the get_capabilities mock to return a valid ServerCapabilities object
-        mock_server.get_capabilities.return_value = types.ServerCapabilities(
-            supportsPrompts=True,
-            supportsTools=True,
-            supportsNotifications=True,
-            supportsExperimentalCapabilities=True,
-        )
+        # Mock the Server class and its methods
+        with patch("mcp_pinot.server.Server") as mock_server_class:
+            mock_server = MagicMock()
+            mock_server.run = AsyncMock()
 
-        mock_server_class.return_value = mock_server
-
-        # Mock the stdio_server context manager
-        with patch("mcp.server.stdio.stdio_server") as mock_stdio_server:
-            mock_read_stream = AsyncMock()
-            mock_write_stream = AsyncMock()
-            mock_stdio_server.return_value.__aenter__.return_value = (
-                mock_read_stream,
-                mock_write_stream,
+            # Set up the get_capabilities mock to return a valid ServerCapabilities
+            # object
+            mock_server.get_capabilities.return_value = types.ServerCapabilities(
+                supportsPrompts=True,
+                supportsTools=True,
+                supportsNotifications=True,
+                supportsExperimentalCapabilities=True,
             )
 
-            # Call the main function
-            await main()
+            mock_server_class.return_value = mock_server
 
-            # Check that the server was run with the correct arguments
-            mock_server.run.assert_called_once()
+            # Mock the stdio_server context manager
+            with patch("mcp.server.stdio.stdio_server") as mock_stdio_server:
+                mock_read_stream = AsyncMock()
+                mock_write_stream = AsyncMock()
+                mock_stdio_server.return_value.__aenter__.return_value = (
+                    mock_read_stream,
+                    mock_write_stream,
+                )
+
+                # Call the main function
+                await main()
+
+                # Check that the server was run with the correct arguments
+                mock_server.run.assert_called_once()

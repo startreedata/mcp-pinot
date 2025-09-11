@@ -1,7 +1,12 @@
 import os
 from unittest.mock import patch
 
-from mcp_pinot.config import _parse_broker_url, load_pinot_config
+from mcp_pinot.config import (
+    ServerConfig,
+    _parse_broker_url,
+    load_pinot_config,
+    load_server_config,
+)
 
 
 class TestParseBrokerUrl:
@@ -207,3 +212,118 @@ class TestLoadPinotConfig:
                 assert config.request_timeout == 30
                 assert config.connection_timeout == 20
                 assert config.query_timeout == 40
+
+
+class TestServerConfig:
+    """Test the ServerConfig class and load_server_config function"""
+
+    def test_server_config_defaults(self):
+        """Test ServerConfig default values"""
+        config = ServerConfig()
+        assert config.transport == "both"
+        assert config.host == "0.0.0.0"
+        assert config.port == 8080
+        assert config.ssl_keyfile is None
+        assert config.ssl_certfile is None
+        assert config.endpoint == "/sse"
+
+    def test_server_config_custom_values(self):
+        """Test ServerConfig with custom values"""
+        config = ServerConfig(
+            transport="http",
+            host="127.0.0.1",
+            port=9090,
+            ssl_keyfile="/path/to/key.pem",
+            ssl_certfile="/path/to/cert.pem",
+            endpoint="/custom-sse",
+        )
+        assert config.transport == "http"
+        assert config.host == "127.0.0.1"
+        assert config.port == 9090
+        assert config.ssl_keyfile == "/path/to/key.pem"
+        assert config.ssl_certfile == "/path/to/cert.pem"
+        assert config.endpoint == "/custom-sse"
+
+
+class TestLoadServerConfig:
+    """Test the load_server_config function"""
+
+    def test_load_server_config_defaults(self):
+        """Test loading server config with default values"""
+        with patch.dict(os.environ, {}, clear=True):
+            config = load_server_config()
+            assert config.transport == "both"
+            assert config.host == "0.0.0.0"
+            assert config.port == 8080
+            assert config.ssl_keyfile is None
+            assert config.ssl_certfile is None
+            assert config.endpoint == "/sse"
+
+    def test_load_server_config_from_env(self):
+        """Test loading server config from environment variables"""
+        env_vars = {
+            "MCP_TRANSPORT": "http",
+            "MCP_HOST": "192.168.1.100",
+            "MCP_PORT": "9999",
+            "MCP_SSL_KEYFILE": "/etc/ssl/private/server.key",
+            "MCP_SSL_CERTFILE": "/etc/ssl/certs/server.crt",
+            "MCP_ENDPOINT": "/api/sse",
+        }
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            config = load_server_config()
+            assert config.transport == "http"
+            assert config.host == "192.168.1.100"
+            assert config.port == 9999
+            assert config.ssl_keyfile == "/etc/ssl/private/server.key"
+            assert config.ssl_certfile == "/etc/ssl/certs/server.crt"
+            assert config.endpoint == "/api/sse"
+
+    def test_load_server_config_transport_case_insensitive(self):
+        """Test that transport value is converted to lowercase"""
+        env_vars = {"MCP_TRANSPORT": "HTTP"}
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            config = load_server_config()
+            assert config.transport == "http"
+
+    def test_load_server_config_partial_env(self):
+        """Test loading server config with only some env vars set"""
+        env_vars = {"MCP_TRANSPORT": "http", "MCP_PORT": "3000"}
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            config = load_server_config()
+            assert config.transport == "http"
+            assert config.host == "0.0.0.0"  # default
+            assert config.port == 3000
+            assert config.ssl_keyfile is None  # default
+            assert config.ssl_certfile is None  # default
+            assert config.endpoint == "/sse"  # default
+
+    def test_load_server_config_invalid_port(self):
+        """Test that invalid port values raise ValueError"""
+        env_vars = {"MCP_PORT": "not_a_number"}
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            try:
+                load_server_config()
+                assert False, "Should have raised ValueError for invalid port"
+            except ValueError:
+                pass  # Expected behavior
+
+    def test_load_server_config_both_transport(self):
+        """Test loading server config with 'both' transport"""
+        env_vars = {"MCP_TRANSPORT": "both"}
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            config = load_server_config()
+            assert config.transport == "both"
+
+    def test_load_server_config_all_transport_types(self):
+        """Test all valid transport types"""
+        for transport in ["stdio", "http", "both"]:
+            env_vars = {"MCP_TRANSPORT": transport}
+
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_server_config()
+                assert config.transport == transport

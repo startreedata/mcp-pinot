@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-pinot-server
+  labels:
+    app: mcp-pinot-server
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mcp-pinot-server
+  template:
+    metadata:
+      labels:
+        app: mcp-pinot-server
+    spec:
+      containers:
+      - name: mcp-pinot-server
+        image: mcp-pinot-server:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        # MCP Server Configuration
+        - name: MCP_TRANSPORT
+          value: "http"
+        - name: MCP_HOST
+          value: "0.0.0.0"
+        - name: MCP_PORT
+          value: "8080"
+        - name: MCP_ENDPOINT
+          value: "/sse"
+        # SSL Configuration (optional - for direct HTTPS)
+        # - name: MCP_SSL_KEYFILE
+        #   value: "/etc/ssl/private/tls.key"
+        # - name: MCP_SSL_CERTFILE
+        #   value: "/etc/ssl/certs/tls.crt"
+        
+        # Pinot Configuration
+        - name: PINOT_CONTROLLER_URL
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-pinot-config
+              key: controller_url
+        - name: PINOT_BROKER_URL
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-pinot-config
+              key: broker_url
+        - name: PINOT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mcp-pinot-secrets
+              key: username
+              optional: true
+        - name: PINOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mcp-pinot-secrets
+              key: password
+              optional: true
+        - name: PINOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: mcp-pinot-secrets
+              key: token
+              optional: true
+        - name: PINOT_USE_MSQE
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-pinot-config
+              key: use_msqe
+              optional: true
+        - name: PINOT_REQUEST_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: mcp-pinot-config
+              key: request_timeout
+              optional: true
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /sse
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /sse
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        
+        # Resource limits
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        
+        # Optional: Mount SSL certificates for direct HTTPS
+        # volumeMounts:
+        # - name: ssl-certs
+        #   mountPath: /etc/ssl/certs
+        #   readOnly: true
+        # - name: ssl-private
+        #   mountPath: /etc/ssl/private
+        #   readOnly: true
+      
+      # Optional: SSL certificate volumes
+      # volumes:
+      # - name: ssl-certs
+      #   secret:
+      #     secretName: mcp-pinot-tls
+      #     items:
+      #     - key: tls.crt
+      #       path: tls.crt
+      # - name: ssl-private
+      #   secret:
+      #     secretName: mcp-pinot-tls
+      #     items:
+      #     - key: tls.key
+      #       path: tls.key

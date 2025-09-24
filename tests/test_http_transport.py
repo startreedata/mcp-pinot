@@ -15,7 +15,7 @@ class TestCreateServer:
         """Test that create_server returns a Server instance"""
         server = create_server()
         assert isinstance(server, Server)
-        assert server.name == "pinot_mcp_claude"
+        assert server.name == "pinot_mcp"
 
     @pytest.mark.asyncio
     async def test_create_server_handlers_work(self):
@@ -42,7 +42,7 @@ class TestCreateServer:
 
         # Test that we can create the server without errors
         # (The actual tool registration is tested in the existing server tests)
-        assert server.name == "pinot_mcp_claude"
+        assert server.name == "pinot_mcp"
 
 
 class TestHttpTransport:
@@ -311,7 +311,7 @@ class TestIntegration:
             assert config.transport == "both"
 
             server = create_server()
-            assert server.name == "pinot_mcp_claude"
+            assert server.name == "pinot_mcp"
 
         # Test with HTTP config
         with patch.dict("os.environ", {"MCP_TRANSPORT": "http"}, clear=True):
@@ -319,7 +319,7 @@ class TestIntegration:
             assert config.transport == "http"
 
             server = create_server()
-            assert server.name == "pinot_mcp_claude"
+            assert server.name == "pinot_mcp"
 
     @pytest.mark.asyncio
     async def test_transport_selection_integration(self):

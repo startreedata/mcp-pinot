@@ -111,7 +111,7 @@ vi ~/Library/Application\ Support/Claude/claude_desktop_config.json
 ```json
 {
   "mcpServers": {
-      "pinot_mcp_claude": {
+      "pinot_mcp": {
           "command": "/path/to/uv",
           "args": [
               "--directory",

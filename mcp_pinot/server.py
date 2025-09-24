@@ -585,9 +585,18 @@ async def run_http_server():
                         "body": b"Not Found",
                     }
                 )
+        elif scope["type"] == "lifespan":
+            # Handle ASGI lifespan events (startup/shutdown)
+            message = await receive()
+            if message["type"] == "lifespan.startup":
+                logger.info("MCP Pinot Server starting up")
+                await send({"type": "lifespan.startup.complete"})
+            elif message["type"] == "lifespan.shutdown":
+                logger.info("MCP Pinot Server shutting down")
+                await send({"type": "lifespan.shutdown.complete"})
         else:
-            # Handle non-HTTP requests (shouldn't happen)
-            logger.error(f"Received non-HTTP request: {scope['type']}")
+            # Handle other ASGI event types
+            logger.warning(f"Received unsupported ASGI event type: {scope['type']}")
 
     # Configure SSL context if certificates are provided
     ssl_context = None

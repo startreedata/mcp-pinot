@@ -1,0 +1,31 @@
+{{- if .Values.traefik.enabled -}}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "mcp-pinot.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-pinot.labels" . | nindent 4 }}
+  {{- with .Values.traefik.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    {{- toYaml .Values.traefik.entryPoints | nindent 4 }}
+  routes:
+    - kind: Rule
+      match: {{ .Values.traefik.match | quote }}
+      services:
+        - name: {{ include "mcp-pinot.fullname" . }}
+          namespace: {{ .Release.Namespace }}
+          port: {{ .Values.service.port }}
+      {{- with .Values.traefik.middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- with .Values.traefik.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

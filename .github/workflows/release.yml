@@ -114,11 +114,13 @@ jobs:
         {
           echo "## Changes since $PREVIOUS_TAG"
           echo ""
-          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD
+          git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD
         } > changelog.txt
 
         # Set the changelog output
-        echo "changelog=$(cat changelog.txt)" >> $GITHUB_OUTPUT
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        cat changelog.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Create Release
       uses: actions/create-release@v1

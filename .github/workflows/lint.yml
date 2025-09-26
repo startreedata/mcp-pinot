@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  lint:
+  lint-python:
     runs-on: ubuntu-latest
     
     steps:

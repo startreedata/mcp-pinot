@@ -1,0 +1,7 @@
+{{- if .Values.certificate.enabled -}}
+{{- $certName := include "mcp-pinot.fullname" . -}}
+{{- $secretName := .Values.certificate.secretName | default (printf "%s-tls" (include "mcp-pinot.fullname" .)) -}}
+{{- $issuer := .Values.certificate.issuer -}}
+{{- $context := dict "name" $certName "issuer" $issuer "Release" .Release "Chart" .Chart "Values" .Values "commonName" .Values.certificate.commonName "secretName" $secretName "dnsNames" .Values.certificate.dnsNames "issuerKind" .Values.certificate.issuerKind "issuerGroup" .Values.certificate.issuerGroup -}}
+{{ include "mcp-pinot.certificate" $context }}
+{{- end }}

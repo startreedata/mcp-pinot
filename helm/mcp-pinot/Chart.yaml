@@ -1,0 +1,18 @@
+apiVersion: v2
+name: mcp-pinot
+description: A production-grade MCP server for Apache Pinot
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/startreedata/mcp-pinot
+sources:
+  - https://github.com/startreedata/mcp-pinot
+keywords:
+  - mcp
+  - pinot
+  - apache-pinot
+  - database
+  - analytics
+  - real-time
+annotations:
+  category: Database

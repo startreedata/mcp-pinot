@@ -75,7 +75,7 @@ def setup_logger(name: str = DEFAULT_LOGGER_NAME) -> logging.Logger:
                 level=logging.INFO,
                 format="%(asctime)s %(name)s %(levelname)s %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S",
-                force=True
+                force=True,
             )
 
     return logger

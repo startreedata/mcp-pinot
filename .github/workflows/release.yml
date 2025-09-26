@@ -109,21 +109,16 @@ jobs:
       id: changelog
       run: |
         # Get the previous tag
-        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1)
         
-        if [ -n "$PREVIOUS_TAG" ]; then
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "## Changes since $PREVIOUS_TAG" >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
-          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-        else
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "## Initial Release" >> $GITHUB_OUTPUT
-          echo "" >> $GITHUB_OUTPUT
-          echo "First release of MCP Pinot Server" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-        fi
+        {
+          echo "## Changes since $PREVIOUS_TAG"
+          echo ""
+          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD
+        } > changelog.txt
+
+        # Set the changelog output
+        echo "changelog=$(cat changelog.txt)" >> $GITHUB_OUTPUT
 
     - name: Create Release
       uses: actions/create-release@v1

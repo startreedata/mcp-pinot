@@ -111,11 +111,11 @@ def cleanup_logging():
                     pass
     except Exception as e:
         # Log any errors during cleanup but don't raise
-        try:
-            logging.getLogger().warning(f"Error during logging cleanup: {e}")
-        except Exception:
-            # If even basic logging fails, silently ignore
-            pass
+        # Use a more robust approach to avoid nested try-except-pass
+        logger = logging.getLogger()
+        if logger.handlers:
+            logger.warning(f"Error during logging cleanup: {e}")
+        # If logging fails, we can't do anything about it during cleanup
 
 
 # Register cleanup function to run on exit

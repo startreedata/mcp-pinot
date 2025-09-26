@@ -47,6 +47,16 @@ service:
   targetPort: 8080
   annotations: {}
 
+# Certificate configuration
+certificate:
+  enabled: false
+  issuer: ""  # Required: ClusterIssuer or Issuer name for certificate creation
+  commonName: ""  # Optional: Override common name (defaults to release name)
+  secretName: ""  # Optional: Override secret name (defaults to {release-name}-tls)
+  dnsNames: []  # Optional: Custom DNS names (defaults to cluster-local names)
+  issuerKind: "ClusterIssuer"  # Optional: ClusterIssuer or Issuer
+  issuerGroup: "cert-manager.io"  # Optional: API group for issuer
+
 # Traefik IngressRoute configuration
 traefik:
   enabled: false
@@ -55,7 +65,8 @@ traefik:
     - web
   match: "Host(`mcp-pinot.yourdomain.com`)"
   middlewares: []
-  tls: {}
+  tls:
+    secretName: ""  # Will be set to {{ include "mcp-pinot.fullname" . }}-tls when certificate is enabled
 
 # Resource configuration
 resources: {}
@@ -144,7 +155,7 @@ volumes:
   # SSL certificate volumes
   ssl:
     enabled: false
-    secretName: "mcp-pinot-tls"
+    secretName: ""  # Will be set to {{ include "mcp-pinot.fullname" . }}-tls when certificate is enabled
 
 # Pod annotations
 podAnnotations: {}

@@ -24,8 +24,16 @@ spec:
       middlewares:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+  {{- if .Values.traefik.tls.secretName }}
+  tls:
+    secretName: {{ .Values.traefik.tls.secretName }}
+  {{- else if .Values.certificate.enabled }}
+  tls:
+    secretName: {{ include "mcp-pinot.fullname" . }}-tls
+  {{- else }}
   {{- with .Values.traefik.tls }}
   tls:
     {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- end }}
 {{- end }}

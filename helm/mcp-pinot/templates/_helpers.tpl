@@ -60,3 +60,34 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Certificate template for internal certificates
+*/}}
+{{- define "mcp-pinot.certificate" -}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-pinot.labels" . | nindent 4 }}
+spec:
+  commonName: {{ .commonName | default .name }}
+  secretName: {{ .secretName | default (printf "%s-tls" .name) }}
+  dnsNames:
+    {{- if .dnsNames }}
+    {{- toYaml .dnsNames | nindent 4 }}
+    {{- else }}
+    - "{{ .name }}.{{ .Release.Namespace }}.svc.cluster.local"
+    - "{{ .name }}.{{ .Release.Namespace }}.svc.cluster"
+    - "{{ .name }}.{{ .Release.Namespace }}.svc"
+    - "{{ .name }}.{{ .Release.Namespace }}"
+    - "{{ .name }}"
+    - localhost
+    {{- end }}
+  issuerRef:
+    name: {{ .issuer }}
+    kind: {{ .issuerKind | default "ClusterIssuer" }}
+    group: {{ .issuerGroup | default "cert-manager.io" }}
+{{- end }}

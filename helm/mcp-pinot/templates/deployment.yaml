@@ -157,13 +157,13 @@ spec:
       volumes:
         - name: ssl-certs
           secret:
-            secretName: {{ .Values.volumes.ssl.secretName }}
+            secretName: {{ if .Values.volumes.ssl.secretName }}{{ .Values.volumes.ssl.secretName }}{{ else }}{{ include "mcp-pinot.fullname" . }}-tls{{ end }}
             items:
             - key: tls.crt
               path: tls.crt
         - name: ssl-private
           secret:
-            secretName: {{ .Values.volumes.ssl.secretName }}
+            secretName: {{ if .Values.volumes.ssl.secretName }}{{ .Values.volumes.ssl.secretName }}{{ else }}{{ include "mcp-pinot.fullname" . }}-tls{{ end }}
             items:
             - key: tls.key
               path: tls.key

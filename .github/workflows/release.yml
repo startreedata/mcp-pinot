@@ -96,6 +96,54 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+
+    - name: Install DXT CLI
+      run: npm install -g @anthropic-ai/dxt
+
+    - name: Build DXT file
+      run: |
+        uv pip install -r pyproject.toml --target mcp_pinot/lib
+        uv pip install . --target mcp_pinot/lib
+        dxt pack
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+
+    - name: Package Helm Chart
+      run: |
+        helm package ./helm/mcp-pinot --destination ./helm-packages
+
+    - name: Login to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Push Helm Chart to GHCR
+      run: |
+        # Get the chart version from the packaged chart
+        CHART_VERSION=$(helm show chart ./helm-packages/mcp-pinot-*.tgz | grep '^version:' | awk '{print $2}')
+        
+        # Push to GHCR OCI registry
+        helm push ./helm-packages/mcp-pinot-*.tgz oci://ghcr.io/${{ github.repository }}
+        
+        echo "Helm chart pushed to ghcr.io/${{ github.repository }}:mcp-pinot:$CHART_VERSION"
+
     - name: Get version from tag or input
       id: version
       run: |
@@ -124,12 +172,10 @@ jobs:
         } >> $GITHUB_OUTPUT
 
     - name: Create Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.version.outputs.version }}
-        release_name: Release ${{ steps.version.outputs.version }}
+        name: Release ${{ steps.version.outputs.version }}
         body: |
           ${{ steps.changelog.outputs.changelog }}
           
@@ -139,6 +185,19 @@ jobs:
           ```
           ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
           ```
+          
+          ## DXT Package
+          
+          Download the `.dxt` file for Claude Desktop integration.
+          
+          ## Helm Chart
+          
+          The Helm chart is available from GHCR OCI Registry:
+          ```bash
+          helm install mcp-pinot oci://ghcr.io/${{ github.repository }}/mcp-pinot
+          ```
+        files: |
+          *.dxt
         draft: false
         prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'rc') }}
 

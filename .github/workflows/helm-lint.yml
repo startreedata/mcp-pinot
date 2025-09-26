@@ -1,0 +1,27 @@
+name: Helm Lint
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'helm/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'helm/**'
+
+jobs:
+  lint-helm:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+
+    - name: Lint Helm Chart
+      run: |
+        helm lint ./helm/mcp-pinot

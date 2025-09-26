@@ -11,29 +11,13 @@ on:
         required: true
         type: string
 
-# Restrict workflow_dispatch to admins only
-permissions:
-  contents: write
-  packages: write
-
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: startreedata/mcp-pinot
 
 jobs:
-  check-permissions:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-    - name: Check if user is admin
-      run: |
-        # This job will only run if the user has admin permissions
-        # GitHub automatically restricts workflow_dispatch to users with write access
-        echo "✅ Admin permission verified - workflow triggered by admin user"
-
   test:
     runs-on: ubuntu-latest
-    needs: check-permissions
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -54,7 +38,7 @@ jobs:
         pytest tests/ -v
 
   build-and-push:
-    needs: [check-permissions, test]
+    needs: [test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -98,7 +82,7 @@ jobs:
         cache-to: type=gha,mode=max
 
   create-release:
-    needs: [check-permissions, test, build-and-push]
+    needs: [test, build-and-push]
     runs-on: ubuntu-latest
     permissions:
       contents: write

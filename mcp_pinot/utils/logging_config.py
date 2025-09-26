@@ -1,15 +1,16 @@
 """Centralized logging configuration for the MCP Pinot server."""
 
+import atexit
 import logging
 import sys
-import atexit
-import types
 
 DEFAULT_LOGGER_NAME = "mcp-pinot"
 
 
 class SafeStreamHandler(logging.StreamHandler):
-    """A StreamHandler that safely handles closed streams in containerized environments."""
+    """
+    A StreamHandler that safely handles closed streams in containerized environments.
+    """
 
     def __init__(self, stream=None):
         super().__init__(stream)
@@ -108,9 +109,13 @@ def cleanup_logging():
                 except (ValueError, OSError):
                     # Ignore errors during cleanup
                     pass
-    except Exception:
-        # Ignore any errors during cleanup
-        pass
+    except Exception as e:
+        # Log any errors during cleanup but don't raise
+        try:
+            logging.getLogger().warning(f"Error during logging cleanup: {e}")
+        except Exception:
+            # If even basic logging fails, silently ignore
+            pass
 
 
 # Register cleanup function to run on exit

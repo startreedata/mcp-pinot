@@ -27,9 +27,170 @@ server_config = load_server_config()
 pinot_client = PinotClient(pinot_config)
 
 
+def get_tools_list() -> list[types.Tool]:
+    """Get the list of available tools"""
+    return [
+        types.Tool(
+            name="test-connection",
+            description="Test Pinot connection and return diagnostics",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="read-query",
+            description="Execute a SELECT query on the Pinot database",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "SELECT SQL query to execute",
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        types.Tool(
+            name="list-tables",
+            description="List all tables in Pinot",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="table-details",
+            description="Get table size details",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tableName": {"type": "string", "description": "Table name"},
+                },
+                "required": ["tableName"],
+            },
+        ),
+        types.Tool(
+            name="segment-list",
+            description="List segments for a table",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tableName": {"type": "string", "description": "Table name"},
+                },
+                "required": ["tableName"],
+            },
+        ),
+        types.Tool(
+            name="index-column-details",
+            description="Get index/column details for a segment",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tableName": {"type": "string"},
+                    "segmentName": {"type": "string"},
+                },
+                "required": ["tableName", "segmentName"],
+            },
+        ),
+        types.Tool(
+            name="segment-metadata-details",
+            description="Get metadata for segments of a table",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tableName": {"type": "string"},
+                },
+                "required": ["tableName"],
+            },
+        ),
+        types.Tool(
+            name="tableconfig-schema-details",
+            description="Get table config and schema",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tableName": {"type": "string"},
+                },
+                "required": ["tableName"],
+            },
+        ),
+        types.Tool(
+            name="create-schema",
+            description="Create a new schema",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "schemaJson": {"type": "string"},
+                    "override": {"type": "boolean", "default": True},
+                    "force": {"type": "boolean", "default": False},
+                },
+                "required": ["schemaJson"],
+            },
+        ),
+        types.Tool(
+            name="update-schema",
+            description="Update an existing schema",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "schemaName": {"type": "string"},
+                    "schemaJson": {"type": "string"},
+                    "reload": {"type": "boolean", "default": False},
+                    "force": {"type": "boolean", "default": False},
+                },
+                "required": ["schemaName", "schemaJson"],
+            },
+        ),
+        types.Tool(
+            name="get-schema",
+            description="Fetch a schema by name",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "schemaName": {"type": "string"},
+                },
+                "required": ["schemaName"],
+            },
+        ),
+        types.Tool(
+            name="create-table-config",
+            description="Create table configuration",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tableConfigJson": {"type": "string"},
+                    "validationTypesToSkip": {"type": "string"},
+                },
+                "required": ["tableConfigJson"],
+            },
+        ),
+        types.Tool(
+            name="update-table-config",
+            description="Update table configuration",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tableName": {"type": "string"},
+                    "tableConfigJson": {"type": "string"},
+                    "validationTypesToSkip": {"type": "string"},
+                },
+                "required": ["tableName", "tableConfigJson"],
+            },
+        ),
+        types.Tool(
+            name="get-table-config",
+            description="Get table configuration",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tableName": {"type": "string"},
+                    "tableType": {"type": "string"},
+                },
+                "required": ["tableName"],
+            },
+        ),
+    ]
+
+
 def create_server() -> Server:
     """Create and configure the MCP server with all handlers"""
-    server = Server("pinot_mcp_claude")
+    server = Server("pinot_mcp")
 
     @server.list_prompts()
     async def handle_list_prompts() -> list[types.Prompt]:
@@ -62,163 +223,7 @@ def create_server() -> Server:
 
     @server.list_tools()
     async def handle_list_tools() -> list[types.Tool]:
-        return [
-            types.Tool(
-                name="test-connection",
-                description="Test Pinot connection and return diagnostics",
-                inputSchema={"type": "object", "properties": {}},
-            ),
-            types.Tool(
-                name="read-query",
-                description="Execute a SELECT query on the Pinot database",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "SELECT SQL query to execute",
-                        },
-                    },
-                    "required": ["query"],
-                },
-            ),
-            types.Tool(
-                name="list-tables",
-                description="List all tables in Pinot",
-                inputSchema={"type": "object", "properties": {}},
-            ),
-            types.Tool(
-                name="table-details",
-                description="Get table size details",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "tableName": {"type": "string", "description": "Table name"},
-                    },
-                    "required": ["tableName"],
-                },
-            ),
-            types.Tool(
-                name="segment-list",
-                description="List segments for a table",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "tableName": {"type": "string", "description": "Table name"},
-                    },
-                    "required": ["tableName"],
-                },
-            ),
-            types.Tool(
-                name="index-column-details",
-                description="Get index/column details for a segment",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "tableName": {"type": "string"},
-                        "segmentName": {"type": "string"},
-                    },
-                    "required": ["tableName", "segmentName"],
-                },
-            ),
-            types.Tool(
-                name="segment-metadata-details",
-                description="Get metadata for segments of a table",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "tableName": {"type": "string"},
-                    },
-                    "required": ["tableName"],
-                },
-            ),
-            types.Tool(
-                name="tableconfig-schema-details",
-                description="Get table config and schema",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "tableName": {"type": "string"},
-                    },
-                    "required": ["tableName"],
-                },
-            ),
-            types.Tool(
-                name="create-schema",
-                description="Create a new schema",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "schemaJson": {"type": "string"},
-                        "override": {"type": "boolean", "default": True},
-                        "force": {"type": "boolean", "default": False},
-                    },
-                    "required": ["schemaJson"],
-                },
-            ),
-            types.Tool(
-                name="update-schema",
-                description="Update an existing schema",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "schemaName": {"type": "string"},
-                        "schemaJson": {"type": "string"},
-                        "reload": {"type": "boolean", "default": False},
-                        "force": {"type": "boolean", "default": False},
-                    },
-                    "required": ["schemaName", "schemaJson"],
-                },
-            ),
-            types.Tool(
-                name="get-schema",
-                description="Fetch a schema by name",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "schemaName": {"type": "string"},
-                    },
-                    "required": ["schemaName"],
-                },
-            ),
-            types.Tool(
-                name="create-table-config",
-                description="Create table configuration",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "tableConfigJson": {"type": "string"},
-                        "validationTypesToSkip": {"type": "string"},
-                    },
-                    "required": ["tableConfigJson"],
-                },
-            ),
-            types.Tool(
-                name="update-table-config",
-                description="Update table configuration",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "tableName": {"type": "string"},
-                        "tableConfigJson": {"type": "string"},
-                        "validationTypesToSkip": {"type": "string"},
-                    },
-                    "required": ["tableName", "tableConfigJson"],
-                },
-            ),
-            types.Tool(
-                name="get-table-config",
-                description="Get table configuration",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "tableName": {"type": "string"},
-                        "tableType": {"type": "string"},
-                    },
-                    "required": ["tableName"],
-                },
-            ),
-        ]
+        return get_tools_list()
 
     @server.call_tool()
     async def handle_call_tool(
@@ -333,7 +338,7 @@ async def run_stdio_server():
                 read_stream,
                 write_stream,
                 InitializationOptions(
-                    server_name="pinot_mcp_claude",
+                    server_name="pinot_mcp",
                     server_version="0.1.0",
                     capabilities=server.get_capabilities(
                         notification_options=NotificationOptions(),
@@ -477,17 +482,13 @@ async def handle_rest_api_call(scope, receive, send, server):
 async def handle_rest_api_list_tools(scope, receive, send, server):
     """Handle REST API tools list"""
     try:
+        tools_list = get_tools_list()
         tools = [
             {
-                "name": "test-connection",
-                "description": "Test Pinot connection and return diagnostics",
-            },
-            {"name": "list-tables", "description": "List all tables in Pinot"},
-            {
-                "name": "read-query",
-                "description": "Execute a SELECT query on the Pinot database",
-            },
-            {"name": "table-details", "description": "Get table size details"},
+                "name": tool.name,
+                "description": tool.description,
+            }
+            for tool in tools_list
         ]
 
         await send(
@@ -545,7 +546,7 @@ async def run_http_server():
                             read_stream,
                             write_stream,
                             InitializationOptions(
-                                server_name="pinot_mcp_claude",
+                                server_name="pinot_mcp",
                                 server_version="0.1.0",
                                 capabilities=server.get_capabilities(
                                     notification_options=NotificationOptions(),
@@ -584,9 +585,18 @@ async def run_http_server():
                         "body": b"Not Found",
                     }
                 )
+        elif scope["type"] == "lifespan":
+            # Handle ASGI lifespan events (startup/shutdown)
+            message = await receive()
+            if message["type"] == "lifespan.startup":
+                logger.info("MCP Pinot Server starting up")
+                await send({"type": "lifespan.startup.complete"})
+            elif message["type"] == "lifespan.shutdown":
+                logger.info("MCP Pinot Server shutting down")
+                await send({"type": "lifespan.shutdown.complete"})
         else:
-            # Handle non-HTTP requests (shouldn't happen)
-            logger.error(f"Received non-HTTP request: {scope['type']}")
+            # Handle other ASGI event types
+            logger.warning(f"Received unsupported ASGI event type: {scope['type']}")
 
     # Configure SSL context if certificates are provided
     ssl_context = None

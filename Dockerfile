@@ -25,4 +25,4 @@ RUN chmod +x /app/run.sh
 RUN mkdir -p /app/config
 
 # Set the entry point to use the wrapper script
-ENTRYPOINT ["/app/run.sh"] 
+ENTRYPOINT ["/app/run.sh"]

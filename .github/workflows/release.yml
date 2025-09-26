@@ -111,16 +111,17 @@ jobs:
         # Get the previous tag
         PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1)
         
-        {
-          echo "## Changes since $PREVIOUS_TAG"
-          echo ""
-          git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD
-        } > changelog.txt
+        # Generate changelog content
+        CHANGELOG="## Changes since $PREVIOUS_TAG"
+        CHANGELOG="$CHANGELOG\n\n"
+        CHANGELOG="$CHANGELOG$(git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD)"
 
-        # Set the changelog output
-        echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        cat changelog.txt >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        # Set the changelog output using a different approach
+        {
+          echo "changelog<<CHANGELOG_EOF"
+          echo -e "$CHANGELOG"
+          echo "CHANGELOG_EOF"
+        } >> $GITHUB_OUTPUT
 
     - name: Create Release
       uses: actions/create-release@v1

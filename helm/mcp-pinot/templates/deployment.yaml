@@ -122,18 +122,10 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           
-          {{- with .Values.volumeMounts.additional }}
+          {{- if .Values.certificate.enabled }}
           volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- if .Values.volumeMounts.ssl.enabled }}
-          volumeMounts:
-            - name: ssl-certs
-              mountPath: {{ .Values.volumeMounts.ssl.certPath }}
-              readOnly: true
-            - name: ssl-private
-              mountPath: {{ .Values.volumeMounts.ssl.keyPath }}
-              readOnly: true
+            - name: tls
+              mountPath: /etc/ssl
           {{- end }}
       
       {{- with .Values.nodeSelector }}
@@ -149,22 +141,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       
-      {{- with .Values.volumes.additional }}
+      {{- if .Values.certificate.enabled }}
       volumes:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- if .Values.volumes.ssl.enabled }}
-      volumes:
-        - name: ssl-certs
+        - name: tls
           secret:
-            secretName: {{ if .Values.volumes.ssl.secretName }}{{ .Values.volumes.ssl.secretName }}{{ else }}{{ include "mcp-pinot.fullname" . }}-tls{{ end }}
-            items:
-            - key: tls.crt
-              path: tls.crt
-        - name: ssl-private
-          secret:
-            secretName: {{ if .Values.volumes.ssl.secretName }}{{ .Values.volumes.ssl.secretName }}{{ else }}{{ include "mcp-pinot.fullname" . }}-tls{{ end }}
-            items:
-            - key: tls.key
-              path: tls.key
+            secretName: {{ .Values.certificate.secretName }}
       {{- end }}

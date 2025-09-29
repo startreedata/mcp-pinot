@@ -20,6 +20,10 @@ spec:
         - name: {{ include "mcp-pinot.fullname" . }}
           namespace: {{ .Release.Namespace }}
           port: {{ .Values.service.port }}
+          scheme: {{ ternary "https" "http" (ne .Values.traefik.tls.secretName "") }}
+          {{- if .Values.traefik.tls.secretName }}
+          serversTransport: {{ include "mcp-pinot.fullname" . }}
+          {{- end }}
       {{- with .Values.traefik.middlewares }}
       middlewares:
         {{- toYaml . | nindent 8 }}
@@ -27,13 +31,5 @@ spec:
   {{- if .Values.traefik.tls.secretName }}
   tls:
     secretName: {{ .Values.traefik.tls.secretName }}
-  {{- else if .Values.certificate.enabled }}
-  tls:
-    secretName: {{ include "mcp-pinot.fullname" . }}-tls
-  {{- else }}
-  {{- with .Values.traefik.tls }}
-  tls:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
   {{- end }}
 {{- end }}

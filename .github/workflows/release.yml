@@ -124,6 +124,25 @@ jobs:
       with:
         version: '3.12.0'
 
+    - name: Update Helm Chart Version
+      run: |
+        # Get version from tag or input
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        
+        echo "Updating Chart.yaml version to: $VERSION"
+        
+        # Update Chart.yaml with the Git tag version
+        sed -i "s/^version: .*/version: $VERSION/" ./helm/mcp-pinot/Chart.yaml
+        sed -i "s/^appVersion: .*/appVersion: \"$VERSION\"/" ./helm/mcp-pinot/Chart.yaml
+        
+        # Verify the changes
+        echo "Updated Chart.yaml:"
+        cat ./helm/mcp-pinot/Chart.yaml
+
     - name: Package Helm Chart
       run: |
         helm package ./helm/mcp-pinot --destination ./helm-packages
@@ -137,13 +156,19 @@ jobs:
 
     - name: Push Helm Chart to GHCR
       run: |
-        # Get the chart version from the packaged chart
-        CHART_VERSION=$(helm show chart ./helm-packages/mcp-pinot-*.tgz | grep '^version:' | awk '{print $2}')
+        # Get version from tag or input (same logic as above)
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          CHART_VERSION="${{ github.event.inputs.version }}"
+        else
+          CHART_VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        
+        echo "Pushing Helm chart with version: $CHART_VERSION"
         
         # Push to GHCR OCI registry
-        helm push ./helm-packages/mcp-pinot-*.tgz oci://ghcr.io/${{ github.repository }}
+        helm push ./helm-packages/mcp-pinot-*.tgz oci://ghcr.io/${{ github.repository }}/charts
         
-        echo "Helm chart pushed to ghcr.io/${{ github.repository }}:mcp-pinot:$CHART_VERSION"
+        echo "Helm chart pushed to ghcr.io/${{ github.repository }}/charts/mcp-pinot:$CHART_VERSION"
 
     - name: Get version from tag or input
       id: version
@@ -195,7 +220,7 @@ jobs:
           
           The Helm chart is available from GHCR OCI Registry:
           ```bash
-          helm install mcp-pinot oci://ghcr.io/${{ github.repository }}/mcp-pinot
+          helm install mcp-pinot oci://ghcr.io/${{ github.repository }}/charts/mcp-pinot
           ```
         files: |
           *.dxt

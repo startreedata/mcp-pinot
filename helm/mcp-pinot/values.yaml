@@ -28,7 +28,7 @@ serviceAccount:
 
 # Pod security context
 podSecurityContext:
-  fsGroup: 2000
+  fsGroup: 1000
 
 # Container security context
 securityContext:
@@ -66,7 +66,7 @@ traefik:
   match: "Host(`mcp-pinot.yourdomain.com`)"
   middlewares: []
   tls:
-    secretName: ""  # Will be set to {{ include "mcp-pinot.fullname" . }}-tls when certificate is enabled
+    secretName: ""  # Set to your TLS secret name for HTTPS, leave empty for HTTP
 
 # Resource configuration
 resources: {}
@@ -93,8 +93,8 @@ mcp:
   endpoint: "/sse"
   ssl:
     enabled: false
-    keyFile: "/etc/ssl/private/tls.key"
-    certFile: "/etc/ssl/certs/tls.crt"
+    keyFile: "/etc/ssl/tls.key"
+    certFile: "/etc/ssl/tls.crt"
 
 # Pinot Configuration
 pinot:
@@ -142,20 +142,11 @@ env:
 volumeMounts:
   # Additional volume mounts
   additional: []
-  # SSL certificate mounts (when SSL is enabled)
-  ssl:
-    enabled: false
-    certPath: "/etc/ssl/certs"
-    keyPath: "/etc/ssl/private"
 
 # Volumes
 volumes:
   # Additional volumes
   additional: []
-  # SSL certificate volumes
-  ssl:
-    enabled: false
-    secretName: ""  # Will be set to {{ include "mcp-pinot.fullname" . }}-tls when certificate is enabled
 
 # Pod annotations
 podAnnotations: {}

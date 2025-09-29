@@ -77,7 +77,9 @@ spec:
   secretName: {{ .secretName | default (printf "%s-tls" .name) }}
   dnsNames:
     {{- if .dnsNames }}
-    {{- toYaml .dnsNames | nindent 4 }}
+    {{- range .dnsNames }}
+    - {{ . | quote }}
+    {{- end }}
     {{- else }}
     - "{{ .name }}.{{ .Release.Namespace }}.svc.cluster.local"
     - "{{ .name }}.{{ .Release.Namespace }}.svc.cluster"

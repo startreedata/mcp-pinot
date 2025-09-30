@@ -1,0 +1,95 @@
+{{/*
+Expand the name of the chart.
+*/}}
+{{- define "mcp-pinot.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Create a default fully qualified app name.
+We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+If release name contains chart name it will be used as a full name.
+*/}}
+{{- define "mcp-pinot.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create chart name and version as used by the chart label.
+*/}}
+{{- define "mcp-pinot.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Common labels
+*/}}
+{{- define "mcp-pinot.labels" -}}
+helm.sh/chart: {{ include "mcp-pinot.chart" . }}
+{{ include "mcp-pinot.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Selector labels
+*/}}
+{{- define "mcp-pinot.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "mcp-pinot.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "mcp-pinot.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "mcp-pinot.fullname" .) .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Certificate template for internal certificates
+*/}}
+{{- define "mcp-pinot.certificate" -}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-pinot.labels" . | nindent 4 }}
+spec:
+  commonName: {{ .commonName | default .name }}
+  secretName: {{ .secretName | default (printf "%s-tls" .name) }}
+  dnsNames:
+    {{- if .dnsNames }}
+    {{- range .dnsNames }}
+    - {{ . | quote }}
+    {{- end }}
+    {{- else }}
+    - "{{ .name }}.{{ .Release.Namespace }}.svc.cluster.local"
+    - "{{ .name }}.{{ .Release.Namespace }}.svc.cluster"
+    - "{{ .name }}.{{ .Release.Namespace }}.svc"
+    - "{{ .name }}.{{ .Release.Namespace }}"
+    - "{{ .name }}"
+    - localhost
+    {{- end }}
+  issuerRef:
+    name: {{ .issuer }}
+    kind: {{ .issuerKind | default "ClusterIssuer" }}
+    group: {{ .issuerGroup | default "cert-manager.io" }}
+{{- end }}

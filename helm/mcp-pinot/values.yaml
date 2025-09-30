@@ -1,0 +1,155 @@
+# Default values for mcp-pinot
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global configuration
+imagePullSecrets: []
+
+# Image configuration
+image:
+  repository: ghcr.io/startreedata/mcp-pinot
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+
+# Name override
+nameOverride: ""
+fullnameOverride: ""
+
+# Service account
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+  annotations: {}
+
+# Certificate configuration
+certificate:
+  enabled: false
+  issuer: ""  # Required: ClusterIssuer or Issuer name for certificate creation
+  commonName: ""  # Optional: Override common name (defaults to release name)
+  secretName: ""  # Optional: Override secret name (defaults to {release-name}-tls)
+  dnsNames: []  # Optional: Custom DNS names (defaults to cluster-local names)
+  issuerKind: "ClusterIssuer"  # Optional: ClusterIssuer or Issuer
+  issuerGroup: "cert-manager.io"  # Optional: API group for issuer
+
+# Traefik IngressRoute configuration
+traefik:
+  enabled: false
+  annotations: {}
+  entryPoints:
+    - web
+  match: "Host(`mcp-pinot.yourdomain.com`)"
+  middlewares: []
+  tls:
+    secretName: ""  # Set to your TLS secret name for HTTPS, leave empty for HTTP
+
+# Resource configuration
+resources: {}
+
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+
+# Deployment configuration
+replicas: 1
+
+# MCP Server Configuration
+mcp:
+  transport: "http"
+  host: "0.0.0.0"
+  port: 8080
+  endpoint: "/sse"
+  ssl:
+    enabled: false
+    keyFile: "/etc/ssl/tls.key"
+    certFile: "/etc/ssl/tls.crt"
+
+# Pinot Configuration
+pinot:
+  controller:
+    url: "http://pinot-controller:9000"
+  broker:
+    url: "http://pinot-broker:8000"
+  useMsqe: false
+  requestTimeout: 60
+  auth:
+    enabled: false
+    username: ""
+    password: ""
+    token: ""
+
+# Health check configuration
+healthCheck:
+  liveness:
+    enabled: false
+    path: "/"
+    port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    enabled: false
+    path: "/"
+    port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Environment variables
+env:
+  # Additional environment variables
+  additional: []
+  # Environment variables from configmap
+  configMap: []
+  # Environment variables from secret
+  secret: []
+
+# Volume mounts
+volumeMounts:
+  # Additional volume mounts
+  additional: []
+
+# Volumes
+volumes:
+  # Additional volumes
+  additional: []
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}

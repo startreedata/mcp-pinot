@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-pinot.fullname" . }}
+  labels:
+    {{- include "mcp-pinot.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mcp-pinot.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "mcp-pinot.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "mcp-pinot.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mcp.port }}
+              protocol: TCP
+          env:
+            # MCP Server Configuration
+            - name: MCP_TRANSPORT
+              value: {{ .Values.mcp.transport | quote }}
+            - name: MCP_HOST
+              value: {{ .Values.mcp.host | quote }}
+            - name: MCP_PORT
+              value: {{ .Values.mcp.port | quote }}
+            - name: MCP_ENDPOINT
+              value: {{ .Values.mcp.endpoint | quote }}
+            {{- if .Values.mcp.ssl.enabled }}
+            - name: MCP_SSL_KEYFILE
+              value: {{ .Values.mcp.ssl.keyFile | quote }}
+            - name: MCP_SSL_CERTFILE
+              value: {{ .Values.mcp.ssl.certFile | quote }}
+            {{- end }}
+            # Pinot Configuration
+            - name: PINOT_CONTROLLER_URL
+              value: {{ .Values.pinot.controller.url | quote }}
+            - name: PINOT_BROKER_URL
+              value: {{ .Values.pinot.broker.url | quote }}
+            - name: PINOT_USE_MSQE
+              value: {{ .Values.pinot.useMsqe | quote }}
+            - name: PINOT_REQUEST_TIMEOUT
+              value: {{ .Values.pinot.requestTimeout | quote }}
+            {{- if .Values.pinot.auth.enabled }}
+            - name: PINOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mcp-pinot.fullname" . }}-secrets
+                  key: username
+                  optional: true
+            - name: PINOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mcp-pinot.fullname" . }}-secrets
+                  key: password
+                  optional: true
+            - name: PINOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mcp-pinot.fullname" . }}-secrets
+                  key: token
+                  optional: true
+            {{- end }}
+            
+            # Additional environment variables
+            {{- with .Values.env.additional }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- with .Values.env.configMap }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- with .Values.env.secret }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          
+          {{- if .Values.healthCheck.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.liveness.path }}
+              port: {{ .Values.healthCheck.liveness.port }}
+            initialDelaySeconds: {{ .Values.healthCheck.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthCheck.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthCheck.liveness.failureThreshold }}
+          {{- end }}
+          
+          {{- if .Values.healthCheck.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.readiness.path }}
+              port: {{ .Values.healthCheck.readiness.port }}
+            initialDelaySeconds: {{ .Values.healthCheck.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthCheck.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthCheck.readiness.failureThreshold }}
+          {{- end }}
+          
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          
+          {{- if .Values.certificate.enabled }}
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/ssl
+          {{- end }}
+      
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      {{- if .Values.certificate.enabled }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ .Values.certificate.secretName }}
+      {{- end }}

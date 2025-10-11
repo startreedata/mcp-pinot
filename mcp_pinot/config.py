@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 import logging
 import os
 import sys
@@ -14,7 +15,7 @@ def setup_logging():
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         stream=sys.stdout,
-        force=True,
+        force=True
     )
 
 
@@ -52,12 +53,27 @@ class PinotConfig:
 class ServerConfig:
     """Configuration container for MCP server transport settings"""
 
-    transport: str = "http"
+    transport: str = "http" 
     host: str = "0.0.0.0"
-    port: int = 8080
+    port: int = 8000
     ssl_keyfile: str | None = None
     ssl_certfile: str | None = None
-    path: str = "/mcp"
+    oauth_enabled: bool = False
+
+
+@dataclass
+class OAuthConfig:
+    """Configuration container for OAuth authentication settings"""
+
+    client_id: str
+    client_secret: str
+    base_url: str
+    upstream_authorization_endpoint: str
+    upstream_token_endpoint: str
+    jwks_uri: str
+    issuer: str
+    audience: str | None = None
+    extra_authorize_params: dict[str, str] | None = None
 
 
 def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
@@ -149,8 +165,39 @@ def load_server_config() -> ServerConfig:
     return ServerConfig(
         transport=os.getenv("MCP_TRANSPORT", "http").lower(),
         host=os.getenv("MCP_HOST", "0.0.0.0"),
-        port=int(os.getenv("MCP_PORT", "8080")),
+        port=int(os.getenv("MCP_PORT", "8000")),
         ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
         ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
-        path=os.getenv("MCP_PATH", "/mcp"),
+        oauth_enabled=os.getenv("OAUTH_ENABLED", "false").lower() == "true",
+    )
+
+
+def load_oauth_config() -> OAuthConfig:
+    """Load and return OAuth configuration from environment variables"""
+    load_dotenv(override=True)
+
+    # Parse extra authorization parameters from environment variables
+    # Format: OAUTH_EXTRA_AUTH_PARAMS='{"param1": "value1", "param2": "value2"}'
+    extra_authorize_params = None
+    extra_params_str = os.getenv("OAUTH_EXTRA_AUTH_PARAMS")
+    if extra_params_str:
+        try:
+            extra_authorize_params = json.loads(extra_params_str)
+            if not isinstance(extra_authorize_params, dict):
+                logger.warning("OAUTH_EXTRA_AUTH_PARAMS must be a JSON object. Ignoring.")
+                extra_authorize_params = None
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Invalid OAUTH_EXTRA_AUTH_PARAMS JSON: {e}. Ignoring.")
+            extra_authorize_params = None
+
+    return OAuthConfig(
+        client_id=os.getenv("OAUTH_CLIENT_ID", ""),
+        client_secret=os.getenv("OAUTH_CLIENT_SECRET", ""),
+        base_url=os.getenv("OAUTH_BASE_URL", "http://localhost:8000"),
+        upstream_authorization_endpoint=os.getenv("OAUTH_AUTHORIZATION_ENDPOINT", ""),
+        upstream_token_endpoint=os.getenv("OAUTH_TOKEN_ENDPOINT", ""),
+        jwks_uri=os.getenv("OAUTH_JWKS_URI", ""),
+        issuer=os.getenv("OAUTH_ISSUER", ""),
+        audience=os.getenv("OAUTH_AUDIENCE"),
+        extra_authorize_params=extra_authorize_params,
     )

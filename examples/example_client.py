@@ -13,16 +13,15 @@ Prerequisites:
     - FastMCP client library installed
 """
 
-import asyncio
-
 from fastmcp import Client
+import asyncio
 
 
 async def main():
     """Main example function demonstrating MCP Pinot client usage."""
     print("🚀 MCP Pinot Client Example")
     print("=" * 40)
-
+    
     async with Client("http://localhost:8080/mcp") as client:
         print("✓ Connected to MCP Pinot server!")
         print()
@@ -46,9 +45,7 @@ async def main():
         # Test querying a table
         print("📊 Querying a table:")
         try:
-            tables_result = await client.call_tool(
-                "read_query", {"query": "SELECT * FROM airlineStats LIMIT 5"}
-            )
+            tables_result = await client.call_tool("read_query", {"query": "SELECT * FROM airlineStats LIMIT 5"})
             print(f"Query result: {tables_result}")
         except Exception as e:
             print(f"Error querying table: {e}")

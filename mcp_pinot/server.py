@@ -9,11 +9,13 @@ import json
 from typing import Optional
 
 from fastmcp import FastMCP
-import uvicorn
-
-from mcp_pinot.config import load_pinot_config, load_server_config
+from fastmcp.server.auth.oidc_proxy import OAuthProxy
+from fastmcp.server.auth.providers.jwt import JWTVerifier
+from mcp_pinot.config import load_pinot_config, load_server_config, load_oauth_config
 from mcp_pinot.pinot_client import PinotClient
 from mcp_pinot.prompts import PROMPT_TEMPLATE
+import uvicorn
+
 
 # Initialize configurations and create client
 pinot_config = load_pinot_config()
@@ -22,6 +24,25 @@ pinot_client = PinotClient(pinot_config)
 
 
 mcp = FastMCP("Pinot MCP Server")
+
+if server_config.oauth_enabled:
+    oauth_config = load_oauth_config()
+
+    token_verifier = JWTVerifier(
+        jwks_uri=oauth_config.jwks_uri,
+        issuer=oauth_config.issuer,
+        audience=oauth_config.audience,
+    )
+
+    mcp.auth = OAuthProxy(
+        upstream_authorization_endpoint=oauth_config.upstream_authorization_endpoint,
+        upstream_token_endpoint=oauth_config.upstream_token_endpoint,
+        upstream_client_id=oauth_config.client_id,
+        upstream_client_secret=oauth_config.client_secret,
+        token_verifier=token_verifier,
+        extra_authorize_params=oauth_config.extra_authorize_params,
+        base_url=oauth_config.base_url,
+    )    
 
 
 @mcp.tool
@@ -205,25 +226,18 @@ def pinot_query() -> str:
 def main():
     """Main entry point for FastMCP Pinot Server"""
     tls_enabled = server_config.ssl_keyfile and server_config.ssl_certfile
-    if tls_enabled:
-        app = mcp.http_app(path=server_config.path)
+    if (server_config.transport == 'http' or server_config.transport == 'streamable-http') and tls_enabled:
+        app = mcp.http_app()
         uvicorn.run(
             app,
             host=server_config.host,
             port=server_config.port,
             ssl_keyfile=server_config.ssl_keyfile,
-            ssl_certfile=server_config.ssl_certfile,
+            ssl_certfile=server_config.ssl_certfile
         )
-    elif server_config.transport == "stdio":
-        # stdio transport - no configuration needed
-        mcp.run(transport=server_config.transport)
     else:
-        mcp.run(
-            transport=server_config.transport,
-            host=server_config.host,
-            port=server_config.port,
-            path=server_config.path,
-        )
+        mcp.run(transport=server_config.transport)
+        # mcp.run(host=server_config.host, port=server_config.port, transport=server_config.transport)
 
 
 if __name__ == "__main__":

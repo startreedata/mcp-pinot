@@ -58,6 +58,7 @@ jobs:
     
     - name: Run quickstart test
       run: |
+        cat .env
         source .venv/bin/activate
         # Start server in background
         uv --directory . run mcp_pinot/server.py &

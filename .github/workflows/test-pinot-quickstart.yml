@@ -59,7 +59,18 @@ jobs:
     - name: Run quickstart test
       run: |
         source .venv/bin/activate
-        uv --directory . run examples/example_client.py 
+        # Start server in background
+        uv --directory . run mcp_pinot/server.py &
+        SERVER_PID=$!
+        
+        # Wait a moment for server to start
+        sleep 5
+        
+        # Run the client test
+        uv --directory . run examples/example_client.py
+        
+        # Clean up server process
+        kill $SERVER_PID || true 
     
     - name: Cleanup
       if: always()

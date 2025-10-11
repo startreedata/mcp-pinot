@@ -240,8 +240,6 @@ def main():
         )
     else:
         mcp.run(transport=server_config.transport)
-        # mcp.run(host=server_config.host, port=server_config.port,
-        #         transport=server_config.transport)
 
 
 if __name__ == "__main__":

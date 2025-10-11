@@ -208,7 +208,7 @@ class TestServerConfig:
         config = ServerConfig()
         assert config.transport == "http"
         assert config.host == "0.0.0.0"
-        assert config.port == 8000
+        assert config.port == 8080
         assert config.ssl_keyfile is None
         assert config.ssl_certfile is None
         assert config.oauth_enabled is False
@@ -241,7 +241,7 @@ class TestLoadServerConfig:
                 config = load_server_config()
                 assert config.transport == "http"
                 assert config.host == "0.0.0.0"
-                assert config.port == 8000
+                assert config.port == 8080
                 assert config.ssl_keyfile is None
                 assert config.ssl_certfile is None
                 assert config.oauth_enabled is False

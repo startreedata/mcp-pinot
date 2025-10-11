@@ -239,7 +239,11 @@ def main():
             ssl_certfile=server_config.ssl_certfile,
         )
     else:
-        mcp.run(transport=server_config.transport)
+        mcp.run(
+            transport=server_config.transport,
+            host=server_config.host,
+            port=server_config.port,
+        )
 
 
 if __name__ == "__main__":

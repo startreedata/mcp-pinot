@@ -2,12 +2,12 @@ import os
 from unittest.mock import patch
 
 from mcp_pinot.config import (
-    ServerConfig,
     OAuthConfig,
+    ServerConfig,
     _parse_broker_url,
+    load_oauth_config,
     load_pinot_config,
     load_server_config,
-    load_oauth_config,
 )
 
 
@@ -339,7 +339,10 @@ class TestOAuthConfig:
         assert config.client_id == "test_client"
         assert config.client_secret == "test_secret"
         assert config.base_url == "http://localhost:8000"
-        assert config.upstream_authorization_endpoint == "http://auth.example.com/authorize"
+        assert (
+            config.upstream_authorization_endpoint
+            == "http://auth.example.com/authorize"
+        )
         assert config.upstream_token_endpoint == "http://auth.example.com/token"
         assert config.jwks_uri == "http://auth.example.com/.well-known/jwks.json"
         assert config.issuer == "http://auth.example.com"
@@ -397,9 +400,14 @@ class TestLoadOAuthConfig:
                 assert config.client_id == "test_client"
                 assert config.client_secret == "test_secret"
                 assert config.base_url == "http://localhost:8000"
-                assert config.upstream_authorization_endpoint == "http://auth.example.com/authorize"
+                assert (
+                    config.upstream_authorization_endpoint
+                    == "http://auth.example.com/authorize"
+                )
                 assert config.upstream_token_endpoint == "http://auth.example.com/token"
-                assert config.jwks_uri == "http://auth.example.com/.well-known/jwks.json"
+                assert (
+                    config.jwks_uri == "http://auth.example.com/.well-known/jwks.json"
+                )
                 assert config.issuer == "http://auth.example.com"
                 assert config.audience is None
                 assert config.extra_authorize_params is None
@@ -432,13 +440,18 @@ class TestLoadOAuthConfig:
             "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
             "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
             "OAUTH_ISSUER": "http://auth.example.com",
-            "OAUTH_EXTRA_AUTH_PARAMS": '{"scope": "read write", "response_type": "code"}',
+            "OAUTH_EXTRA_AUTH_PARAMS": (
+                '{"scope": "read write", "response_type": "code"}'
+            ),
         }
 
         with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_oauth_config()
-                assert config.extra_authorize_params == {"scope": "read write", "response_type": "code"}
+                assert config.extra_authorize_params == {
+                    "scope": "read write",
+                    "response_type": "code",
+                }
 
     def test_load_oauth_config_invalid_extra_params(self):
         """Test loading OAuth config with invalid extra authorization parameters"""

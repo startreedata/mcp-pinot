@@ -160,7 +160,7 @@ Replace `/path/to/uv` with the absolute path to the uv command, you can run `whi
 
 Replace `/path/to/mcp-pinot` with the absolute path to the folder where you cloned this repo.
 
-Note: you must use stdio transport when running your server.
+Note: you must use stdio transport when integrating with Claude desktop.
 
 You could also configure environment variables here instead of the `.env` file, in case you want to connect to multiple pinot clusters as MCP servers.
 

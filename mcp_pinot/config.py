@@ -15,7 +15,7 @@ def setup_logging():
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         stream=sys.stdout,
-        force=True
+        force=True,
     )
 
 
@@ -53,9 +53,9 @@ class PinotConfig:
 class ServerConfig:
     """Configuration container for MCP server transport settings"""
 
-    transport: str = "http" 
+    transport: str = "http"
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8080
     ssl_keyfile: str | None = None
     ssl_certfile: str | None = None
     oauth_enabled: bool = False
@@ -165,7 +165,7 @@ def load_server_config() -> ServerConfig:
     return ServerConfig(
         transport=os.getenv("MCP_TRANSPORT", "http").lower(),
         host=os.getenv("MCP_HOST", "0.0.0.0"),
-        port=int(os.getenv("MCP_PORT", "8000")),
+        port=int(os.getenv("MCP_PORT", "8080")),
         ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
         ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
         oauth_enabled=os.getenv("OAUTH_ENABLED", "false").lower() == "true",
@@ -184,7 +184,9 @@ def load_oauth_config() -> OAuthConfig:
         try:
             extra_authorize_params = json.loads(extra_params_str)
             if not isinstance(extra_authorize_params, dict):
-                logger.warning("OAUTH_EXTRA_AUTH_PARAMS must be a JSON object. Ignoring.")
+                logger.warning(
+                    "OAUTH_EXTRA_AUTH_PARAMS must be a JSON object. Ignoring."
+                )
                 extra_authorize_params = None
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Invalid OAUTH_EXTRA_AUTH_PARAMS JSON: {e}. Ignoring.")
@@ -193,7 +195,7 @@ def load_oauth_config() -> OAuthConfig:
     return OAuthConfig(
         client_id=os.getenv("OAUTH_CLIENT_ID", ""),
         client_secret=os.getenv("OAUTH_CLIENT_SECRET", ""),
-        base_url=os.getenv("OAUTH_BASE_URL", "http://localhost:8000"),
+        base_url=os.getenv("OAUTH_BASE_URL", "http://localhost:8080"),
         upstream_authorization_endpoint=os.getenv("OAUTH_AUTHORIZATION_ENDPOINT", ""),
         upstream_token_endpoint=os.getenv("OAUTH_TOKEN_ENDPOINT", ""),
         jwks_uri=os.getenv("OAUTH_JWKS_URI", ""),

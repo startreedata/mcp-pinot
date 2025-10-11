@@ -53,6 +53,7 @@ jobs:
         PINOT_BROKER_PORT=8000
         PINOT_BROKER_SCHEME=http
         PINOT_USE_MSQE=true
+        MCP_PORT=8080
         EOL
     
     - name: Run quickstart test

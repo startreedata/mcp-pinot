@@ -1,9 +1,10 @@
-from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 import json
+from unittest.mock import patch
+
+from fastmcp import Client
+import pytest
 
 from mcp_pinot.server import main, mcp
-from fastmcp import Client
 
 
 @pytest.fixture
@@ -16,7 +17,10 @@ def mock_pinot_client():
             "numRowsResultSet": 1,
         }
         mock_client.get_tables.return_value = {"tables": ["test_table"]}
-        mock_client.get_table_detail.return_value = {"tableName": "test_table", "columnCount": 5}
+        mock_client.get_table_detail.return_value = {
+            "tableName": "test_table",
+            "columnCount": 5,
+        }
         mock_client.get_segments.return_value = {"segments": ["segment1"]}
         mock_client.get_index_column_detail.return_value = {"indexes": ["index1"]}
         mock_client.get_segment_metadata_detail.return_value = {"metadata": "test"}
@@ -43,11 +47,11 @@ class TestFastMCPServer:
         """Test that all tools are properly registered"""
         # Get the registered tools
         tools = await mcp.get_tools()
-        
+
         # Check that all expected tools are registered
         expected_tools = [
             "test_connection",
-            "read_query", 
+            "read_query",
             "list_tables",
             "table_details",
             "segment_list",
@@ -59,9 +63,9 @@ class TestFastMCPServer:
             "get_schema",
             "create_table_config",
             "update_table_config",
-            "get_table_config"
+            "get_table_config",
         ]
-        
+
         for tool_name in expected_tools:
             assert tool_name in tools, f"Tool {tool_name} not found in registered tools"
 
@@ -70,16 +74,18 @@ class TestFastMCPServer:
         """Test that prompts are properly registered"""
         # Get the registered prompts
         prompts = await mcp.get_prompts()
-        
+
         # Check that the expected prompt is registered
-        assert "pinot_query" in prompts, "Prompt pinot_query not found in registered prompts"
+        assert "pinot_query" in prompts, (
+            "Prompt pinot_query not found in registered prompts"
+        )
 
     @pytest.mark.asyncio
     async def test_tool_test_connection(self, mock_pinot_client):
         """Test the test_connection tool"""
         async with Client(mcp) as client:
             result = await client.call_tool("test_connection", {})
-            
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -90,10 +96,10 @@ class TestFastMCPServer:
         """Test the test_connection tool with error"""
         # Mock client to raise exception
         mock_pinot_client.test_connection.side_effect = Exception("Connection failed")
-        
+
         async with Client(mcp) as client:
             result = await client.call_tool("test_connection", {})
-            
+
             # Should return error message
             assert "Error: Connection failed" in result.data
 
@@ -101,8 +107,10 @@ class TestFastMCPServer:
     async def test_tool_read_query(self, mock_pinot_client):
         """Test the read_query tool"""
         async with Client(mcp) as client:
-            result = await client.call_tool("read_query", {"query": "SELECT * FROM test_table"})
-            
+            result = await client.call_tool(
+                "read_query", {"query": "SELECT * FROM test_table"}
+            )
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -112,8 +120,10 @@ class TestFastMCPServer:
     async def test_tool_read_query_invalid(self, mock_pinot_client):
         """Test the read_query tool with invalid query"""
         async with Client(mcp) as client:
-            result = await client.call_tool("read_query", {"query": "INSERT INTO test_table VALUES (1)"})
-            
+            result = await client.call_tool(
+                "read_query", {"query": "INSERT INTO test_table VALUES (1)"}
+            )
+
             # Should return error message
             assert "Error: Only SELECT queries are allowed" in result.data
 
@@ -122,10 +132,12 @@ class TestFastMCPServer:
         """Test the read_query tool with error"""
         # Mock client to raise exception
         mock_pinot_client.execute_query.side_effect = Exception("Query failed")
-        
+
         async with Client(mcp) as client:
-            result = await client.call_tool("read_query", {"query": "SELECT * FROM test_table"})
-            
+            result = await client.call_tool(
+                "read_query", {"query": "SELECT * FROM test_table"}
+            )
+
             # Should return error message
             assert "Error: Query failed" in result.data
 
@@ -134,7 +146,7 @@ class TestFastMCPServer:
         """Test the list_tables tool"""
         async with Client(mcp) as client:
             result = await client.call_tool("list_tables", {})
-            
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -144,8 +156,10 @@ class TestFastMCPServer:
     async def test_tool_table_details(self, mock_pinot_client):
         """Test the table_details tool"""
         async with Client(mcp) as client:
-            result = await client.call_tool("table_details", {"tableName": "test_table"})
-            
+            result = await client.call_tool(
+                "table_details", {"tableName": "test_table"}
+            )
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -156,7 +170,7 @@ class TestFastMCPServer:
         """Test the segment_list tool"""
         async with Client(mcp) as client:
             result = await client.call_tool("segment_list", {"tableName": "test_table"})
-            
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -166,8 +180,11 @@ class TestFastMCPServer:
     async def test_tool_index_column_details(self, mock_pinot_client):
         """Test the index_column_details tool"""
         async with Client(mcp) as client:
-            result = await client.call_tool("index_column_details", {"tableName": "test_table", "segmentName": "segment1"})
-            
+            result = await client.call_tool(
+                "index_column_details",
+                {"tableName": "test_table", "segmentName": "segment1"},
+            )
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -177,8 +194,10 @@ class TestFastMCPServer:
     async def test_tool_segment_metadata_details(self, mock_pinot_client):
         """Test the segment_metadata_details tool"""
         async with Client(mcp) as client:
-            result = await client.call_tool("segment_metadata_details", {"tableName": "test_table"})
-            
+            result = await client.call_tool(
+                "segment_metadata_details", {"tableName": "test_table"}
+            )
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -188,8 +207,10 @@ class TestFastMCPServer:
     async def test_tool_tableconfig_schema_details(self, mock_pinot_client):
         """Test the tableconfig_schema_details tool"""
         async with Client(mcp) as client:
-            result = await client.call_tool("tableconfig_schema_details", {"tableName": "test_table"})
-            
+            result = await client.call_tool(
+                "tableconfig_schema_details", {"tableName": "test_table"}
+            )
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -199,10 +220,12 @@ class TestFastMCPServer:
     async def test_tool_create_schema(self, mock_pinot_client):
         """Test the create_schema tool"""
         schema_json = '{"schemaName": "test", "dimensionFieldSpecs": []}'
-        
+
         async with Client(mcp) as client:
-            result = await client.call_tool("create_schema", {"schemaJson": schema_json})
-            
+            result = await client.call_tool(
+                "create_schema", {"schemaJson": schema_json}
+            )
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -212,10 +235,12 @@ class TestFastMCPServer:
     async def test_tool_update_schema(self, mock_pinot_client):
         """Test the update_schema tool"""
         schema_json = '{"schemaName": "test", "dimensionFieldSpecs": []}'
-        
+
         async with Client(mcp) as client:
-            result = await client.call_tool("update_schema", {"schemaName": "test", "schemaJson": schema_json})
-            
+            result = await client.call_tool(
+                "update_schema", {"schemaName": "test", "schemaJson": schema_json}
+            )
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -226,7 +251,7 @@ class TestFastMCPServer:
         """Test the get_schema tool"""
         async with Client(mcp) as client:
             result = await client.call_tool("get_schema", {"schemaName": "test"})
-            
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -236,10 +261,12 @@ class TestFastMCPServer:
     async def test_tool_create_table_config(self, mock_pinot_client):
         """Test the create_table_config tool"""
         config_json = '{"tableName": "test", "tableType": "OFFLINE"}'
-        
+
         async with Client(mcp) as client:
-            result = await client.call_tool("create_table_config", {"tableConfigJson": config_json})
-            
+            result = await client.call_tool(
+                "create_table_config", {"tableConfigJson": config_json}
+            )
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -249,10 +276,13 @@ class TestFastMCPServer:
     async def test_tool_update_table_config(self, mock_pinot_client):
         """Test the update_table_config tool"""
         config_json = '{"tableName": "test", "tableType": "OFFLINE"}'
-        
+
         async with Client(mcp) as client:
-            result = await client.call_tool("update_table_config", {"tableName": "test", "tableConfigJson": config_json})
-            
+            result = await client.call_tool(
+                "update_table_config",
+                {"tableName": "test", "tableConfigJson": config_json},
+            )
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -263,7 +293,7 @@ class TestFastMCPServer:
         """Test the get_table_config tool"""
         async with Client(mcp) as client:
             result = await client.call_tool("get_table_config", {"tableName": "test"})
-            
+
             # Should return JSON string
             assert isinstance(result.data, str)
             data = json.loads(result.data)
@@ -274,10 +304,10 @@ class TestFastMCPServer:
         """Test the pinot_query prompt"""
         async with Client(mcp) as client:
             result = await client.get_prompt("pinot_query", {})
-            
+
             # Should return the prompt template
             assert len(result.messages) > 0
-            assert hasattr(result.messages[0].content, 'text')
+            assert hasattr(result.messages[0].content, "text")
             assert len(result.messages[0].content.text) > 0
 
 
@@ -296,7 +326,7 @@ class TestMainFunction:
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
                 # Call the main function
                 main()
-                
+
                 # Verify mcp.run was called
                 mock_mcp_run.assert_called_once()
                 call_args = mock_mcp_run.call_args
@@ -314,7 +344,7 @@ class TestMainFunction:
             with patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run:
                 # Call the main function
                 main()
-                
+
                 # Verify uvicorn.run was called with SSL parameters
                 mock_uvicorn_run.assert_called_once()
                 call_args = mock_uvicorn_run.call_args
@@ -333,7 +363,7 @@ class TestMainFunction:
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
                 # Call the main function
                 main()
-                
+
                 # Verify mcp.run was called
                 mock_mcp_run.assert_called_once()
                 call_args = mock_mcp_run.call_args
@@ -349,7 +379,7 @@ class TestMainFunction:
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
                 # Call the main function
                 main()
-                
+
                 # Verify mcp.run was called
                 mock_mcp_run.assert_called_once()
                 call_args = mock_mcp_run.call_args

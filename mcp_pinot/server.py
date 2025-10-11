@@ -11,11 +11,11 @@ from typing import Optional
 from fastmcp import FastMCP
 from fastmcp.server.auth.oidc_proxy import OAuthProxy
 from fastmcp.server.auth.providers.jwt import JWTVerifier
-from mcp_pinot.config import load_pinot_config, load_server_config, load_oauth_config
-from mcp_pinot.pinot_client import PinotClient
-from mcp_pinot.prompts import PROMPT_TEMPLATE
 import uvicorn
 
+from mcp_pinot.config import load_oauth_config, load_pinot_config, load_server_config
+from mcp_pinot.pinot_client import PinotClient
+from mcp_pinot.prompts import PROMPT_TEMPLATE
 
 # Initialize configurations and create client
 pinot_config = load_pinot_config()
@@ -42,7 +42,7 @@ if server_config.oauth_enabled:
         token_verifier=token_verifier,
         extra_authorize_params=oauth_config.extra_authorize_params,
         base_url=oauth_config.base_url,
-    )    
+    )
 
 
 @mcp.tool
@@ -226,18 +226,22 @@ def pinot_query() -> str:
 def main():
     """Main entry point for FastMCP Pinot Server"""
     tls_enabled = server_config.ssl_keyfile and server_config.ssl_certfile
-    if (server_config.transport == 'http' or server_config.transport == 'streamable-http') and tls_enabled:
+    if (
+        server_config.transport == "http"
+        or server_config.transport == "streamable-http"
+    ) and tls_enabled:
         app = mcp.http_app()
         uvicorn.run(
             app,
             host=server_config.host,
             port=server_config.port,
             ssl_keyfile=server_config.ssl_keyfile,
-            ssl_certfile=server_config.ssl_certfile
+            ssl_certfile=server_config.ssl_certfile,
         )
     else:
         mcp.run(transport=server_config.transport)
-        # mcp.run(host=server_config.host, port=server_config.port, transport=server_config.transport)
+        # mcp.run(host=server_config.host, port=server_config.port,
+        #         transport=server_config.transport)
 
 
 if __name__ == "__main__":

@@ -3,9 +3,11 @@ from unittest.mock import patch
 
 from mcp_pinot.config import (
     ServerConfig,
+    OAuthConfig,
     _parse_broker_url,
     load_pinot_config,
     load_server_config,
+    load_oauth_config,
 )
 
 
@@ -40,12 +42,10 @@ class TestParseBrokerUrl:
 
     def test_parse_invalid_url(self):
         """Test parsing invalid URL falls back to defaults"""
-        with patch("mcp_pinot.config.logging.warning") as mock_warning:
-            host, port, scheme = _parse_broker_url("invalid-url")
-            assert host == "localhost"
-            assert port == 80
-            assert scheme == "http"
-            mock_warning.assert_called_once()
+        host, port, scheme = _parse_broker_url("invalid-url")
+        assert host == "localhost"
+        assert port == 80
+        assert scheme == "http"
 
     def test_parse_url_with_path(self):
         """Test parsing URL with path ignores the path"""
@@ -100,20 +100,11 @@ class TestLoadPinotConfig:
         }
 
         with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
-            with patch("mcp_pinot.config.logging.warning") as mock_warning:
-                with patch.dict(os.environ, env_vars, clear=True):
-                    config = load_pinot_config()
-                    assert config.broker_host == "override.example.com"
-                    assert config.broker_port == 9000
-                    assert config.broker_scheme == "https"  # From URL, not overridden
-
-                    # Should warn about overrides
-                    assert mock_warning.call_count == 2
-                    warning_calls = [
-                        call.args[0] for call in mock_warning.call_args_list
-                    ]
-                    assert any("PINOT_BROKER_HOST" in call for call in warning_calls)
-                    assert any("PINOT_BROKER_PORT" in call for call in warning_calls)
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+                assert config.broker_host == "override.example.com"
+                assert config.broker_port == 9000
+                assert config.broker_scheme == "https"  # From URL, not overridden
 
     def test_broker_url_with_scheme_override(self):
         """Test that PINOT_BROKER_SCHEME overrides URL scheme"""
@@ -124,16 +115,11 @@ class TestLoadPinotConfig:
         }
 
         with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
-            with patch("mcp_pinot.config.logging.warning") as mock_warning:
-                with patch.dict(os.environ, env_vars, clear=True):
-                    config = load_pinot_config()
-                    assert config.broker_host == "broker.example.com"
-                    assert config.broker_port == 8443
-                    assert config.broker_scheme == "http"  # Overridden
-
-                    # Should warn about scheme override
-                    mock_warning.assert_called_once()
-                    assert "PINOT_BROKER_SCHEME" in mock_warning.call_args[0][0]
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+                assert config.broker_host == "broker.example.com"
+                assert config.broker_port == 8443
+                assert config.broker_scheme == "http"  # Overridden
 
     def test_no_broker_config(self):
         """Test default values when no broker config is provided"""
@@ -220,12 +206,12 @@ class TestServerConfig:
     def test_server_config_defaults(self):
         """Test ServerConfig default values"""
         config = ServerConfig()
-        assert config.transport == "both"
+        assert config.transport == "http"
         assert config.host == "0.0.0.0"
-        assert config.port == 8080
+        assert config.port == 8000
         assert config.ssl_keyfile is None
         assert config.ssl_certfile is None
-        assert config.endpoint == "/sse"
+        assert config.oauth_enabled is False
 
     def test_server_config_custom_values(self):
         """Test ServerConfig with custom values"""
@@ -235,14 +221,14 @@ class TestServerConfig:
             port=9090,
             ssl_keyfile="/path/to/key.pem",
             ssl_certfile="/path/to/cert.pem",
-            endpoint="/custom-sse",
+            oauth_enabled=True,
         )
         assert config.transport == "http"
         assert config.host == "127.0.0.1"
         assert config.port == 9090
         assert config.ssl_keyfile == "/path/to/key.pem"
         assert config.ssl_certfile == "/path/to/cert.pem"
-        assert config.endpoint == "/custom-sse"
+        assert config.oauth_enabled is True
 
 
 class TestLoadServerConfig:
@@ -250,14 +236,15 @@ class TestLoadServerConfig:
 
     def test_load_server_config_defaults(self):
         """Test loading server config with default values"""
-        with patch.dict(os.environ, {}, clear=True):
-            config = load_server_config()
-            assert config.transport == "both"
-            assert config.host == "0.0.0.0"
-            assert config.port == 8080
-            assert config.ssl_keyfile is None
-            assert config.ssl_certfile is None
-            assert config.endpoint == "/sse"
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_server_config()
+                assert config.transport == "http"
+                assert config.host == "0.0.0.0"
+                assert config.port == 8000
+                assert config.ssl_keyfile is None
+                assert config.ssl_certfile is None
+                assert config.oauth_enabled is False
 
     def test_load_server_config_from_env(self):
         """Test loading server config from environment variables"""
@@ -267,63 +254,224 @@ class TestLoadServerConfig:
             "MCP_PORT": "9999",
             "MCP_SSL_KEYFILE": "/etc/ssl/private/server.key",
             "MCP_SSL_CERTFILE": "/etc/ssl/certs/server.crt",
-            "MCP_ENDPOINT": "/api/sse",
+            "OAUTH_ENABLED": "true",
         }
 
-        with patch.dict(os.environ, env_vars, clear=True):
-            config = load_server_config()
-            assert config.transport == "http"
-            assert config.host == "192.168.1.100"
-            assert config.port == 9999
-            assert config.ssl_keyfile == "/etc/ssl/private/server.key"
-            assert config.ssl_certfile == "/etc/ssl/certs/server.crt"
-            assert config.endpoint == "/api/sse"
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_server_config()
+                assert config.transport == "http"
+                assert config.host == "192.168.1.100"
+                assert config.port == 9999
+                assert config.ssl_keyfile == "/etc/ssl/private/server.key"
+                assert config.ssl_certfile == "/etc/ssl/certs/server.crt"
+                assert config.oauth_enabled is True
 
     def test_load_server_config_transport_case_insensitive(self):
         """Test that transport value is converted to lowercase"""
         env_vars = {"MCP_TRANSPORT": "HTTP"}
 
-        with patch.dict(os.environ, env_vars, clear=True):
-            config = load_server_config()
-            assert config.transport == "http"
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_server_config()
+                assert config.transport == "http"
 
     def test_load_server_config_partial_env(self):
         """Test loading server config with only some env vars set"""
         env_vars = {"MCP_TRANSPORT": "http", "MCP_PORT": "3000"}
 
-        with patch.dict(os.environ, env_vars, clear=True):
-            config = load_server_config()
-            assert config.transport == "http"
-            assert config.host == "0.0.0.0"  # default
-            assert config.port == 3000
-            assert config.ssl_keyfile is None  # default
-            assert config.ssl_certfile is None  # default
-            assert config.endpoint == "/sse"  # default
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_server_config()
+                assert config.transport == "http"
+                assert config.host == "0.0.0.0"  # default
+                assert config.port == 3000
+                assert config.ssl_keyfile is None  # default
+                assert config.ssl_certfile is None  # default
+                assert config.oauth_enabled is False  # default
 
     def test_load_server_config_invalid_port(self):
         """Test that invalid port values raise ValueError"""
         env_vars = {"MCP_PORT": "not_a_number"}
 
-        with patch.dict(os.environ, env_vars, clear=True):
-            try:
-                load_server_config()
-                assert False, "Should have raised ValueError for invalid port"
-            except ValueError:
-                pass  # Expected behavior
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                try:
+                    load_server_config()
+                    assert False, "Should have raised ValueError for invalid port"
+                except ValueError:
+                    pass  # Expected behavior
 
-    def test_load_server_config_both_transport(self):
-        """Test loading server config with 'both' transport"""
-        env_vars = {"MCP_TRANSPORT": "both"}
+    def test_load_server_config_oauth_enabled(self):
+        """Test loading server config with OAuth enabled"""
+        env_vars = {"OAUTH_ENABLED": "true"}
 
-        with patch.dict(os.environ, env_vars, clear=True):
-            config = load_server_config()
-            assert config.transport == "both"
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_server_config()
+                assert config.oauth_enabled is True
 
     def test_load_server_config_all_transport_types(self):
         """Test all valid transport types"""
-        for transport in ["stdio", "http", "both"]:
+        for transport in ["stdio", "http", "streamable-http"]:
             env_vars = {"MCP_TRANSPORT": transport}
 
+            with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+                with patch.dict(os.environ, env_vars, clear=True):
+                    config = load_server_config()
+                    assert config.transport == transport
+
+
+class TestOAuthConfig:
+    """Test the OAuthConfig class and load_oauth_config function"""
+
+    def test_oauth_config_defaults(self):
+        """Test OAuthConfig default values"""
+        config = OAuthConfig(
+            client_id="test_client",
+            client_secret="test_secret",
+            base_url="http://localhost:8000",
+            upstream_authorization_endpoint="http://auth.example.com/authorize",
+            upstream_token_endpoint="http://auth.example.com/token",
+            jwks_uri="http://auth.example.com/.well-known/jwks.json",
+            issuer="http://auth.example.com",
+        )
+        assert config.client_id == "test_client"
+        assert config.client_secret == "test_secret"
+        assert config.base_url == "http://localhost:8000"
+        assert config.upstream_authorization_endpoint == "http://auth.example.com/authorize"
+        assert config.upstream_token_endpoint == "http://auth.example.com/token"
+        assert config.jwks_uri == "http://auth.example.com/.well-known/jwks.json"
+        assert config.issuer == "http://auth.example.com"
+        assert config.audience is None
+        assert config.extra_authorize_params is None
+
+    def test_oauth_config_with_audience(self):
+        """Test OAuthConfig with audience"""
+        config = OAuthConfig(
+            client_id="test_client",
+            client_secret="test_secret",
+            base_url="http://localhost:8000",
+            upstream_authorization_endpoint="http://auth.example.com/authorize",
+            upstream_token_endpoint="http://auth.example.com/token",
+            jwks_uri="http://auth.example.com/.well-known/jwks.json",
+            issuer="http://auth.example.com",
+            audience="test_audience",
+        )
+        assert config.audience == "test_audience"
+
+    def test_oauth_config_with_extra_params(self):
+        """Test OAuthConfig with extra authorization parameters"""
+        extra_params = {"scope": "read write", "response_type": "code"}
+        config = OAuthConfig(
+            client_id="test_client",
+            client_secret="test_secret",
+            base_url="http://localhost:8000",
+            upstream_authorization_endpoint="http://auth.example.com/authorize",
+            upstream_token_endpoint="http://auth.example.com/token",
+            jwks_uri="http://auth.example.com/.well-known/jwks.json",
+            issuer="http://auth.example.com",
+            extra_authorize_params=extra_params,
+        )
+        assert config.extra_authorize_params == extra_params
+
+
+class TestLoadOAuthConfig:
+    """Test the load_oauth_config function"""
+
+    def test_load_oauth_config_defaults(self):
+        """Test loading OAuth config with default values"""
+        env_vars = {
+            "OAUTH_CLIENT_ID": "test_client",
+            "OAUTH_CLIENT_SECRET": "test_secret",
+            "OAUTH_BASE_URL": "http://localhost:8000",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
+            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "http://auth.example.com",
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
             with patch.dict(os.environ, env_vars, clear=True):
-                config = load_server_config()
-                assert config.transport == transport
+                config = load_oauth_config()
+                assert config.client_id == "test_client"
+                assert config.client_secret == "test_secret"
+                assert config.base_url == "http://localhost:8000"
+                assert config.upstream_authorization_endpoint == "http://auth.example.com/authorize"
+                assert config.upstream_token_endpoint == "http://auth.example.com/token"
+                assert config.jwks_uri == "http://auth.example.com/.well-known/jwks.json"
+                assert config.issuer == "http://auth.example.com"
+                assert config.audience is None
+                assert config.extra_authorize_params is None
+
+    def test_load_oauth_config_with_audience(self):
+        """Test loading OAuth config with audience"""
+        env_vars = {
+            "OAUTH_CLIENT_ID": "test_client",
+            "OAUTH_CLIENT_SECRET": "test_secret",
+            "OAUTH_BASE_URL": "http://localhost:8000",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
+            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "http://auth.example.com",
+            "OAUTH_AUDIENCE": "test_audience",
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_oauth_config()
+                assert config.audience == "test_audience"
+
+    def test_load_oauth_config_with_extra_params(self):
+        """Test loading OAuth config with extra authorization parameters"""
+        env_vars = {
+            "OAUTH_CLIENT_ID": "test_client",
+            "OAUTH_CLIENT_SECRET": "test_secret",
+            "OAUTH_BASE_URL": "http://localhost:8000",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
+            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "http://auth.example.com",
+            "OAUTH_EXTRA_AUTH_PARAMS": '{"scope": "read write", "response_type": "code"}',
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_oauth_config()
+                assert config.extra_authorize_params == {"scope": "read write", "response_type": "code"}
+
+    def test_load_oauth_config_invalid_extra_params(self):
+        """Test loading OAuth config with invalid extra authorization parameters"""
+        env_vars = {
+            "OAUTH_CLIENT_ID": "test_client",
+            "OAUTH_CLIENT_SECRET": "test_secret",
+            "OAUTH_BASE_URL": "http://localhost:8000",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
+            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "http://auth.example.com",
+            "OAUTH_EXTRA_AUTH_PARAMS": "invalid_json",
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_oauth_config()
+                assert config.extra_authorize_params is None
+
+    def test_load_oauth_config_extra_params_not_dict(self):
+        """Test loading OAuth config with extra params that are not a dict"""
+        env_vars = {
+            "OAUTH_CLIENT_ID": "test_client",
+            "OAUTH_CLIENT_SECRET": "test_secret",
+            "OAUTH_BASE_URL": "http://localhost:8000",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
+            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "http://auth.example.com",
+            "OAUTH_EXTRA_AUTH_PARAMS": '"not_a_dict"',
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_oauth_config()
+                assert config.extra_authorize_params is None

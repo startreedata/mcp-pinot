@@ -12,7 +12,7 @@
 
 ## Overview
 
-This project is a Python-based [Model Context Protocol (MCP)](https://github.com/anthropic-ai/mcp) server for interacting with Apache Pinot. It is designed to integrate with Claude Desktop to enable real-time analytics and metadata queries on a Pinot cluster.
+This project is a Python-based [Model Context Protocol (MCP)](https://github.com/anthropic-ai/mcp) server for interacting with Apache Pinot. It is built using the [FastMCP framework](https://github.com/jlowin/fastmcp). It is designed to integrate with Claude Desktop to enable real-time analytics and metadata queries on a Pinot cluster.
 
 It allows you to
 - List tables, segments, and schema info from Pinot
@@ -77,12 +77,42 @@ The MCP server expects a uvicorn config style `.env` file in the root directory 
 mv .env.example .env
 ```
 
+### Configure OAuth Authentication (Optional)
+To enable OAuth authentication, set the following environment variables in your `.env` file:
+
+**Required variables (when `OAUTH_ENABLED=true`):**
+- `OAUTH_CLIENT_ID`: OAuth client ID
+- `OAUTH_CLIENT_SECRET`: OAuth client secret
+- `OAUTH_BASE_URL`: Your MCP server base URL
+- `OAUTH_AUTHORIZATION_ENDPOINT`: OAuth authorization endpoint URL
+- `OAUTH_TOKEN_ENDPOINT`: OAuth token endpoint URL
+- `OAUTH_JWKS_URI`: JSON Web Key Set URI for token verification
+- `OAUTH_ISSUER`: Token issuer identifier
+
+**Optional variables:**
+- `OAUTH_AUDIENCE`: Expected audience claim for token validation
+- `OAUTH_EXTRA_AUTH_PARAMS`: Additional authorization parameters as JSON object (e.g., `{"scope": "openid profile"}`)
+
+Example configuration:
+```bash
+OAUTH_ENABLED=true
+OAUTH_CLIENT_ID=client-id
+OAUTH_CLIENT_SECRET=client-secret
+OAUTH_BASE_URL=http://localhost:8000
+OAUTH_AUTHORIZATION_ENDPOINT=https://example.com/oauth/authorize
+OAUTH_TOKEN_ENDPOINT=https://example.com/oauth/token
+OAUTH_JWKS_URI=https://example.com/.well-known/jwks.json
+OAUTH_ISSUER=https://example.com
+OAUTH_AUDIENCE=client-id
+OAUTH_EXTRA_AUTH_PARAMS={"scope": "openid profile"}
+```
+
 ### Run the server
 
 ```bash
 uv --directory . run mcp_pinot/server.py
 ```
-You should see logs indicating that the server is running and listening on STDIO.
+You should see logs indicating that the server is running.
 
 ### Launch Pinot Quickstart (Optional)
 
@@ -95,7 +125,7 @@ docker run --name pinot-quickstart -p 2123:2123 -p 9000:9000 -p 8000:8000 -d apa
 Query MCP Server
 
 ```bash
-uv --directory . run tests/test_service/test_pinot_quickstart.py
+uv --directory . run examples/example_client.py
 ```
 
 This quickstart just checks all the tools and queries the airlineStats table.
@@ -129,6 +159,8 @@ vi ~/Library/Application\ Support/Claude/claude_desktop_config.json
 Replace `/path/to/uv` with the absolute path to the uv command, you can run `which uv` to figure it out.
 
 Replace `/path/to/mcp-pinot` with the absolute path to the folder where you cloned this repo.
+
+Note: you must use stdio transport when running your server.
 
 You could also configure environment variables here instead of the `.env` file, in case you want to connect to multiple pinot clusters as MCP servers.
 

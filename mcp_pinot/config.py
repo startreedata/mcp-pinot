@@ -1,9 +1,34 @@
 from dataclasses import dataclass
+import json
 import logging
 import os
+import sys
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
+
+
+def setup_logging():
+    """Set up basic logging configuration."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stdout,
+        force=True
+    )
+
+
+def get_logger(name: str = "mcp-pinot") -> logging.Logger:
+    """Get a logger instance."""
+    return logging.getLogger(name)
+
+
+# Initialize logging when module is imported
+setup_logging()
+
+# Create a default logger for this module
+logger = get_logger()
 
 
 @dataclass
@@ -28,12 +53,27 @@ class PinotConfig:
 class ServerConfig:
     """Configuration container for MCP server transport settings"""
 
-    transport: str = "both"  # "stdio", "http", or "both"
+    transport: str = "http" 
     host: str = "0.0.0.0"
-    port: int = 8080
+    port: int = 8000
     ssl_keyfile: str | None = None
     ssl_certfile: str | None = None
-    endpoint: str = "/sse"
+    oauth_enabled: bool = False
+
+
+@dataclass
+class OAuthConfig:
+    """Configuration container for OAuth authentication settings"""
+
+    client_id: str
+    client_secret: str
+    base_url: str
+    upstream_authorization_endpoint: str
+    upstream_token_endpoint: str
+    jwks_uri: str
+    issuer: str
+    audience: str | None = None
+    extra_authorize_params: dict[str, str] | None = None
 
 
 def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
@@ -50,7 +90,7 @@ def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
         scheme = parsed.scheme or "http"
         return host, port, scheme
     except Exception as e:
-        logging.warning(
+        logger.warning(
             f"Failed to parse PINOT_BROKER_URL '{broker_url}': {e}. Using defaults."
         )
         return "localhost", 80, "http"
@@ -81,7 +121,7 @@ def load_pinot_config() -> PinotConfig:
             os.getenv("PINOT_BROKER_HOST")
             and os.getenv("PINOT_BROKER_HOST") != url_host
         ):
-            logging.warning(
+            logger.warning(
                 f"PINOT_BROKER_HOST='{broker_host}' overrides host "
                 f"'{url_host}' from PINOT_BROKER_URL"
             )
@@ -89,7 +129,7 @@ def load_pinot_config() -> PinotConfig:
             os.getenv("PINOT_BROKER_PORT")
             and int(os.getenv("PINOT_BROKER_PORT")) != url_port
         ):
-            logging.warning(
+            logger.warning(
                 f"PINOT_BROKER_PORT='{broker_port}' overrides port "
                 f"'{url_port}' from PINOT_BROKER_URL"
             )
@@ -97,7 +137,7 @@ def load_pinot_config() -> PinotConfig:
             os.getenv("PINOT_BROKER_SCHEME")
             and os.getenv("PINOT_BROKER_SCHEME") != url_scheme
         ):
-            logging.warning(
+            logger.warning(
                 f"PINOT_BROKER_SCHEME='{broker_scheme}' overrides scheme "
                 f"'{url_scheme}' from PINOT_BROKER_URL"
             )
@@ -123,10 +163,41 @@ def load_server_config() -> ServerConfig:
     load_dotenv(override=True)
 
     return ServerConfig(
-        transport=os.getenv("MCP_TRANSPORT", "both").lower(),
+        transport=os.getenv("MCP_TRANSPORT", "http").lower(),
         host=os.getenv("MCP_HOST", "0.0.0.0"),
-        port=int(os.getenv("MCP_PORT", "8080")),
+        port=int(os.getenv("MCP_PORT", "8000")),
         ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
         ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
-        endpoint=os.getenv("MCP_ENDPOINT", "/sse"),
+        oauth_enabled=os.getenv("OAUTH_ENABLED", "false").lower() == "true",
+    )
+
+
+def load_oauth_config() -> OAuthConfig:
+    """Load and return OAuth configuration from environment variables"""
+    load_dotenv(override=True)
+
+    # Parse extra authorization parameters from environment variables
+    # Format: OAUTH_EXTRA_AUTH_PARAMS='{"param1": "value1", "param2": "value2"}'
+    extra_authorize_params = None
+    extra_params_str = os.getenv("OAUTH_EXTRA_AUTH_PARAMS")
+    if extra_params_str:
+        try:
+            extra_authorize_params = json.loads(extra_params_str)
+            if not isinstance(extra_authorize_params, dict):
+                logger.warning("OAUTH_EXTRA_AUTH_PARAMS must be a JSON object. Ignoring.")
+                extra_authorize_params = None
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Invalid OAUTH_EXTRA_AUTH_PARAMS JSON: {e}. Ignoring.")
+            extra_authorize_params = None
+
+    return OAuthConfig(
+        client_id=os.getenv("OAUTH_CLIENT_ID", ""),
+        client_secret=os.getenv("OAUTH_CLIENT_SECRET", ""),
+        base_url=os.getenv("OAUTH_BASE_URL", "http://localhost:8000"),
+        upstream_authorization_endpoint=os.getenv("OAUTH_AUTHORIZATION_ENDPOINT", ""),
+        upstream_token_endpoint=os.getenv("OAUTH_TOKEN_ENDPOINT", ""),
+        jwks_uri=os.getenv("OAUTH_JWKS_URI", ""),
+        issuer=os.getenv("OAUTH_ISSUER", ""),
+        audience=os.getenv("OAUTH_AUDIENCE"),
+        extra_authorize_params=extra_authorize_params,
     )

@@ -77,6 +77,36 @@ The MCP server expects a uvicorn config style `.env` file in the root directory 
 mv .env.example .env
 ```
 
+### Configure OAuth Authentication (Optional)
+To enable OAuth authentication, set the following environment variables in your `.env` file:
+
+**Required variables (when `OAUTH_ENABLED=true`):**
+- `OAUTH_CLIENT_ID`: OAuth client ID
+- `OAUTH_CLIENT_SECRET`: OAuth client secret
+- `OAUTH_BASE_URL`: Your MCP server base URL
+- `OAUTH_AUTHORIZATION_ENDPOINT`: OAuth authorization endpoint URL
+- `OAUTH_TOKEN_ENDPOINT`: OAuth token endpoint URL
+- `OAUTH_JWKS_URI`: JSON Web Key Set URI for token verification
+- `OAUTH_ISSUER`: Token issuer identifier
+
+**Optional variables:**
+- `OAUTH_AUDIENCE`: Expected audience claim for token validation
+- `OAUTH_EXTRA_AUTH_PARAMS`: Additional authorization parameters as JSON object (e.g., `{"scope": "openid profile"}`)
+
+Example configuration:
+```bash
+OAUTH_ENABLED=true
+OAUTH_CLIENT_ID=client-id
+OAUTH_CLIENT_SECRET=client-secret
+OAUTH_BASE_URL=http://localhost:8000
+OAUTH_AUTHORIZATION_ENDPOINT=https://example.com/oauth/authorize
+OAUTH_TOKEN_ENDPOINT=https://example.com/oauth/token
+OAUTH_JWKS_URI=https://example.com/.well-known/jwks.json
+OAUTH_ISSUER=https://example.com
+OAUTH_AUDIENCE=client-id
+OAUTH_EXTRA_AUTH_PARAMS={"scope": "openid profile"}
+```
+
 ### Run the server
 
 ```bash

@@ -9,7 +9,6 @@ import json
 from typing import Optional
 
 from fastmcp import FastMCP
-from fastmcp.server.auth.providers.jwt import JWTVerifier
 import uvicorn
 
 from mcp_pinot.config import load_pinot_config, load_server_config

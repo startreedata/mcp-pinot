@@ -293,7 +293,6 @@ class TestLoadServerConfig:
                 except ValueError:
                     pass  # Expected behavior
 
-
     def test_load_server_config_all_transport_types(self):
         """Test all valid transport types"""
         for transport in ["stdio", "http", "streamable-http"]:
@@ -303,5 +302,3 @@ class TestLoadServerConfig:
                 with patch.dict(os.environ, env_vars, clear=True):
                     config = load_server_config()
                     assert config.transport == transport
-
-

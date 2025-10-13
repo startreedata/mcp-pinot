@@ -150,5 +150,5 @@ def load_server_config() -> ServerConfig:
         host=os.getenv("MCP_HOST", "0.0.0.0"),
         port=int(os.getenv("MCP_PORT", "8080")),
         ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
-        ssl_certfile=os.getenv("MCP_SSL_CERTFILE")
+        ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
     )

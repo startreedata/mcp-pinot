@@ -310,6 +310,7 @@ class TestFastMCPServer:
             assert hasattr(result.messages[0].content, "text")
             assert len(result.messages[0].content.text) > 0
 
+
 class TestMainFunction:
     """Test the main function with different configurations"""
 

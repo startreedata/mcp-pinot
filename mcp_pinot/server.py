@@ -206,14 +206,13 @@ def main():
     """Main entry point for FastMCP Pinot Server"""
     tls_enabled = server_config.ssl_keyfile and server_config.ssl_certfile
     if tls_enabled:
-        app = mcp.http_app()
+        app = mcp.http_app(path=server_config.path)
         uvicorn.run(
             app,
             host=server_config.host,
             port=server_config.port,
             ssl_keyfile=server_config.ssl_keyfile,
             ssl_certfile=server_config.ssl_certfile,
-            path=server_config.path
         )
     elif server_config.transport == "stdio":
         # stdio transport - no configuration needed
@@ -223,7 +222,7 @@ def main():
             transport=server_config.transport,
             host=server_config.host,
             port=server_config.port,
-            path=server_config.path
+            path=server_config.path,
         )
 
 

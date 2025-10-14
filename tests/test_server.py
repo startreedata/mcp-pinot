@@ -316,6 +316,7 @@ class TestFastMCPServer:
         # Mock client to raise exception
         mock_pinot_client.test_connection.side_effect = Exception("Connection failed")
 
+
 class TestMainFunction:
     """Test the main function with different configurations"""
 
@@ -345,6 +346,7 @@ class TestMainFunction:
             mock_server_config.port = 8000
             mock_server_config.ssl_keyfile = "/path/to/key.pem"
             mock_server_config.ssl_certfile = "/path/to/cert.pem"
+            mock_server_config.path = "/mcp"
 
             with patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run:
                 # Call the main function
@@ -380,6 +382,9 @@ class TestMainFunction:
             mock_server_config.transport = "stdio"
             mock_server_config.host = "0.0.0.0"
             mock_server_config.port = 8000
+            mock_server_config.path = "/mcp"
+            mock_server_config.ssl_keyfile = None
+            mock_server_config.ssl_certfile = None
 
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
                 # Call the main function

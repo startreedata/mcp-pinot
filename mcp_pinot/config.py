@@ -59,6 +59,7 @@ class ServerConfig:
     ssl_keyfile: str | None = None
     ssl_certfile: str | None = None
     oauth_enabled: bool = False
+    path: str = "/mcp"
 
 
 @dataclass
@@ -169,6 +170,7 @@ def load_server_config() -> ServerConfig:
         ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
         ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
         oauth_enabled=os.getenv("OAUTH_ENABLED", "false").lower() == "true",
+        path=os.getenv("MCP_PATH", "/mcp"),
     )
 
 

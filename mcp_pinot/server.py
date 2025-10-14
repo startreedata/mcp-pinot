@@ -226,11 +226,8 @@ def pinot_query() -> str:
 def main():
     """Main entry point for FastMCP Pinot Server"""
     tls_enabled = server_config.ssl_keyfile and server_config.ssl_certfile
-    if (
-        server_config.transport == "http"
-        or server_config.transport == "streamable-http"
-    ) and tls_enabled:
-        app = mcp.http_app()
+    if tls_enabled:
+        app = mcp.http_app(path=server_config.path)
         uvicorn.run(
             app,
             host=server_config.host,
@@ -238,11 +235,15 @@ def main():
             ssl_keyfile=server_config.ssl_keyfile,
             ssl_certfile=server_config.ssl_certfile,
         )
+    elif server_config.transport == "stdio":
+        # stdio transport - no configuration needed
+        mcp.run(transport=server_config.transport)
     else:
         mcp.run(
             transport=server_config.transport,
             host=server_config.host,
             port=server_config.port,
+            path=server_config.path,
         )
 
 

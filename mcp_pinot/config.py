@@ -57,6 +57,7 @@ class ServerConfig:
     port: int = 8080
     ssl_keyfile: str | None = None
     ssl_certfile: str | None = None
+    path: str = "/mcp"
 
 
 def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
@@ -151,4 +152,5 @@ def load_server_config() -> ServerConfig:
         port=int(os.getenv("MCP_PORT", "8080")),
         ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
         ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
+        path=os.getenv("MCP_PATH", "/mcp"),
     )

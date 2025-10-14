@@ -94,6 +94,17 @@ mcp:
     enabled: false
     keyFile: "/etc/ssl/tls.key"
     certFile: "/etc/ssl/tls.crt"
+  oauth:
+    enabled: false
+    clientId: ""
+    clientSecret: ""
+    baseUrl: "http://localhost:8000"
+    upstreamAuthorizationEndpoint: ""
+    upstreamTokenEndpoint: ""
+    jwksUri: ""
+    issuer: ""
+    audience: ""
+    extraAuthorizeParams: {}
 
 # Pinot Configuration
 pinot:

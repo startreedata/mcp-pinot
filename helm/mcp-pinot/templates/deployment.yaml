@@ -82,6 +82,38 @@ spec:
                   optional: true
             {{- end }}
             
+            # OAuth Configuration
+            - name: OAUTH_ENABLED
+              value: {{ .Values.mcp.oauth.enabled | quote }}
+            {{- if .Values.mcp.oauth.enabled }}
+            - name: OAUTH_AUTHORIZATION_ENDPOINT
+              value: {{ .Values.mcp.oauth.upstreamAuthorizationEndpoint | quote }}
+            - name: OAUTH_TOKEN_ENDPOINT
+              value: {{ .Values.mcp.oauth.upstreamTokenEndpoint | quote }}
+            - name: OAUTH_JWKS_URI
+              value: {{ .Values.mcp.oauth.jwksUri | quote }}
+            - name: OAUTH_ISSUER
+              value: {{ .Values.mcp.oauth.issuer | quote }}
+            - name: OAUTH_CLIENT_ID
+              value: {{ .Values.mcp.oauth.clientId | quote }}
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mcp-pinot.fullname" . }}-secrets
+                  key: oauth-client-secret
+                  optional: true
+            - name: OAUTH_BASE_URL
+              value: {{ .Values.mcp.oauth.baseUrl | quote }}
+            {{- if .Values.mcp.oauth.audience }}
+            - name: OAUTH_AUDIENCE
+              value: {{ .Values.mcp.oauth.audience | quote }}
+            {{- end }}
+            {{- if .Values.mcp.oauth.extraAuthorizeParams }}
+            - name: OAUTH_EXTRA_AUTH_PARAMS
+              value: {{ .Values.mcp.oauth.extraAuthorizeParams | toJson | quote }}
+            {{- end }}
+            {{- end }}
+            
             # Additional environment variables
             {{- with .Values.env.additional }}
             {{- toYaml . | nindent 12 }}

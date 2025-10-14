@@ -53,15 +53,28 @@ jobs:
         PINOT_BROKER_PORT=8000
         PINOT_BROKER_SCHEME=http
         PINOT_USE_MSQE=true
+        MCP_PORT=8080
         EOL
     
     - name: Run quickstart test
       run: |
+        cat .env
         source .venv/bin/activate
-        uv --directory . run tests/test_service/test_pinot_quickstart.py
+        # Start server in background
+        uv --directory . run mcp_pinot/server.py &
+        SERVER_PID=$!
+
+        # Wait a moment for server to start
+        sleep 5
+
+        # Run the client test
+        uv --directory . run examples/example_client.py
+
+        # Clean up server process
+        kill $SERVER_PID || true
     
     - name: Cleanup
       if: always()
       run: |
         docker stop pinot-quickstart || true
-        docker rm pinot-quickstart || true 
+        docker rm pinot-quickstart || true

@@ -2,10 +2,11 @@
 name = "mcp-pinot-server"
 version = "0.1.0"
 description = "A production-grade MCP server for Apache Pinot"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.6.0",
+    "fastmcp>=0.1.0",
     "pinotdb>=5.6.0",
     "uvicorn[standard]>=0.34.0",
     "python-dotenv>=1.0.1",
@@ -37,7 +38,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["mcp_pinot", "mcp_pinot.utils"]
+packages = ["mcp_pinot"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -74,6 +75,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
     "S101",   # assert statements
+    "S105",   # hardcoded passwords in test fixtures
     "S106",   # hardcoded passwords in fixtures
     "S108",   # temp files
 ]

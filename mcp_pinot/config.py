@@ -1,9 +1,33 @@
 from dataclasses import dataclass
 import logging
 import os
+import sys
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
+
+
+def setup_logging():
+    """Set up basic logging configuration."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stdout,
+        force=True,
+    )
+
+
+def get_logger(name: str = "mcp-pinot") -> logging.Logger:
+    """Get a logger instance."""
+    return logging.getLogger(name)
+
+
+# Initialize logging when module is imported
+setup_logging()
+
+# Create a default logger for this module
+logger = get_logger()
 
 
 @dataclass
@@ -28,12 +52,12 @@ class PinotConfig:
 class ServerConfig:
     """Configuration container for MCP server transport settings"""
 
-    transport: str = "both"  # "stdio", "http", or "both"
+    transport: str = "http"
     host: str = "0.0.0.0"
     port: int = 8080
     ssl_keyfile: str | None = None
     ssl_certfile: str | None = None
-    endpoint: str = "/sse"
+    path: str = "/mcp"
 
 
 def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
@@ -50,7 +74,7 @@ def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
         scheme = parsed.scheme or "http"
         return host, port, scheme
     except Exception as e:
-        logging.warning(
+        logger.warning(
             f"Failed to parse PINOT_BROKER_URL '{broker_url}': {e}. Using defaults."
         )
         return "localhost", 80, "http"
@@ -81,7 +105,7 @@ def load_pinot_config() -> PinotConfig:
             os.getenv("PINOT_BROKER_HOST")
             and os.getenv("PINOT_BROKER_HOST") != url_host
         ):
-            logging.warning(
+            logger.warning(
                 f"PINOT_BROKER_HOST='{broker_host}' overrides host "
                 f"'{url_host}' from PINOT_BROKER_URL"
             )
@@ -89,7 +113,7 @@ def load_pinot_config() -> PinotConfig:
             os.getenv("PINOT_BROKER_PORT")
             and int(os.getenv("PINOT_BROKER_PORT")) != url_port
         ):
-            logging.warning(
+            logger.warning(
                 f"PINOT_BROKER_PORT='{broker_port}' overrides port "
                 f"'{url_port}' from PINOT_BROKER_URL"
             )
@@ -97,7 +121,7 @@ def load_pinot_config() -> PinotConfig:
             os.getenv("PINOT_BROKER_SCHEME")
             and os.getenv("PINOT_BROKER_SCHEME") != url_scheme
         ):
-            logging.warning(
+            logger.warning(
                 f"PINOT_BROKER_SCHEME='{broker_scheme}' overrides scheme "
                 f"'{url_scheme}' from PINOT_BROKER_URL"
             )
@@ -123,10 +147,10 @@ def load_server_config() -> ServerConfig:
     load_dotenv(override=True)
 
     return ServerConfig(
-        transport=os.getenv("MCP_TRANSPORT", "both").lower(),
+        transport=os.getenv("MCP_TRANSPORT", "http").lower(),
         host=os.getenv("MCP_HOST", "0.0.0.0"),
         port=int(os.getenv("MCP_PORT", "8080")),
         ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
         ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
-        endpoint=os.getenv("MCP_ENDPOINT", "/sse"),
+        path=os.getenv("MCP_PATH", "/mcp"),
     )

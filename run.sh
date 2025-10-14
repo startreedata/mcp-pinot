@@ -8,4 +8,4 @@ if [ -f /app/config/.env ]; then
 fi
 
 # Run Python with unbuffered output
-PYTHONUNBUFFERED=1 python -c "import asyncio; from mcp_pinot.server import main; asyncio.run(main())" 
+PYTHONUNBUFFERED=1 python -c "from mcp_pinot.server import main; main()" 

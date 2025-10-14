@@ -12,7 +12,7 @@
 
 ## Overview
 
-This project is a Python-based [Model Context Protocol (MCP)](https://github.com/anthropic-ai/mcp) server for interacting with Apache Pinot. It is designed to integrate with Claude Desktop to enable real-time analytics and metadata queries on a Pinot cluster.
+This project is a Python-based [Model Context Protocol (MCP)](https://github.com/anthropic-ai/mcp) server for interacting with Apache Pinot. It is built using the [FastMCP framework](https://github.com/jlowin/fastmcp). It is designed to integrate with Claude Desktop to enable real-time analytics and metadata queries on a Pinot cluster.
 
 It allows you to
 - List tables, segments, and schema info from Pinot
@@ -82,7 +82,7 @@ mv .env.example .env
 ```bash
 uv --directory . run mcp_pinot/server.py
 ```
-You should see logs indicating that the server is running and listening on STDIO.
+You should see logs indicating that the server is running.
 
 ### Launch Pinot Quickstart (Optional)
 
@@ -95,7 +95,7 @@ docker run --name pinot-quickstart -p 2123:2123 -p 9000:9000 -p 8000:8000 -d apa
 Query MCP Server
 
 ```bash
-uv --directory . run tests/test_service/test_pinot_quickstart.py
+uv --directory . run examples/example_client.py
 ```
 
 This quickstart just checks all the tools and queries the airlineStats table.
@@ -129,6 +129,8 @@ vi ~/Library/Application\ Support/Claude/claude_desktop_config.json
 Replace `/path/to/uv` with the absolute path to the uv command, you can run `which uv` to figure it out.
 
 Replace `/path/to/mcp-pinot` with the absolute path to the folder where you cloned this repo.
+
+Note: you must use stdio transport when integrating with Claude desktop.
 
 You could also configure environment variables here instead of the `.env` file, in case you want to connect to multiple pinot clusters as MCP servers.
 

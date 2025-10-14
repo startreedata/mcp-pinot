@@ -310,13 +310,6 @@ class TestFastMCPServer:
             assert hasattr(result.messages[0].content, "text")
             assert len(result.messages[0].content.text) > 0
 
-    @pytest.mark.asyncio
-    async def test_tool_test_connection_error(self, mock_pinot_client):
-        """Test the test_connection tool with error"""
-        # Mock client to raise exception
-        mock_pinot_client.test_connection.side_effect = Exception("Connection failed")
-
-
 class TestMainFunction:
     """Test the main function with different configurations"""
 

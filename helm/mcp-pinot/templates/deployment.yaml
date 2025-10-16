@@ -46,6 +46,8 @@ spec:
               value: {{ .Values.mcp.host | quote }}
             - name: MCP_PORT
               value: {{ .Values.mcp.port | quote }}
+            - name: MCP_PATH
+              value: {{ .Values.mcp.path | quote }}
             {{- if .Values.mcp.ssl.enabled }}
             - name: MCP_SSL_KEYFILE
               value: {{ .Values.mcp.ssl.keyFile | quote }}

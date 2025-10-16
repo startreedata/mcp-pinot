@@ -185,7 +185,7 @@ def load_pinot_config() -> PinotConfig:
         token = _read_token_from_file(token_filename)
         if token is None:
             logger.warning(
-                f"Failed to read token from file {token_filename}, continuing without token"
+                f"Failed to read token from {token_filename}, continuing without token"
             )
 
     return PinotConfig(

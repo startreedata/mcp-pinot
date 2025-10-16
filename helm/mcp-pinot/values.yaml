@@ -90,6 +90,7 @@ mcp:
   transport: "http"
   host: "0.0.0.0"
   port: 8000
+  path: "/mcp"
   ssl:
     enabled: false
     keyFile: "/etc/ssl/tls.key"
@@ -119,6 +120,7 @@ pinot:
     username: ""
     password: ""
     token: ""
+    tokenFilename: ""
 
 # Health check configuration
 healthCheck:

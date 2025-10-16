@@ -97,6 +97,39 @@ def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
         return "localhost", 80, "http"
 
 
+def _read_token_from_file(token_filename: str) -> str | None:
+    """Read token from file and return it, handling errors gracefully"""
+    try:
+        if not os.path.exists(token_filename):
+            logger.error(f"Token file not found: {token_filename}")
+            return None
+
+        if not os.path.isfile(token_filename):
+            logger.error(f"Token path is not a file: {token_filename}")
+            return None
+
+        with open(token_filename, "r", encoding="utf-8") as f:
+            token = f.read().strip()
+
+        if not token:
+            logger.warning(f"Token file is empty: {token_filename}")
+            return None
+
+        # Add Bearer prefix if not already present
+        if not token.startswith("Bearer "):
+            token = f"Bearer {token}"
+
+        logger.debug(f"Successfully read token from file: {token_filename}")
+        return token
+
+    except PermissionError:
+        logger.error(f"Permission denied reading token file: {token_filename}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to read token from file {token_filename}: {e}")
+        return None
+
+
 def load_pinot_config() -> PinotConfig:
     """Load and return Pinot configuration from environment variables"""
     load_dotenv(override=True)
@@ -143,6 +176,18 @@ def load_pinot_config() -> PinotConfig:
                 f"'{url_scheme}' from PINOT_BROKER_URL"
             )
 
+    # Load token, prioritizing direct token over token file
+    token = os.getenv("PINOT_TOKEN")
+    token_filename = os.getenv("PINOT_TOKEN_FILENAME")
+
+    # If no direct token but token filename is provided, read from file
+    if not token and token_filename:
+        token = _read_token_from_file(token_filename)
+        if token is None:
+            logger.warning(
+                f"Failed to read token from file {token_filename}, continuing without token"
+            )
+
     return PinotConfig(
         controller_url=os.getenv("PINOT_CONTROLLER_URL", "http://localhost:9000"),
         broker_host=broker_host,
@@ -150,7 +195,7 @@ def load_pinot_config() -> PinotConfig:
         broker_scheme=broker_scheme,
         username=os.getenv("PINOT_USERNAME"),
         password=os.getenv("PINOT_PASSWORD"),
-        token=os.getenv("PINOT_TOKEN"),
+        token=token,
         database=os.getenv("PINOT_DATABASE", ""),
         use_msqe=os.getenv("PINOT_USE_MSQE", "false").lower() == "true",
         request_timeout=int(os.getenv("PINOT_REQUEST_TIMEOUT", "60")),

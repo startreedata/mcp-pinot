@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (e.g., v1.0.0)'
-        required: true
-        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -126,13 +120,7 @@ jobs:
 
     - name: Update Helm Chart Version
       run: |
-        # Get version from tag or input
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          VERSION="${{ github.event.inputs.version }}"
-        else
-          VERSION=${GITHUB_REF#refs/tags/}
-        fi
-        
+        VERSION=${GITHUB_REF#refs/tags/}
         echo "Updating Chart.yaml version to: $VERSION"
         
         # Update Chart.yaml with the Git tag version
@@ -156,28 +144,13 @@ jobs:
 
     - name: Push Helm Chart to GHCR
       run: |
-        # Get version from tag or input (same logic as above)
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          CHART_VERSION="${{ github.event.inputs.version }}"
-        else
-          CHART_VERSION=${GITHUB_REF#refs/tags/}
-        fi
-        
+        CHART_VERSION=${GITHUB_REF#refs/tags/}
         echo "Pushing Helm chart with version: $CHART_VERSION"
         
         # Push to GHCR OCI registry
         helm push ./helm-packages/mcp-pinot-*.tgz oci://ghcr.io/${{ github.repository }}/charts
         
         echo "Helm chart pushed to ghcr.io/${{ github.repository }}/charts/mcp-pinot:$CHART_VERSION"
-
-    - name: Get version from tag or input
-      id: version
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-        else
-          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        fi
 
     - name: Generate changelog
       id: changelog
@@ -200,8 +173,8 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ steps.version.outputs.version }}
-        name: Release ${{ steps.version.outputs.version }}
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
         body: |
           ${{ steps.changelog.outputs.changelog }}
           
@@ -209,7 +182,7 @@ jobs:
           
           The Docker image is available at:
           ```
-          ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+          ghcr.io/${{ github.repository }}:${GITHUB_REF#refs/tags/v}
           ```
           
           ## DXT Package
@@ -225,7 +198,7 @@ jobs:
         files: |
           *.dxt
         draft: false
-        prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'rc') }}
+        prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
 
   notify:
     needs: [create-release]

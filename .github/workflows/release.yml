@@ -182,7 +182,7 @@ jobs:
           
           The Docker image is available at:
           ```
-          ghcr.io/${{ github.repository }}:${GITHUB_REF#refs/tags/v}
+          ghcr.io/${{ github.repository }}:${{ github.ref_name }}
           ```
           
           ## DXT Package

@@ -1,10 +1,12 @@
 import os
+import tempfile
 from unittest.mock import patch
 
 from mcp_pinot.config import (
     OAuthConfig,
     ServerConfig,
     _parse_broker_url,
+    _read_token_from_file,
     load_oauth_config,
     load_pinot_config,
     load_server_config,
@@ -488,3 +490,222 @@ class TestLoadOAuthConfig:
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_oauth_config()
                 assert config.extra_authorize_params is None
+
+
+class TestReadTokenFromFile:
+    """Test the _read_token_from_file function"""
+
+    def test_read_token_from_valid_file(self):
+        """Test reading token from a valid file"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("test_token_123")
+            temp_file = f.name
+
+        try:
+            token = _read_token_from_file(temp_file)
+            assert token == "Bearer test_token_123"
+        finally:
+            os.unlink(temp_file)
+
+    def test_read_token_from_file_with_whitespace(self):
+        """Test reading token from file with leading/trailing whitespace"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("  \n  test_token_123  \n  ")
+            temp_file = f.name
+
+        try:
+            token = _read_token_from_file(temp_file)
+            assert token == "Bearer test_token_123"
+        finally:
+            os.unlink(temp_file)
+
+    def test_read_token_from_nonexistent_file(self):
+        """Test reading token from non-existent file"""
+        token = _read_token_from_file("/nonexistent/file/path")
+        assert token is None
+
+    def test_read_token_from_directory(self):
+        """Test reading token from directory (should fail)"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token = _read_token_from_file(temp_dir)
+            assert token is None
+
+    def test_read_token_from_empty_file(self):
+        """Test reading token from empty file"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("")
+            temp_file = f.name
+
+        try:
+            token = _read_token_from_file(temp_file)
+            assert token is None
+        finally:
+            os.unlink(temp_file)
+
+    def test_read_token_from_file_with_only_whitespace(self):
+        """Test reading token from file with only whitespace"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("   \n\t  \n  ")
+            temp_file = f.name
+
+        try:
+            token = _read_token_from_file(temp_file)
+            assert token is None
+        finally:
+            os.unlink(temp_file)
+
+    def test_read_token_from_file_permission_denied(self):
+        """Test reading token from file with no read permission"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("test_token")
+            temp_file = f.name
+
+        try:
+            # Remove read permission
+            os.chmod(temp_file, 0o000)
+            token = _read_token_from_file(temp_file)
+            assert token is None
+        finally:
+            # Restore permissions for cleanup
+            os.chmod(temp_file, 0o644)
+            os.unlink(temp_file)
+
+
+class TestLoadPinotConfigTokenFilename:
+    """Test token filename functionality in load_pinot_config"""
+
+    def test_token_filename_only(self):
+        """Test loading config with only token filename"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("test_token_from_file")
+            temp_file = f.name
+
+        try:
+            env_vars = {
+                "PINOT_CONTROLLER_URL": "http://controller:9000",
+                "PINOT_TOKEN_FILENAME": temp_file,
+            }
+
+            with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+                with patch.dict(os.environ, env_vars, clear=True):
+                    config = load_pinot_config()
+                    assert config.token == "Bearer test_token_from_file"
+        finally:
+            os.unlink(temp_file)
+
+    def test_token_filename_with_direct_token(self):
+        """Test that direct token takes precedence over token filename"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("token_from_file")
+            temp_file = f.name
+
+        try:
+            env_vars = {
+                "PINOT_CONTROLLER_URL": "http://controller:9000",
+                "PINOT_TOKEN": "direct_token",
+                "PINOT_TOKEN_FILENAME": temp_file,
+            }
+
+            with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+                with patch.dict(os.environ, env_vars, clear=True):
+                    config = load_pinot_config()
+                    assert config.token == "direct_token"
+        finally:
+            os.unlink(temp_file)
+
+    def test_token_filename_nonexistent_file(self):
+        """Test loading config with non-existent token file"""
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+            "PINOT_TOKEN_FILENAME": "/nonexistent/file/path",
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+                assert config.token is None
+
+    def test_token_filename_empty_file(self):
+        """Test loading config with empty token file"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("")
+            temp_file = f.name
+
+        try:
+            env_vars = {
+                "PINOT_CONTROLLER_URL": "http://controller:9000",
+                "PINOT_TOKEN_FILENAME": temp_file,
+            }
+
+            with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+                with patch.dict(os.environ, env_vars, clear=True):
+                    config = load_pinot_config()
+                    assert config.token is None
+        finally:
+            os.unlink(temp_file)
+
+    def test_token_filename_with_username_password(self):
+        """Test that token filename works alongside username/password"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("token_from_file")
+            temp_file = f.name
+
+        try:
+            env_vars = {
+                "PINOT_CONTROLLER_URL": "http://controller:9000",
+                "PINOT_USERNAME": "testuser",
+                "PINOT_PASSWORD": "testpass",
+                "PINOT_TOKEN_FILENAME": temp_file,
+            }
+
+            with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+                with patch.dict(os.environ, env_vars, clear=True):
+                    config = load_pinot_config()
+                    assert config.token == "Bearer token_from_file"
+                    assert config.username == "testuser"
+                    assert config.password == "testpass"
+        finally:
+            os.unlink(temp_file)
+
+    def test_no_token_config(self):
+        """Test loading config with no token configuration"""
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+                assert config.token is None
+
+    def test_token_filename_with_bearer_prefix(self):
+        """Test that Bearer prefix is not added if already present"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            f.write("Bearer existing_token")
+            temp_file = f.name
+
+        try:
+            env_vars = {
+                "PINOT_CONTROLLER_URL": "http://controller:9000",
+                "PINOT_TOKEN_FILENAME": temp_file,
+            }
+
+            with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+                with patch.dict(os.environ, env_vars, clear=True):
+                    config = load_pinot_config()
+                    assert config.token == "Bearer existing_token"
+        finally:
+            os.unlink(temp_file)
+
+    def test_token_filename_field_present(self):
+        """Test that token_filename environment variable is processed correctly"""
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+            "PINOT_TOKEN_FILENAME": "/some/file/path",
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+                # Token should be None since the file doesn't exist
+                assert config.token is None

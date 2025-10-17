@@ -119,6 +119,7 @@ pinot:
     username: ""
     password: ""
     token: ""
+    tokenFilename: ""
 
 # Health check configuration
 healthCheck:

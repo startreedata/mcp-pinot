@@ -80,6 +80,8 @@ spec:
                   name: {{ include "mcp-pinot.fullname" . }}-secrets
                   key: token
                   optional: true
+            - name: PINOT_TOKEN_FILENAME
+              value: {{ .Values.pinot.auth.tokenFilename | quote }}
             {{- end }}
             
             # OAuth Configuration

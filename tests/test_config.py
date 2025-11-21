@@ -2,10 +2,14 @@ import os
 import tempfile
 from unittest.mock import patch
 
+import pytest
+
 from mcp_pinot.config import (
     OAuthConfig,
     ServerConfig,
+    _load_table_filters,
     _parse_broker_url,
+    _parse_table_filter_config,
     _read_token_from_file,
     load_oauth_config,
     load_pinot_config,
@@ -709,3 +713,119 @@ class TestLoadPinotConfigTokenFilename:
                 config = load_pinot_config()
                 # Token should be None since the file doesn't exist
                 assert config.token is None
+
+
+class TestParseTableFilterConfig:
+    """Test the _parse_table_filter_config function"""
+
+    def test_valid_yaml_with_tables(self):
+        """Test parsing valid YAML with table list"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".yaml"
+        ) as f:
+            f.write("included_tables:\n  - table1\n  - table2\n  - table3")
+            temp_file = f.name
+
+        try:
+            config = _parse_table_filter_config(temp_file)
+            assert config is not None
+            assert "included_tables" in config
+            assert config["included_tables"] == ["table1", "table2", "table3"]
+        finally:
+            os.unlink(temp_file)
+
+
+class TestLoadTableFilters:
+    """Test the _load_table_filters function"""
+
+    def test_none_path_returns_none(self):
+        """Test that None path returns None"""
+        result = _load_table_filters(None)
+        assert result is None
+
+    def test_empty_table_list_returns_none(self):
+        """Test that empty table list returns None"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".yaml"
+        ) as f:
+            f.write("included_tables: []")
+            temp_file = f.name
+
+        try:
+            result = _load_table_filters(temp_file)
+            assert result is None
+        finally:
+            os.unlink(temp_file)
+
+    def test_valid_table_list_returns_list(self):
+        """Test that valid table list is returned"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".yaml"
+        ) as f:
+            f.write("included_tables:\n  - table1\n  - table2\n  - table3")
+            temp_file = f.name
+
+        try:
+            result = _load_table_filters(temp_file)
+            assert result == ["table1", "table2", "table3"]
+        finally:
+            os.unlink(temp_file)
+
+    def test_nonexistent_file_raises_exception(self):
+        """Test that nonexistent filter file raises FileNotFoundError"""
+        nonexistent_path = "/path/to/nonexistent/filter.yaml"
+        with pytest.raises(
+            FileNotFoundError, match="Table filter file not found.*filter.yaml"
+        ):
+            _load_table_filters(nonexistent_path)
+
+
+class TestLoadPinotConfigWithTableFilters:
+    """Test table filter integration with load_pinot_config"""
+
+    def test_no_filter_file_configured(self):
+        """Test that config loads without filter file"""
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+                assert config.included_tables is None
+
+    def test_filter_file_with_tables(self):
+        """Test that table filters are loaded from file"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".yaml"
+        ) as f:
+            f.write("included_tables:\n  - table1\n  - table2")
+            temp_file = f.name
+
+        try:
+            env_vars = {
+                "PINOT_CONTROLLER_URL": "http://controller:9000",
+                "PINOT_TABLE_FILTER_FILE": temp_file,
+            }
+
+            with patch("mcp_pinot.config.load_dotenv"):
+                with patch.dict(os.environ, env_vars, clear=True):
+                    config = load_pinot_config()
+                    assert config.included_tables == ["table1", "table2"]
+        finally:
+            os.unlink(temp_file)
+
+    def test_nonexistent_filter_file_raises_exception(self):
+        """Test that nonexistent filter file raises FileNotFoundError"""
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+            "PINOT_TABLE_FILTER_FILE": "/path/to/nonexistent/filter.yaml",
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env_vars, clear=True):
+                with pytest.raises(
+                    FileNotFoundError,
+                    match="Table filter file not found.*nonexistent/filter.yaml",
+                ):
+                    load_pinot_config()

@@ -1,4 +1,7 @@
 import base64
+import json
+import re
+from fnmatch import fnmatch
 from typing import Any, Dict, Tuple
 
 import pandas as pd
@@ -244,6 +247,9 @@ class PinotClient:
     ) -> list[dict[str, Any]]:
         logger.debug(f"Executing query: {query[:100]}...")  # Log first 100 chars
 
+        # Validate table access authorization
+        self._validate_table_access(query)
+
         # Use HTTP as primary method since it works reliably with authenticated clusters
         try:
             return self.execute_query_http(query)
@@ -307,19 +313,149 @@ class PinotClient:
             self._conn = None
             raise
 
+    def _matches_patterns(self, table: str, patterns: list[str]) -> bool:
+        """Check if table matches any pattern."""
+        return any(fnmatch(table, pattern) for pattern in patterns)
+
+    def _is_table_filtering_enabled(self) -> bool:
+        """Check if table filtering is configured and enabled.
+
+        Returns:
+            bool: True if filtering is enabled (included_tables is configured),
+                  False otherwise (None, empty list, or any falsy value)
+        """
+        return bool(self.config.included_tables)
+
+    def _extract_sql_table_names(self, query: str) -> list[str]:
+        """Extract table names from a SQL query.
+
+        Handles table references in FROM, JOIN, and subquery clauses.
+        Supports quoted identifiers (double quotes, backticks).
+
+        Args:
+            query: SQL query string
+
+        Returns:
+            list[str]: Unique list of table names found in the query
+        """
+        # Remove comments and normalize whitespace
+        query = re.sub(r"--.*?$", "", query, flags=re.MULTILINE)
+        query = re.sub(r"/\*.*?\*/", "", query, flags=re.DOTALL)
+        query = " ".join(query.split())
+
+        matches = []
+
+        # Pattern 1: Unquoted tables (after FROM/JOIN or comma-separated)
+        # Matches: FROM table, JOIN table, table1, table2
+        unquoted_pattern = r"(?:\b(?:FROM|JOIN)\s+|,\s*)(?:[\w.]+\.)?(\w+)"
+        matches.extend(re.findall(unquoted_pattern, query, re.IGNORECASE))
+
+        # Pattern 2: Double-quoted tables (after FROM/JOIN or comma-separated)
+        # Matches: FROM "table name", "quoted_table", "another table"
+        double_quoted_pattern = r'(?:\b(?:FROM|JOIN)\s+|,\s*)(?:[\w.]+\.)?"([^"]+)"'
+        matches.extend(re.findall(double_quoted_pattern, query, re.IGNORECASE))
+
+        # Pattern 3: Backtick-quoted tables (after FROM/JOIN or comma-separated)
+        # Matches: FROM `table_name`, `quoted table`, `another table`
+        backtick_pattern = r"(?:\b(?:FROM|JOIN)\s+|,\s*)(?:[\w.]+\.)?`([^`]+)`"
+        matches.extend(re.findall(backtick_pattern, query, re.IGNORECASE))
+
+        return list(set(matches))
+
+    def _validate_table_name_access(self, table_name: str) -> None:
+        """Validate that a table name is allowed by filtering rules.
+
+        Args:
+            table_name: Table name to validate
+
+        Raises:
+            ValueError: If table is not in included_tables filter
+        """
+        if not self._is_table_filtering_enabled():
+            return
+
+        if not self._matches_patterns(table_name, self.config.included_tables):
+            allowed = ", ".join(self.config.included_tables)
+            raise ValueError(
+                f"Access denied to table '{table_name}'. "
+                f"Allowed tables: {allowed}"
+            )
+
+    def _extract_and_validate_name_from_json(
+        self, json_str: str, key: str
+    ) -> None:
+        """Extract and validate table/schema name from JSON.
+
+        Args:
+            json_str: JSON string containing table or schema name
+            key: JSON key to extract ("tableName" or "schemaName")
+
+        Raises:
+            ValueError: If name extraction fails or access is denied
+        """
+        try:
+            data = json.loads(json_str)
+            name = data.get(key)
+            if not name:
+                raise ValueError(f"Missing required field '{key}' in JSON")
+            self._validate_table_name_access(name)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON: {e}")
+
+    def _validate_table_access(self, query: str) -> None:
+        """Validate that query only accesses allowed tables.
+
+        Args:
+            query: SQL query string to validate
+
+        Raises:
+            ValueError: If query references tables not in included_tables filter
+        """
+        if not self._is_table_filtering_enabled():
+            return
+
+        table_names = self._extract_sql_table_names(query)
+
+        if not table_names:
+            return
+
+        unauthorized_tables = [
+            table
+            for table in table_names
+            if not self._matches_patterns(table, self.config.included_tables)
+        ]
+
+        if unauthorized_tables:
+            allowed = ", ".join(self.config.included_tables)
+            unauthorized = ", ".join(unauthorized_tables)
+            raise ValueError(
+                f"Query references unauthorized tables: {unauthorized}. "
+                f"Allowed tables: {allowed}"
+            )
+
+    def _filter_tables(self, tables: list[str]) -> list[str]:
+        """Filter tables based on included_tables configuration."""
+        if not tables or not self._is_table_filtering_enabled():
+            return tables
+
+        return [
+            t for t in tables if self._matches_patterns(t, self.config.included_tables)
+        ]
+
     def get_tables(self, params: dict[str, Any] | None = None) -> list[str]:
         url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}"
         logger.debug(f"Fetching tables from: {url}")
         response = self.http_request(url)
         tables = response.json()["tables"]
         logger.debug(f"Successfully fetched {len(tables)} tables")
-        return tables
+        return self._filter_tables(tables)
 
     def get_table_detail(
         self,
         tableName: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self._validate_table_name_access(tableName)
         endpoint = PinotEndpoints.TABLE_SIZE.format(tableName)
         url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching table details for {tableName} from: {url}")
@@ -331,6 +467,7 @@ class PinotClient:
         tableName: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self._validate_table_name_access(tableName)
         endpoint = PinotEndpoints.SEGMENT_METADATA.format(tableName)
         url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching segment metadata for {tableName} from: {url}")
@@ -342,6 +479,7 @@ class PinotClient:
         tableName: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self._validate_table_name_access(tableName)
         endpoint = PinotEndpoints.SEGMENTS.format(tableName)
         url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching segments for {tableName} from: {url}")
@@ -354,6 +492,7 @@ class PinotClient:
         segmentName: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self._validate_table_name_access(tableName)
         for type_suffix in ["REALTIME", "OFFLINE"]:
             endpoint = PinotEndpoints.SEGMENT_DETAIL.format(
                 tableName, type_suffix, segmentName
@@ -377,6 +516,7 @@ class PinotClient:
         tableName: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self._validate_table_name_access(tableName)
         endpoint = PinotEndpoints.TABLE_CONFIG.format(tableName)
         url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching table config for {tableName} from: {url}")
@@ -389,6 +529,7 @@ class PinotClient:
         override: bool = True,
         force: bool = False,
     ) -> dict[str, Any]:
+        self._extract_and_validate_name_from_json(schemaJson, "schemaName")
         url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}"
         params = {"override": str(override).lower(), "force": str(force).lower()}
         headers = self._create_auth_headers()
@@ -418,6 +559,7 @@ class PinotClient:
         reload: bool = False,
         force: bool = False,
     ) -> dict[str, Any]:
+        self._validate_table_name_access(schemaName)
         url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}/{schemaName}"
         params = {"reload": str(reload).lower(), "force": str(force).lower()}
         headers = self._create_auth_headers()
@@ -441,6 +583,7 @@ class PinotClient:
             }
 
     def get_schema(self, schemaName: str) -> dict[str, Any]:
+        self._validate_table_name_access(schemaName)
         url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}/{schemaName}"
         headers = self._create_auth_headers()
         response = requests.get(
@@ -457,6 +600,7 @@ class PinotClient:
         tableConfigJson: str,
         validationTypesToSkip: str | None = None,
     ) -> dict[str, Any]:
+        self._extract_and_validate_name_from_json(tableConfigJson, "tableName")
         url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}"
         params: dict[str, str] = {}
         if validationTypesToSkip:
@@ -487,6 +631,7 @@ class PinotClient:
         tableConfigJson: str,
         validationTypesToSkip: str | None = None,
     ) -> dict[str, Any]:
+        self._validate_table_name_access(tableName)
         url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}/{tableName}"
         params: dict[str, str] = {}
         if validationTypesToSkip:
@@ -516,6 +661,7 @@ class PinotClient:
         tableName: str,
         tableType: str | None = None,
     ) -> dict[str, Any]:
+        self._validate_table_name_access(tableName)
         url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}/{tableName}"
         params: dict[str, str] = {}
         if tableType:

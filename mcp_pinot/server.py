@@ -6,6 +6,7 @@ FastMCP-based implementation for the Apache Pinot MCP Server.
 """
 
 import json
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastmcp import FastMCP
@@ -212,6 +213,73 @@ def get_table_config(tableName: str, tableType: Optional[str] = None) -> str:
             tableName=tableName,
             tableType=tableType,
         )
+        return json.dumps(results, indent=2)
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@mcp.tool
+def search_volume_by_term(
+    search_term: str
+) -> str:
+    """Get search volume and average number of results from the keyword_research_search_data table for a search term for the last 7 days"""
+    try:
+        # Calculate date range for last 7 days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+        
+        # Format dates for SQL (assuming ISO format or timestamp format)
+        # Pinot typically uses timestamp in milliseconds or ISO format
+        # Adjust format based on your schema - using ISO format here
+        start_date_str = start_date.strftime("%Y-%m-%d %H:%M:%S")
+        end_date_str = end_date.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Escape single quotes in search_term_id to prevent SQL injection
+        # Replace single quotes with two single quotes (SQL escape)
+        escaped_search_term = search_term.replace("'", "''")
+        
+        # Build the query - matching the original template structure
+        # Using search_term = ? as per template (search_term_id parameter contains the ID value)
+        query = f"""SELECT search_term, 
+            SUM(search_count) AS search_volume,
+            SUM(search_results_total) / SUM(search_count) AS avg_search_results
+            FROM keyword_research_search_data
+            WHERE search_term = '{escaped_search_term}'
+            AND search_date_hour BETWEEN '{start_date_str}' AND '{end_date_str}'
+            GROUP BY search_term
+            LIMIT 1"""
+        
+        results = pinot_client.execute_query(query=query)
+        return json.dumps(results, indent=2)
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@mcp.tool
+def top_search_terms_by_volume() -> str:
+    """Get the top 20 search terms by search volume from the keyword_research_search_data table for the last 7 days"""
+    try:
+        # Calculate date range for last 7 days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+        
+        # Format dates for SQL (assuming ISO format or timestamp format)
+        # Pinot typically uses timestamp in milliseconds or ISO format
+        # Adjust format based on your schema - using ISO format here
+        start_date_str = start_date.strftime("%Y-%m-%d %H:%M:%S")
+        end_date_str = end_date.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Build the query to get top 20 search terms by volume
+        query = f"""SELECT search_term, 
+            SUM(search_count) AS search_volume,
+            SUM(search_results_total) / SUM(search_count) AS avg_search_results
+            FROM keyword_research_search_data
+            WHERE search_date_hour BETWEEN '{start_date_str}' AND '{end_date_str}'
+            GROUP BY search_term
+            ORDER BY search_volume DESC
+            LIMIT 20"""
+        
+        results = pinot_client.execute_query(query=query)
         return json.dumps(results, indent=2)
     except Exception as e:
         return f"Error: {str(e)}"

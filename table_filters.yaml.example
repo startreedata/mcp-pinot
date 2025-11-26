@@ -1,0 +1,10 @@
+# Table filter configuration
+# Specify which tables to include when listing tables from Pinot.
+# Supports glob patterns like "prefix_*" or "exact_table_name"
+# If no filter file is configured, all tables will be returned.
+#
+# Future enhancement: As this expands, we may want to namespace configurations
+# by controller/context to handle multiple Pinot controllers with different table filters.
+
+# included_tables:
+#  - some_table

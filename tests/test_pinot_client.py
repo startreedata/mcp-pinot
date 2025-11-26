@@ -22,6 +22,7 @@ def mock_pinot_config():
         request_timeout=60,
         connection_timeout=60,
         query_timeout=60,
+        included_tables=None,
     )
 
 
@@ -493,3 +494,467 @@ class TestPinotClient:
 
         assert "OFFLINE" in config
         assert config["OFFLINE"]["config"] == "test"
+
+    def test_is_table_filtering_enabled_with_none(self, mock_pinot_config):
+        """Test that _is_table_filtering_enabled returns False when included_tables is None."""
+        mock_pinot_config.included_tables = None
+        pinot = PinotClient(mock_pinot_config)
+
+        assert pinot._is_table_filtering_enabled() is False
+
+    def test_is_table_filtering_enabled_with_empty_list(self, mock_pinot_config):
+        """Test that _is_table_filtering_enabled returns False when included_tables is empty."""
+        mock_pinot_config.included_tables = []
+        pinot = PinotClient(mock_pinot_config)
+
+        assert pinot._is_table_filtering_enabled() is False
+
+    def test_is_table_filtering_enabled_with_patterns(self, mock_pinot_config):
+        """Test that _is_table_filtering_enabled returns True when patterns are configured."""
+        mock_pinot_config.included_tables = ["table1", "table2*"]
+        pinot = PinotClient(mock_pinot_config)
+
+        assert pinot._is_table_filtering_enabled() is True
+
+    def test_filter_tables_no_filter_configured(self, mock_pinot_config):
+        """Test that _filter_tables returns all tables when no filter configured."""
+        pinot = PinotClient(mock_pinot_config)
+        tables = ["table1", "table2", "table3"]
+
+        result = pinot._filter_tables(tables)
+
+        assert result == tables
+
+    def test_filter_tables_with_patterns(self, mock_pinot_config):
+        """Test that _filter_tables applies patterns correctly."""
+        mock_pinot_config.included_tables = ["prod_*", "important_table"]
+        pinot = PinotClient(mock_pinot_config)
+        tables = ["prod_users", "prod_orders", "dev_users", "important_table"]
+
+        result = pinot._filter_tables(tables)
+
+        assert result == ["prod_users", "prod_orders", "important_table"]
+
+    def test_filter_tables_excludes_non_matching(self, mock_pinot_config):
+        """Test that _filter_tables excludes tables not in the filter."""
+        mock_pinot_config.included_tables = ["allowed_table"]
+        pinot = PinotClient(mock_pinot_config)
+        tables = ["allowed_table", "excluded_table", "another_excluded"]
+
+        result = pinot._filter_tables(tables)
+
+        assert result == ["allowed_table"]
+        assert "excluded_table" not in result
+        assert "another_excluded" not in result
+
+    def test_filter_tables_empty_list(self, mock_pinot_config):
+        """Test that _filter_tables handles empty table list."""
+        mock_pinot_config.included_tables = ["prod_*"]
+        pinot = PinotClient(mock_pinot_config)
+
+        result = pinot._filter_tables([])
+
+        assert result == []
+
+    def test_get_tables_with_filtering(self, mock_pinot_config, mock_requests):
+        """Test that get_tables applies filtering when configured."""
+        mock_pinot_config.included_tables = ["prod_*"]
+        pinot = PinotClient(mock_pinot_config)
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "tables": ["prod_users", "prod_orders", "dev_users"]
+        }
+        mock_requests.get.return_value = mock_response
+
+        tables = pinot.get_tables()
+
+        assert tables == ["prod_users", "prod_orders"]
+        assert "dev_users" not in tables
+
+    def test_execute_query_blocks_unauthorized_table_in_from(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that execute_query blocks queries with unauthorized table in FROM clause."""
+        mock_pinot_config.included_tables = ["allowed_table", "another_allowed"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Mock the HTTP response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        # Query with unauthorized table should raise ValueError
+        with pytest.raises(ValueError, match="unauthorized tables"):
+            pinot.execute_query("SELECT * FROM unauthorized_table")
+
+    def test_execute_query_blocks_unauthorized_table_in_join(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that execute_query blocks queries with unauthorized table in JOIN clause."""
+        mock_pinot_config.included_tables = ["allowed_table"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Mock the HTTP response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        # Query joining unauthorized table should raise ValueError
+        query = """
+            SELECT a.*, b.name
+            FROM allowed_table a
+            JOIN unauthorized_table b ON a.id = b.id
+        """
+        with pytest.raises(ValueError, match="unauthorized tables"):
+            pinot.execute_query(query)
+
+    def test_execute_query_allows_authorized_tables(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that execute_query allows queries with authorized tables."""
+        mock_pinot_config.included_tables = ["table1", "table2"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Mock the HTTP response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        # Query with authorized tables should succeed
+        result = pinot.execute_query(
+            "SELECT * FROM table1 JOIN table2 ON table1.id = table2.id"
+        )
+
+        assert result == [{"col1": "data"}]
+
+    def test_execute_query_allows_all_when_no_filter(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that execute_query allows any table when filtering is not configured."""
+        mock_pinot_config.included_tables = None
+        pinot = PinotClient(mock_pinot_config)
+
+        # Mock the HTTP response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        # Should allow any table when no filter configured
+        result = pinot.execute_query("SELECT * FROM any_table_name")
+
+        assert result == [{"col1": "data"}]
+
+    def test_execute_query_blocks_multiple_unauthorized_tables(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that execute_query reports all unauthorized tables in error message."""
+        mock_pinot_config.included_tables = ["allowed_table"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Mock the HTTP response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        # Query with multiple unauthorized tables
+        query = """
+            SELECT * FROM unauthorized1
+            JOIN unauthorized2 ON unauthorized1.id = unauthorized2.id
+        """
+        with pytest.raises(ValueError, match="unauthorized tables"):
+            pinot.execute_query(query)
+
+    def test_execute_query_blocks_unauthorized_table_in_subquery(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that execute_query blocks queries with unauthorized table in subquery."""
+        mock_pinot_config.included_tables = ["allowed_table"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Mock the HTTP response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        # Query with unauthorized table in subquery should raise ValueError
+        query = """
+            SELECT * FROM allowed_table
+            WHERE id IN (SELECT id FROM unauthorized_table WHERE active = 1)
+        """
+        with pytest.raises(ValueError, match="unauthorized tables"):
+            pinot.execute_query(query)
+
+    def test_execute_query_allows_authorized_table_in_subquery(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that execute_query allows queries with authorized table in subquery."""
+        mock_pinot_config.included_tables = ["allowed_table", "another_allowed"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Mock the HTTP response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        # Query with authorized tables in subquery should succeed
+        query = """
+            SELECT * FROM allowed_table
+            WHERE id IN (SELECT id FROM another_allowed WHERE active = 1)
+        """
+        result = pinot.execute_query(query)
+
+        assert result == [{"col1": "data"}]
+
+    def test_extract_table_names_comma_separated(self, mock_pinot_config):
+        """Test extracting table names from comma-separated tables in FROM"""
+        pinot = PinotClient(mock_pinot_config)
+        query = "SELECT * FROM table1, table2, table3"
+
+        result = pinot._extract_sql_table_names(query)
+
+        assert set(result) == {"table1", "table2", "table3"}
+
+    def test_extract_table_names_with_cte(self, mock_pinot_config):
+        """Test extracting table names from WITH clause (CTE)"""
+        pinot = PinotClient(mock_pinot_config)
+        query = "WITH cte AS (SELECT * FROM unauthorized_table) SELECT * FROM cte"
+
+        result = pinot._extract_sql_table_names(query)
+
+        # Should find both the CTE source table and the CTE itself
+        assert "unauthorized_table" in result
+
+    def test_extract_table_names_nested_subquery(self, mock_pinot_config):
+        """Test extracting table names from nested subquery"""
+        pinot = PinotClient(mock_pinot_config)
+        query = "SELECT * FROM (SELECT * FROM unauthorized_table) AS subq"
+
+        result = pinot._extract_sql_table_names(query)
+
+        assert "unauthorized_table" in result
+
+    def test_extract_table_names_different_join_types(self, mock_pinot_config):
+        """Test extracting table names from different JOIN types"""
+        pinot = PinotClient(mock_pinot_config)
+        queries = [
+            "SELECT * FROM t1 LEFT JOIN t2 ON t1.id = t2.id",
+            "SELECT * FROM t1 RIGHT JOIN t2 ON t1.id = t2.id",
+            "SELECT * FROM t1 INNER JOIN t2 ON t1.id = t2.id",
+            "SELECT * FROM t1 OUTER JOIN t2 ON t1.id = t2.id",
+            "SELECT * FROM t1 CROSS JOIN t2",
+        ]
+
+        for query in queries:
+            result = pinot._extract_sql_table_names(query)
+            assert set(result) == {"t1", "t2"}, f"Failed for query: {query}"
+
+    def test_extract_table_names_union_query(self, mock_pinot_config):
+        """Test extracting table names from UNION query"""
+        pinot = PinotClient(mock_pinot_config)
+        query = "SELECT * FROM table1 UNION SELECT * FROM table2"
+
+        result = pinot._extract_sql_table_names(query)
+
+        assert set(result) == {"table1", "table2"}
+
+    def test_extract_table_names_multiple_schemas(self, mock_pinot_config):
+        """Test extracting table names with schema prefix"""
+        pinot = PinotClient(mock_pinot_config)
+        query = "SELECT * FROM database.schema.table_name"
+
+        result = pinot._extract_sql_table_names(query)
+
+        assert "table_name" in result
+
+    def test_extract_table_names_removes_comments(self, mock_pinot_config):
+        """Test that SQL comments are removed before extraction"""
+        pinot = PinotClient(mock_pinot_config)
+        query = """
+            -- This is a comment with FROM fake_table
+            SELECT * FROM real_table
+            /* Multi-line comment
+               FROM another_fake_table */
+        """
+
+        result = pinot._extract_sql_table_names(query)
+
+        assert "real_table" in result
+        assert "fake_table" not in result
+        assert "another_fake_table" not in result
+
+    def test_extract_table_names_case_insensitive(self, mock_pinot_config):
+        """Test that FROM and JOIN keywords are case insensitive"""
+        pinot = PinotClient(mock_pinot_config)
+        queries = [
+            "select * from table1",
+            "SELECT * FROM table2",
+            "SeLeCt * FrOm table3",
+            "SELECT * from table4 join table5",
+        ]
+
+        results = []
+        for query in queries:
+            results.extend(pinot._extract_sql_table_names(query))
+
+        assert "table1" in results
+        assert "table2" in results
+        assert "table3" in results
+        assert "table4" in results
+        assert "table5" in results
+
+    def test_extract_table_names_double_quoted(self, mock_pinot_config):
+        """Test extracting table names with double quotes"""
+        pinot = PinotClient(mock_pinot_config)
+        queries = [
+            'SELECT * FROM "table_name"',
+            'SELECT * FROM "table with spaces"',
+            'SELECT * FROM t1 JOIN "quoted_table" ON t1.id = t2.id',
+        ]
+
+        result1 = pinot._extract_sql_table_names(queries[0])
+        assert "table_name" in result1
+
+        result2 = pinot._extract_sql_table_names(queries[1])
+        assert "table with spaces" in result2
+
+        result3 = pinot._extract_sql_table_names(queries[2])
+        assert "t1" in result3
+        assert "quoted_table" in result3
+
+    def test_extract_table_names_backtick_quoted(self, mock_pinot_config):
+        """Test extracting table names with backticks (MySQL style)"""
+        pinot = PinotClient(mock_pinot_config)
+        queries = [
+            "SELECT * FROM `table_name`",
+            "SELECT * FROM `table with spaces`",
+            "SELECT * FROM t1 JOIN `quoted_table` ON t1.id = t2.id",
+        ]
+
+        result1 = pinot._extract_sql_table_names(queries[0])
+        assert "table_name" in result1
+
+        result2 = pinot._extract_sql_table_names(queries[1])
+        assert "table with spaces" in result2
+
+        result3 = pinot._extract_sql_table_names(queries[2])
+        assert "t1" in result3
+        assert "quoted_table" in result3
+
+    def test_extract_table_names_mixed_quoted_unquoted(self, mock_pinot_config):
+        """Test extracting mix of quoted and unquoted table names"""
+        pinot = PinotClient(mock_pinot_config)
+        query = 'SELECT * FROM normal_table, "quoted table", `backtick_table`'
+
+        result = pinot._extract_sql_table_names(query)
+
+        assert "normal_table" in result
+        assert "quoted table" in result
+        assert "backtick_table" in result
+
+    def test_validate_table_name_access_integration(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test _validate_table_name_access integration with table operations"""
+        mock_pinot_config.included_tables = ["allowed_table"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Blocks unauthorized table
+        with pytest.raises(ValueError, match="Access denied to table"):
+            pinot.get_table_detail("unauthorized_table")
+
+        # Allows authorized table
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"tableName": "allowed_table"}
+        mock_requests.get.return_value = mock_response
+
+        result = pinot.get_table_detail("allowed_table")
+        assert result == {"tableName": "allowed_table"}
+
+    def test_table_operations_allow_all_when_no_filter(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that table operations allow any table when filtering not configured"""
+        mock_pinot_config.included_tables = None
+        pinot = PinotClient(mock_pinot_config)
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"tableName": "any_table"}
+        mock_requests.get.return_value = mock_response
+
+        # Should not raise - no filtering configured
+        result = pinot.get_table_detail("any_table_name")
+        assert result == {"tableName": "any_table"}
+
+    def test_create_schema_validates_schema_name_from_json(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that create_schema validates schema name extracted from JSON"""
+        mock_pinot_config.included_tables = ["prod_*"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Should block unauthorized schema
+        with pytest.raises(ValueError, match="Access denied to table"):
+            pinot.create_schema('{"schemaName": "dev_unauthorized"}')
+
+        # Should allow authorized schema
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"status": "success"}
+        mock_requests.post.return_value = mock_response
+
+        result = pinot.create_schema('{"schemaName": "prod_authorized"}')
+        assert result == {"status": "success"}
+
+    def test_create_table_config_validates_table_name_from_json(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test that create_table_config validates table name extracted from JSON"""
+        mock_pinot_config.included_tables = ["prod_*"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Should block unauthorized table
+        with pytest.raises(ValueError, match="Access denied to table"):
+            pinot.create_table_config('{"tableName": "dev_unauthorized"}')
+
+        # Should allow authorized table
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"status": "success"}
+        mock_requests.post.return_value = mock_response
+
+        result = pinot.create_table_config('{"tableName": "prod_authorized"}')
+        assert result == {"status": "success"}

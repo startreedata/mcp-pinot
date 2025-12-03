@@ -1,7 +1,7 @@
 import base64
+from fnmatch import fnmatch
 import json
 import re
-from fnmatch import fnmatch
 from threading import Lock
 from typing import Any, Dict, Tuple
 
@@ -396,7 +396,13 @@ class PinotClient:
         # Pattern 1: Unquoted tables (after FROM/JOIN or comma-separated)
         # Matches: FROM table, JOIN table, table1, table2
         # Uses negative lookahead to exclude SQL keywords (LEFT, RIGHT, INNER, etc.)
-        unquoted_pattern = r"(?:\b(?:FROM|JOIN)\s+|,\s*)(?:[\w.]+\.)?(?!(?:LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|WHERE|GROUP|ORDER|HAVING|LIMIT)\b)(\w+)"
+        unquoted_pattern = (
+            r"(?:\b(?:FROM|JOIN)\s+|,\s*)"
+            r"(?:[\w.]+\.)?"
+            r"(?!(?:LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|WHERE|GROUP|ORDER|"
+            r"HAVING|LIMIT)\b)"
+            r"(\w+)"
+        )
         matches.extend(re.findall(unquoted_pattern, query, re.IGNORECASE))
 
         # Pattern 2: Double-quoted tables (after FROM/JOIN or comma-separated)
@@ -426,13 +432,10 @@ class PinotClient:
         if not self._matches_patterns(table_name, self._included_tables):
             allowed = ", ".join(self._included_tables)
             raise ValueError(
-                f"Access denied to table '{table_name}'. "
-                f"Allowed tables: {allowed}"
+                f"Access denied to table '{table_name}'. Allowed tables: {allowed}"
             )
 
-    def _extract_and_validate_name_from_json(
-        self, json_str: str, key: str
-    ) -> None:
+    def _extract_and_validate_name_from_json(self, json_str: str, key: str) -> None:
         """Extract and validate table/schema name from JSON.
 
         Args:
@@ -487,9 +490,7 @@ class PinotClient:
         if not tables or not self._is_table_filtering_enabled():
             return tables
 
-        return [
-            t for t in tables if self._matches_patterns(t, self._included_tables)
-        ]
+        return [t for t in tables if self._matches_patterns(t, self._included_tables)]
 
     def get_tables(self, params: dict[str, Any] | None = None) -> list[str]:
         url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}"

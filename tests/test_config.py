@@ -720,9 +720,7 @@ class TestParseTableFilterConfig:
 
     def test_valid_yaml_with_tables(self):
         """Test parsing valid YAML with table list"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".yaml"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as f:
             f.write("included_tables:\n  - table1\n  - table2\n  - table3")
             temp_file = f.name
 
@@ -745,9 +743,7 @@ class TestLoadTableFilters:
 
     def test_empty_table_list_returns_none(self):
         """Test that empty table list returns None"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".yaml"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as f:
             f.write("included_tables: []")
             temp_file = f.name
 
@@ -759,9 +755,7 @@ class TestLoadTableFilters:
 
     def test_valid_table_list_returns_list(self):
         """Test that valid table list is returned"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".yaml"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as f:
             f.write("included_tables:\n  - table1\n  - table2\n  - table3")
             temp_file = f.name
 
@@ -796,9 +790,7 @@ class TestLoadPinotConfigWithTableFilters:
 
     def test_filter_file_with_tables(self):
         """Test that table filters are loaded from file"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix=".yaml"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as f:
             f.write("included_tables:\n  - table1\n  - table2")
             temp_file = f.name
 

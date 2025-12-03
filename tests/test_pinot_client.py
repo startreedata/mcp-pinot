@@ -970,12 +970,12 @@ class TestPinotClient:
         join_keywords = ["LEFT", "RIGHT", "INNER", "OUTER", "CROSS", "FULL"]
 
         for keyword in join_keywords:
-            query = f"SELECT * FROM {keyword} JOIN table1 ON table1.id = 1"
+            query = f"SELECT * FROM {keyword} JOIN table1 ON table1.id = 1"  # noqa: S608
             result = pinot._extract_sql_table_names(query)
 
             # This test should FAIL with current implementation, proving the bug
             assert keyword not in result, f"{keyword} should not be captured"
-            assert "table1" in result, f"table1 should be captured"
+            assert "table1" in result, "table1 should be captured"
 
     def test_reload_table_filters_success(self, mock_pinot_config, tmp_path):
         """Test successful reload of table filters."""

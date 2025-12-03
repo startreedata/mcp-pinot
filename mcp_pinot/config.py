@@ -206,9 +206,7 @@ def _load_table_filters(filter_file_path: str | None) -> list[str] | None:
 
     # Treat empty lists the same as None - no filtering
     if not included_tables:
-        logger.info(
-            "Table filter set but no tables listed — including all tables."
-        )
+        logger.info("Table filter set but no tables listed — including all tables.")
         return None
 
     table_count = len(included_tables)

@@ -78,13 +78,14 @@ mv .env.example .env
 ```
 
 ### Configure Table Filtering (Optional)
+
+> ⚠️ **Security Note:** For production access control, use [Pinot's native table-level ACLs](https://docs.pinot.apache.org/operators/operating-pinot/access-control) (available since Pinot 0.8.0+). Table filtering in this MCP server is a convenience feature for organizing tables and improving UX, not a security boundary. It uses best-effort SQL parsing and should not be relied upon for security.
+
 Table filtering allows you to control which Pinot tables are visible through the MCP server. This is useful for:
 - **Reduce Cognitive Load**: Focus on relevant tables when your Pinot cluster has hundreds or thousands of tables
 - **Multi-Tenancy UX**: Run multiple MCP server instances against the same Pinot cluster, each showing different table subsets for different teams or use cases
 - **Environment Separation**: Deploy different MCP server instances (dev, staging, prod) that show only environment-specific tables
 - **Hide System Tables**: Filter out internal, test, or deprecated tables from end-user view
-
-> **Security Note:** For production access control, use [Pinot's native table-level ACLs](https://docs.pinot.apache.org/operators/operating-pinot/access-control) (available since Pinot 0.8.0+). Table filtering in this MCP server is a convenience feature for organizing tables and improving UX, not a security boundary. It uses best-effort SQL parsing and should not be relied upon for security.
 
 When table filtering is enabled, **all table operations** are filtered to show only the configured tables.
 

@@ -2,13 +2,14 @@ import base64
 import json
 import re
 from fnmatch import fnmatch
+from threading import Lock
 from typing import Any, Dict, Tuple
 
 import pandas as pd
 from pinotdb import connect
 import requests
 
-from .config import PinotConfig, get_logger
+from .config import PinotConfig, get_logger, reload_table_filters_from_file
 
 logger = get_logger()
 
@@ -91,6 +92,53 @@ class PinotClient:
         self.config = config
         self.insights: list[str] = []
         self._conn = None
+        # Store filters separately to avoid mutating config
+        self._included_tables = config.included_tables
+        self._config_lock = Lock()  # For thread-safe filter updates
+
+    def reload_table_filters(self) -> dict[str, Any]:
+        """Reload table filters from the configured filter file without restarting.
+
+        This allows dynamic updates to the table access list by:
+        1. Editing the YAML filter file
+        2. Calling this method to reload the configuration
+
+        Returns:
+            dict: Status information with previous and new filter counts
+
+        Raises:
+            ValueError: If no table filter file is configured
+            FileNotFoundError: If the filter file doesn't exist
+            yaml.YAMLError: If the file contains invalid YAML
+        """
+        if not self.config.table_filter_file:
+            raise ValueError(
+                "No table filter file configured. "
+                "Set PINOT_TABLE_FILTER_FILE to enable hot-reload."
+            )
+
+        logger.info(f"Reloading table filters from {self.config.table_filter_file}")
+
+        # Load new filters (validates file exists and parses YAML)
+        new_filters = reload_table_filters_from_file(self.config.table_filter_file)
+
+        # Atomically update the filters with lock
+        with self._config_lock:
+            old_filters = self._included_tables
+            old_count = len(old_filters) if old_filters else 0
+            self._included_tables = new_filters
+            new_count = len(new_filters) if new_filters else 0
+
+        logger.info(f"Table filters reloaded: {old_count} -> {new_count} tables")
+
+        return {
+            "status": "success",
+            "message": "Table filters reloaded successfully",
+            "previous_filter_count": old_count,
+            "new_filter_count": new_count,
+            "previous_filters": old_filters,
+            "new_filters": new_filters,
+        }
 
     def _create_auth_headers(self) -> Dict[str, str]:
         """Create HTTP headers with authentication based on configuration"""
@@ -324,7 +372,7 @@ class PinotClient:
             bool: True if filtering is enabled (included_tables is configured),
                   False otherwise (None, empty list, or any falsy value)
         """
-        return bool(self.config.included_tables)
+        return bool(self._included_tables)
 
     def _extract_sql_table_names(self, query: str) -> list[str]:
         """Extract table names from a SQL query.
@@ -347,7 +395,8 @@ class PinotClient:
 
         # Pattern 1: Unquoted tables (after FROM/JOIN or comma-separated)
         # Matches: FROM table, JOIN table, table1, table2
-        unquoted_pattern = r"(?:\b(?:FROM|JOIN)\s+|,\s*)(?:[\w.]+\.)?(\w+)"
+        # Uses negative lookahead to exclude SQL keywords (LEFT, RIGHT, INNER, etc.)
+        unquoted_pattern = r"(?:\b(?:FROM|JOIN)\s+|,\s*)(?:[\w.]+\.)?(?!(?:LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|WHERE|GROUP|ORDER|HAVING|LIMIT)\b)(\w+)"
         matches.extend(re.findall(unquoted_pattern, query, re.IGNORECASE))
 
         # Pattern 2: Double-quoted tables (after FROM/JOIN or comma-separated)
@@ -374,8 +423,8 @@ class PinotClient:
         if not self._is_table_filtering_enabled():
             return
 
-        if not self._matches_patterns(table_name, self.config.included_tables):
-            allowed = ", ".join(self.config.included_tables)
+        if not self._matches_patterns(table_name, self._included_tables):
+            allowed = ", ".join(self._included_tables)
             raise ValueError(
                 f"Access denied to table '{table_name}'. "
                 f"Allowed tables: {allowed}"
@@ -422,11 +471,11 @@ class PinotClient:
         unauthorized_tables = [
             table
             for table in table_names
-            if not self._matches_patterns(table, self.config.included_tables)
+            if not self._matches_patterns(table, self._included_tables)
         ]
 
         if unauthorized_tables:
-            allowed = ", ".join(self.config.included_tables)
+            allowed = ", ".join(self._included_tables)
             unauthorized = ", ".join(unauthorized_tables)
             raise ValueError(
                 f"Query references unauthorized tables: {unauthorized}. "
@@ -439,7 +488,7 @@ class PinotClient:
             return tables
 
         return [
-            t for t in tables if self._matches_patterns(t, self.config.included_tables)
+            t for t in tables if self._matches_patterns(t, self._included_tables)
         ]
 
     def get_tables(self, params: dict[str, Any] | None = None) -> list[str]:

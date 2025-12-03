@@ -496,21 +496,21 @@ class TestPinotClient:
         assert config["OFFLINE"]["config"] == "test"
 
     def test_is_table_filtering_enabled_with_none(self, mock_pinot_config):
-        """Test that _is_table_filtering_enabled returns False when included_tables is None."""
+        """Test _is_table_filtering_enabled returns False with None."""
         mock_pinot_config.included_tables = None
         pinot = PinotClient(mock_pinot_config)
 
         assert pinot._is_table_filtering_enabled() is False
 
     def test_is_table_filtering_enabled_with_empty_list(self, mock_pinot_config):
-        """Test that _is_table_filtering_enabled returns False when included_tables is empty."""
+        """Test _is_table_filtering_enabled returns False with empty list."""
         mock_pinot_config.included_tables = []
         pinot = PinotClient(mock_pinot_config)
 
         assert pinot._is_table_filtering_enabled() is False
 
     def test_is_table_filtering_enabled_with_patterns(self, mock_pinot_config):
-        """Test that _is_table_filtering_enabled returns True when patterns are configured."""
+        """Test _is_table_filtering_enabled returns True with patterns."""
         mock_pinot_config.included_tables = ["table1", "table2*"]
         pinot = PinotClient(mock_pinot_config)
 
@@ -575,7 +575,7 @@ class TestPinotClient:
     def test_execute_query_blocks_unauthorized_table_in_from(
         self, mock_pinot_config, mock_requests
     ):
-        """Test that execute_query blocks queries with unauthorized table in FROM clause."""
+        """Test execute_query blocks unauthorized table in FROM clause."""
         mock_pinot_config.included_tables = ["allowed_table", "another_allowed"]
         pinot = PinotClient(mock_pinot_config)
 
@@ -596,7 +596,7 @@ class TestPinotClient:
     def test_execute_query_blocks_unauthorized_table_in_join(
         self, mock_pinot_config, mock_requests
     ):
-        """Test that execute_query blocks queries with unauthorized table in JOIN clause."""
+        """Test execute_query blocks unauthorized table in JOIN clause."""
         mock_pinot_config.included_tables = ["allowed_table"]
         pinot = PinotClient(mock_pinot_config)
 
@@ -693,7 +693,7 @@ class TestPinotClient:
     def test_execute_query_blocks_unauthorized_table_in_subquery(
         self, mock_pinot_config, mock_requests
     ):
-        """Test that execute_query blocks queries with unauthorized table in subquery."""
+        """Test execute_query blocks unauthorized table in subquery."""
         mock_pinot_config.included_tables = ["allowed_table"]
         pinot = PinotClient(mock_pinot_config)
 
@@ -844,7 +844,7 @@ class TestPinotClient:
         queries = [
             'SELECT * FROM "table_name"',
             'SELECT * FROM "table with spaces"',
-            'SELECT * FROM t1 JOIN "quoted_table" ON t1.id = t2.id',
+            'SELECT * FROM t1 JOIN "quoted_table" ON t1.id = quoted_table.id',
         ]
 
         result1 = pinot._extract_sql_table_names(queries[0])
@@ -863,7 +863,7 @@ class TestPinotClient:
         queries = [
             "SELECT * FROM `table_name`",
             "SELECT * FROM `table with spaces`",
-            "SELECT * FROM t1 JOIN `quoted_table` ON t1.id = t2.id",
+            "SELECT * FROM t1 JOIN `quoted_table` ON t1.id = quoted_table.id",
         ]
 
         result1 = pinot._extract_sql_table_names(queries[0])
@@ -958,3 +958,94 @@ class TestPinotClient:
 
         result = pinot.create_table_config('{"tableName": "prod_authorized"}')
         assert result == {"status": "success"}
+
+    def test_extract_table_names_excludes_join_keywords(self, mock_pinot_config):
+        """Test that SQL JOIN keywords are not captured as table names.
+
+        The regex should not capture keywords like LEFT, RIGHT, INNER, OUTER, CROSS
+        when they appear in positions where table names are expected.
+        This test validates edge cases with malformed or unusual SQL syntax.
+        """
+        pinot = PinotClient(mock_pinot_config)
+        join_keywords = ["LEFT", "RIGHT", "INNER", "OUTER", "CROSS", "FULL"]
+
+        for keyword in join_keywords:
+            query = f"SELECT * FROM {keyword} JOIN table1 ON table1.id = 1"
+            result = pinot._extract_sql_table_names(query)
+
+            # This test should FAIL with current implementation, proving the bug
+            assert keyword not in result, f"{keyword} should not be captured"
+            assert "table1" in result, f"table1 should be captured"
+
+    def test_reload_table_filters_success(self, mock_pinot_config, tmp_path):
+        """Test successful reload of table filters."""
+        # Create a temporary filter file
+        filter_file = tmp_path / "filters.yaml"
+        filter_file.write_text("included_tables:\n  - table1\n  - table2\n")
+
+        mock_pinot_config.table_filter_file = str(filter_file)
+        mock_pinot_config.included_tables = ["old_table"]
+        pinot = PinotClient(mock_pinot_config)
+
+        # Reload with new filters
+        result = pinot.reload_table_filters()
+
+        assert result["status"] == "success"
+        assert result["previous_filter_count"] == 1
+        assert result["new_filter_count"] == 2
+        assert result["previous_filters"] == ["old_table"]
+        assert set(result["new_filters"]) == {"table1", "table2"}
+        assert pinot._included_tables == ["table1", "table2"]
+
+    def test_reload_table_filters_no_file_configured(self, mock_pinot_config):
+        """Test reload fails when no filter file is configured."""
+        mock_pinot_config.table_filter_file = None
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(ValueError, match="No table filter file configured"):
+            pinot.reload_table_filters()
+
+    def test_reload_table_filters_file_not_found(self, mock_pinot_config):
+        """Test reload fails when filter file doesn't exist."""
+        mock_pinot_config.table_filter_file = "/nonexistent/file.yaml"
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(FileNotFoundError):
+            pinot.reload_table_filters()
+
+    def test_reload_table_filters_empty_list(self, mock_pinot_config, tmp_path):
+        """Test reload with empty filter list returns None."""
+        # Create filter file with empty list
+        filter_file = tmp_path / "filters.yaml"
+        filter_file.write_text("included_tables: []\n")
+
+        mock_pinot_config.table_filter_file = str(filter_file)
+        mock_pinot_config.included_tables = ["table1", "table2"]
+        pinot = PinotClient(mock_pinot_config)
+
+        result = pinot.reload_table_filters()
+
+        assert result["status"] == "success"
+        assert result["previous_filter_count"] == 2
+        assert result["new_filter_count"] == 0
+        assert result["new_filters"] is None
+        assert pinot._included_tables is None
+
+    def test_reload_table_filters_from_none_to_filters(
+        self, mock_pinot_config, tmp_path
+    ):
+        """Test reload from no filters to having filters."""
+        filter_file = tmp_path / "filters.yaml"
+        filter_file.write_text("included_tables:\n  - prod_*\n")
+
+        mock_pinot_config.table_filter_file = str(filter_file)
+        mock_pinot_config.included_tables = None
+        pinot = PinotClient(mock_pinot_config)
+
+        result = pinot.reload_table_filters()
+
+        assert result["status"] == "success"
+        assert result["previous_filter_count"] == 0
+        assert result["new_filter_count"] == 1
+        assert result["previous_filters"] is None
+        assert result["new_filters"] == ["prod_*"]

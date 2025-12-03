@@ -49,6 +49,7 @@ class PinotConfig:
     connection_timeout: int = 60
     query_timeout: int = 60
     included_tables: list[str] | None = None
+    table_filter_file: str | None = None
 
 
 @dataclass
@@ -216,6 +217,26 @@ def _load_table_filters(filter_file_path: str | None) -> list[str] | None:
     return included_tables
 
 
+def reload_table_filters_from_file(file_path: str) -> list[str] | None:
+    """Public API for reloading table filters from a YAML file.
+
+    This function validates the file exists, parses the YAML configuration,
+    and returns the updated filter list. Designed for hot-reloading filters
+    without restarting the server.
+
+    Args:
+        file_path: Path to YAML filter file
+
+    Returns:
+        list[str] | None: New filter list, or None if empty/not configured
+
+    Raises:
+        FileNotFoundError: If the filter file doesn't exist
+        yaml.YAMLError: If the YAML is invalid
+    """
+    return _load_table_filters(file_path)
+
+
 def load_pinot_config() -> PinotConfig:
     """Load and return Pinot configuration from environment variables"""
     load_dotenv(override=True)
@@ -292,6 +313,7 @@ def load_pinot_config() -> PinotConfig:
         connection_timeout=int(os.getenv("PINOT_CONNECTION_TIMEOUT", "60")),
         query_timeout=int(os.getenv("PINOT_QUERY_TIMEOUT", "60")),
         included_tables=included_tables,
+        table_filter_file=filter_file_path,
     )
 
 

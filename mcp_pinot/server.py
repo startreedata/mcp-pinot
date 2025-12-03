@@ -56,6 +56,27 @@ def test_connection() -> str:
 
 
 @mcp.tool
+def reload_table_filters() -> str:
+    """Reload table filter configuration from file without restarting server.
+
+    This allows dynamic updates to the table access list:
+    1. Edit the YAML filter file (configured via PINOT_TABLE_FILTER_FILE)
+    2. Call this tool to reload the configuration
+    3. New filters take effect immediately for all subsequent operations
+
+    Useful for updating table access lists dynamically in production without downtime.
+
+    Returns:
+        JSON with reload status, previous/new filter counts, and filter lists
+    """
+    try:
+        results = pinot_client.reload_table_filters()
+        return json.dumps(results, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+
+@mcp.tool
 def read_query(query: str) -> str:
     """Execute a SELECT query on the Pinot database"""
     try:

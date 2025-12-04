@@ -6,6 +6,7 @@ import sys
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
+import yaml
 
 
 def setup_logging():
@@ -47,6 +48,8 @@ class PinotConfig:
     request_timeout: int = 60
     connection_timeout: int = 60
     query_timeout: int = 60
+    included_tables: list[str] | None = None
+    table_filter_file: str | None = None
 
 
 @dataclass
@@ -130,6 +133,108 @@ def _read_token_from_file(token_filename: str) -> str | None:
         return None
 
 
+def _validate_filter_file_path(filter_file_path: str | None) -> bool:
+    """Validate that the filter file path exists and is accessible.
+
+    Args:
+        filter_file_path: Path to the filter file
+
+    Returns:
+        bool: True if valid, False if no path specified
+
+    Raises:
+        FileNotFoundError: If filter file path is configured but file doesn't exist
+    """
+    if not filter_file_path:
+        logger.debug("No table filter file specified")
+        return False
+
+    if not os.path.exists(filter_file_path):
+        raise FileNotFoundError(
+            f"Table filter file not found: {filter_file_path}. "
+            f"Please check PINOT_TABLE_FILTER_FILE configuration."
+        )
+
+    return True
+
+
+def _parse_table_filter_config(filter_file_path: str) -> dict | None:
+    """Parse YAML configuration from filter file.
+
+    Args:
+        filter_file_path: Path to the YAML filter file
+
+    Returns:
+        dict | None: Parsed configuration or None on error
+    """
+    try:
+        with open(filter_file_path, "r", encoding="utf-8") as file:
+            config = yaml.safe_load(file)
+
+        if not config:
+            logger.warning("Empty table filter configuration file")
+            return None
+
+        return config
+
+    except yaml.YAMLError as e:
+        logger.error(f"Invalid YAML syntax in {filter_file_path}: {e}")
+        return None
+    except OSError as e:
+        logger.error(f"Failed to read filter file {filter_file_path}: {e}")
+        return None
+
+
+def _load_table_filters(filter_file_path: str | None) -> list[str] | None:
+    """Load table filters from YAML configuration file.
+
+    Args:
+        filter_file_path: Path to YAML file containing table filters
+
+    Returns:
+        list[str] | None: List of included table names, or None if not configured.
+                         Returns None (no filtering) if the list is empty.
+    """
+    if not _validate_filter_file_path(filter_file_path):
+        return None
+
+    config = _parse_table_filter_config(filter_file_path)
+    if not config:
+        return None
+
+    included_tables = config.get("included_tables")
+
+    # Treat empty lists the same as None - no filtering
+    if not included_tables:
+        logger.info("Table filter set but no tables listed — including all tables.")
+        return None
+
+    table_count = len(included_tables)
+    logger.info(f"{table_count} table(s) available after filtering.")
+
+    return included_tables
+
+
+def reload_table_filters_from_file(file_path: str) -> list[str] | None:
+    """Public API for reloading table filters from a YAML file.
+
+    This function validates the file exists, parses the YAML configuration,
+    and returns the updated filter list. Designed for hot-reloading filters
+    without restarting the server.
+
+    Args:
+        file_path: Path to YAML filter file
+
+    Returns:
+        list[str] | None: New filter list, or None if empty/not configured
+
+    Raises:
+        FileNotFoundError: If the filter file doesn't exist
+        yaml.YAMLError: If the YAML is invalid
+    """
+    return _load_table_filters(file_path)
+
+
 def load_pinot_config() -> PinotConfig:
     """Load and return Pinot configuration from environment variables"""
     load_dotenv(override=True)
@@ -188,6 +293,10 @@ def load_pinot_config() -> PinotConfig:
                 f"Failed to read token from {token_filename}, continuing without token"
             )
 
+    # Load table filters from YAML file if configured
+    filter_file_path = os.getenv("PINOT_TABLE_FILTER_FILE")
+    included_tables = _load_table_filters(filter_file_path)
+
     return PinotConfig(
         controller_url=os.getenv("PINOT_CONTROLLER_URL", "http://localhost:9000"),
         broker_host=broker_host,
@@ -201,6 +310,8 @@ def load_pinot_config() -> PinotConfig:
         request_timeout=int(os.getenv("PINOT_REQUEST_TIMEOUT", "60")),
         connection_timeout=int(os.getenv("PINOT_CONNECTION_TIMEOUT", "60")),
         query_timeout=int(os.getenv("PINOT_QUERY_TIMEOUT", "60")),
+        included_tables=included_tables,
+        table_filter_file=filter_file_path,
     )
 
 

@@ -77,6 +77,95 @@ The MCP server expects a uvicorn config style `.env` file in the root directory 
 mv .env.example .env
 ```
 
+### Configure Table Filtering (Optional)
+
+> ⚠️ **Security Note:** For production access control, use [Pinot's native table-level ACLs](https://docs.pinot.apache.org/operators/operating-pinot/access-control) (available since Pinot 0.8.0+). Table filtering in this MCP server is a convenience feature for organizing tables and improving UX, not a security boundary. It uses best-effort SQL parsing and should not be relied upon for security.
+
+Table filtering allows you to control which Pinot tables are visible through the MCP server. This is useful for:
+- **Reduce Cognitive Load**: Focus on relevant tables when your Pinot cluster has hundreds or thousands of tables
+- **Multi-Tenancy UX**: Run multiple MCP server instances against the same Pinot cluster, each showing different table subsets for different teams or use cases
+- **Environment Separation**: Deploy different MCP server instances (dev, staging, prod) that show only environment-specific tables
+- **Hide System Tables**: Filter out internal, test, or deprecated tables from end-user view
+
+When table filtering is enabled, **all table operations** are filtered to show only the configured tables.
+
+#### What Gets Filtered
+
+Table filtering applies across **all MCP operations**:
+
+1. **Table Listing** - Only configured tables appear in table lists
+2. **Query Execution** - SQL queries are checked to ensure all referenced tables (in FROM, JOIN, subqueries, CTEs, etc.) match the configured patterns
+3. **Table Operations** - Direct table access operations filter by table name:
+   - Get table details, size, and metadata
+   - Get table segments and segment metadata
+   - Get index/column details
+   - Get/update table configurations
+4. **Schema Operations** - Schema operations filter by schema name:
+   - Get/create/update schemas
+   - Create table configurations
+
+#### Setup
+Copy the example configuration file:
+```bash
+cp table_filters.yaml.example table_filters.yaml
+```
+
+Edit `table_filters.yaml` to specify which tables to include:
+```yaml
+included_tables:
+  - production_*        # All tables starting with "production_"
+  - analytics_events    # Specific table name
+  - metrics_*          # All tables starting with "metrics_"
+```
+
+Configure the filter file path in your `.env`:
+```bash
+PINOT_TABLE_FILTER_FILE=table_filters.yaml
+```
+
+#### Pattern Matching
+The filter supports glob-style patterns using standard Unix filename pattern matching:
+- `exact_table_name` - Matches exactly this table
+- `prefix_*` - Matches all tables starting with "prefix_"
+- `*_suffix` - Matches all tables ending with "_suffix"
+- `*pattern*` - Matches all tables containing "pattern"
+- `sharded_table_?` - Matches tables with exactly one character after the underscore (e.g., `sharded_table_1`, `sharded_table_a`)
+
+#### Query Filtering
+When filtering is enabled, SQL queries are checked before execution:
+
+- **Supported SQL Features**: FROM clauses, JOIN clauses (INNER, LEFT, RIGHT, OUTER, CROSS), subqueries, CTEs (WITH), UNION queries, comma-separated table lists
+- **Quoted Identifiers**: Supports both double-quoted (`"table name"`) and backtick-quoted (`` `table_name` ``) table names
+- **Schema Prefixes**: Handles schema-qualified table names (e.g., `database.schema.table`)
+- **Comments**: Removes SQL comments before checking
+
+**Example filtered query:**
+```sql
+SELECT * FROM allowed_table
+JOIN other_table ON allowed_table.id = other_table.id
+```
+**Error:** `Query references unauthorized tables: other_table. Allowed tables: allowed_table, prod_*`
+
+#### Configuration Features
+
+**Fail-Fast Validation:**
+- ⚠️ If `PINOT_TABLE_FILTER_FILE` is configured but the file doesn't exist, the server will **fail to start** with a `FileNotFoundError`
+- This prevents accidentally showing all tables due to misconfiguration
+- Empty filter files or missing `included_tables` key will show all tables (no filtering)
+
+**Comprehensive Filtering:**
+- All MCP tools that access tables apply filtering before execution
+- Consistent filtering across all table access points
+- Clear error messages indicate which tables don't match the configured patterns
+
+#### Disabling Table Filtering
+
+To disable table filtering, either:
+1. Remove the `PINOT_TABLE_FILTER_FILE` environment variable, or
+2. Don't configure it in your `.env` file
+
+When not configured, all tables in the Pinot cluster are visible.
+
 ### Configure OAuth Authentication (Optional)
 To enable OAuth authentication, set the following environment variables in your `.env` file:
 

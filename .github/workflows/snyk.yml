@@ -1,0 +1,81 @@
+name: Snyk Security Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  snyk:
+    if: ${{ secrets.SNYK_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+
+    - name: Export runtime requirements
+      run: |
+        uv export --format requirements.txt --no-dev --output-file requirements.txt
+
+    - name: Build Docker image for scan
+      run: docker build --pull --tag mcp-pinot:ci .
+
+    - name: Set up Snyk
+      uses: snyk/actions/setup@v3
+
+    - name: Snyk Open Source scan
+      id: snyk_oss
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      run: |
+        snyk test --file=requirements.txt --package-manager=pip --severity-threshold=medium --sarif-file-output=snyk-oss.sarif --project-name="${{ github.repository }} (python)"
+
+    - name: Snyk Container scan
+      id: snyk_container
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      run: |
+        snyk container test mcp-pinot:ci --file=Dockerfile --severity-threshold=medium --sarif-file-output=snyk-container.sarif --project-name="${{ github.repository }} (docker)"
+
+    - name: Upload Snyk OSS results
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: snyk-oss.sarif
+
+    - name: Upload Snyk container results
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: snyk-container.sarif
+
+    - name: Monitor main branch in Snyk
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      run: |
+        snyk monitor --file=requirements.txt --package-manager=pip --project-name="${{ github.repository }} (python)"
+        snyk container monitor mcp-pinot:ci --file=Dockerfile --project-name="${{ github.repository }} (docker)"
+
+    - name: Fail if Snyk found issues
+      if: |
+        steps.snyk_oss.outcome == 'failure' || steps.snyk_container.outcome == 'failure'
+      run: exit 1

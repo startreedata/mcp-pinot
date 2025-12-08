@@ -61,6 +61,9 @@
 - **Minimal Dependencies**: No new required dependencies added
 - **Optional SSL**: SSL libraries only used when certificates provided
 
+### 🔒 Security
+- **DNS rebinding mitigation**: Raised minimum `mcp[cli]` dependency to `>=1.10.0` (fixes HTTP/SSE rebinding protections) and recommend binding HTTP to loopback or enabling TLS when exposed
+
 ### 🌐 API Endpoints
 
 #### New REST API

@@ -203,6 +203,10 @@ uv --directory . run mcp_pinot/server.py
 ```
 You should see logs indicating that the server is running.
 
+> Security notes:
+> - The HTTP transport binds to `0.0.0.0` by default; prefer the `stdio` transport for Claude Desktop, or bind HTTP to `127.0.0.1` via `MCP_HOST=127.0.0.1`, or enable TLS (`MCP_SSL_KEYFILE`/`MCP_SSL_CERTFILE`) before exposing it.
+> - Ensure you are using `mcp[cli]` version `>=1.10.0`, which includes DNS rebinding protections for the HTTP/SSE server.
+
 ### Launch Pinot Quickstart (Optional)
 
 Start Pinot QuickStart using docker:

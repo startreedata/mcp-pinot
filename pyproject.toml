@@ -5,7 +5,7 @@ description = "A production-grade MCP server for Apache Pinot"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp[cli]>=1.6.0",
+    "mcp[cli]>=1.10.0",
     "fastmcp>=0.1.0",
     "pinotdb>=5.6.0",
     "uvicorn[standard]>=0.34.0",
@@ -122,4 +122,3 @@ dev = [
     "pytest-mock>=3.14.0",
     "ruff>=0.12.0",
 ]
-

@@ -61,11 +61,25 @@ jobs:
         cat .env
         source .venv/bin/activate
         # Start server in background
-        uv --directory . run mcp_pinot/server.py &
+        uv --directory . run mcp_pinot/server.py > server.log 2>&1 &
         SERVER_PID=$!
 
-        # Wait a moment for server to start
-        sleep 5
+        # Wait for server to start (avoid race with uv syncing in background)
+        # Note: /mcp may return 406 depending on Accept headers; any HTTP response means it's up.
+        for i in $(seq 1 60); do
+          STATUS_CODE="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/mcp || true)"
+          if [ "${STATUS_CODE}" != "000" ]; then
+            echo "MCP server is up (HTTP ${STATUS_CODE})"
+            break
+          fi
+          sleep 1
+        done
+
+        if [ "${STATUS_CODE}" = "000" ]; then
+          echo "MCP server failed to start in time"
+          cat server.log || true
+          exit 1
+        fi
 
         # Run the client test
         uv --directory . run examples/example_client.py

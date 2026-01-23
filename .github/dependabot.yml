@@ -1,0 +1,22 @@
+# .github/dependabot.yml
+version: 2
+
+# Python dependency updates
+updates:
+  - package-ecosystem: "pip"
+    # Location of your Python dependency files; adjust if using subdirectories
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Optional: limit open PRs from Dependabot
+    open-pull-requests-limit: 10
+    # Optional: include pre-release updates
+    # allow:
+    #   - dependency-type: "all"
+
+  # GitHub Actions update
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

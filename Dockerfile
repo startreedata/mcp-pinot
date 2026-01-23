@@ -1,5 +1,5 @@
-# Use Python 3.10 as the base image
-FROM python:3.10-slim
+# Use Python 3.12 as the base image
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y \
 COPY . /app/
 
 # Install Python dependencies
-RUN pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

@@ -33,7 +33,7 @@ jobs:
         uv pip install -e ".[dev]"
     
     - name: Set up Docker
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
     
     - name: Start Pinot containers
       run: |

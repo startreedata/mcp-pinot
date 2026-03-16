@@ -15,7 +15,7 @@ dependencies = [
     "requests>=2.32.3",
     "rpds-py>=0.18.1",
     "pydantic==2.12.5",
-    "pydantic-core==2.41.5",
+    "pydantic-core==2.42.0",
     "pyyaml>=6.0.1"
 ]
 

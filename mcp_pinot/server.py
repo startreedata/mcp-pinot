@@ -9,7 +9,7 @@ import json
 from typing import Optional
 
 from fastmcp import FastMCP
-from fastmcp.server.auth.oidc_proxy import OAuthProxy
+from fastmcp.server.auth import OAuthProxy
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 import uvicorn
 
@@ -22,9 +22,8 @@ pinot_config = load_pinot_config()
 server_config = load_server_config()
 pinot_client = PinotClient(pinot_config)
 
-
-mcp = FastMCP("Pinot MCP Server")
-
+# Build auth if OAuth is enabled
+_auth = None
 if server_config.oauth_enabled:
     oauth_config = load_oauth_config()
 
@@ -34,7 +33,7 @@ if server_config.oauth_enabled:
         audience=oauth_config.audience,
     )
 
-    mcp.auth = OAuthProxy(
+    _auth = OAuthProxy(
         upstream_authorization_endpoint=oauth_config.upstream_authorization_endpoint,
         upstream_token_endpoint=oauth_config.upstream_token_endpoint,
         upstream_client_id=oauth_config.client_id,
@@ -43,6 +42,8 @@ if server_config.oauth_enabled:
         extra_authorize_params=oauth_config.extra_authorize_params,
         base_url=oauth_config.base_url,
     )
+
+mcp = FastMCP("Pinot MCP Server", auth=_auth)
 
 
 @mcp.tool

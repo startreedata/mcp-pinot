@@ -46,7 +46,8 @@ class TestFastMCPServer:
     async def test_tools_registration(self):
         """Test that all tools are properly registered"""
         # Get the registered tools
-        tools = await mcp.get_tools()
+        tools = await mcp.list_tools()
+        tool_names = [t.name for t in tools]
 
         # Check that all expected tools are registered
         expected_tools = [
@@ -67,16 +68,19 @@ class TestFastMCPServer:
         ]
 
         for tool_name in expected_tools:
-            assert tool_name in tools, f"Tool {tool_name} not found in registered tools"
+            assert tool_name in tool_names, (
+                f"Tool {tool_name} not found in registered tools"
+            )
 
     @pytest.mark.asyncio
     async def test_prompts_registration(self):
         """Test that prompts are properly registered"""
         # Get the registered prompts
-        prompts = await mcp.get_prompts()
+        prompts = await mcp.list_prompts()
+        prompt_names = [p.name for p in prompts]
 
         # Check that the expected prompt is registered
-        assert "pinot_query" in prompts, (
+        assert "pinot_query" in prompt_names, (
             "Prompt pinot_query not found in registered prompts"
         )
 

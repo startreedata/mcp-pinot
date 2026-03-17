@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Pinot Server - Model Context Protocol for Apache Pinot</title>
+  <meta name="description" content="Production-grade Model Context Protocol (MCP) server for Apache Pinot. Enable real-time analytics queries and metadata operations through Claude AI.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍷</text></svg>">
+  <style>
+    :root {
+      --bg: #0f1117;
+      --bg-card: #1a1d2e;
+      --bg-code: #151825;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --accent-glow: rgba(99, 102, 241, 0.15);
+      --border: #2d3148;
+      --green: #34d399;
+      --orange: #fb923c;
+      --pink: #f472b6;
+      --radius: 12px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent-light); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: #a5b4fc; }
+
+    code, pre {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    /* Navigation */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(15, 17, 23, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+    }
+
+    nav .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+
+    nav .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--text);
+    }
+
+    nav .logo img {
+      height: 28px;
+      width: auto;
+    }
+
+    nav .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    nav .nav-links a {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    nav .nav-links a:hover { color: var(--text); }
+
+    .github-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 0.85rem;
+      color: var(--text);
+      font-weight: 500;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .github-btn:hover {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+      color: var(--text);
+    }
+
+    /* Hero */
+    .hero {
+      padding: 10rem 2rem 6rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent-glow);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 100px;
+      padding: 6px 16px;
+      font-size: 0.85rem;
+      color: var(--accent-light);
+      margin-bottom: 2rem;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      font-weight: 800;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+      letter-spacing: -0.03em;
+    }
+
+    .hero h1 .gradient {
+      background: linear-gradient(135deg, var(--accent-light), var(--pink));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 640px;
+      margin: 0 auto 2.5rem;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-light);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+    }
+
+    .btn-secondary {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+      color: var(--text);
+      transform: translateY(-1px);
+    }
+
+    /* Install bar */
+    .install-bar {
+      max-width: 520px;
+      margin: 2.5rem auto 0;
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: 'SF Mono', monospace;
+      font-size: 0.9rem;
+    }
+
+    .install-bar .prompt { color: var(--green); user-select: none; }
+    .install-bar .cmd { color: var(--text); flex: 1; }
+    .install-bar .copy-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      transition: color 0.2s;
+    }
+    .install-bar .copy-btn:hover { color: var(--text); }
+
+    /* Section */
+    section {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 5rem 2rem;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 3.5rem;
+    }
+
+    .section-header h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+    }
+
+    .section-header p {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    /* Features grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      background: var(--accent-glow);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .feature-card h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    /* Tools table */
+    .tools-table-wrapper {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .tools-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .tools-table th,
+    .tools-table td {
+      text-align: left;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tools-table th {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .tools-table tr:last-child td { border-bottom: none; }
+
+    .tools-table tr:hover td { background: rgba(99, 102, 241, 0.04); }
+
+    .tools-table code {
+      background: var(--bg-code);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      color: var(--accent-light);
+    }
+
+    .tool-category {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 100px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .cat-query { background: rgba(52, 211, 153, 0.12); color: var(--green); }
+    .cat-meta { background: rgba(251, 146, 60, 0.12); color: var(--orange); }
+    .cat-config { background: rgba(244, 114, 182, 0.12); color: var(--pink); }
+
+    /* Code blocks */
+    .code-block {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow-x: auto;
+      margin: 1.5rem 0;
+    }
+
+    .code-block .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .code-block pre {
+      padding: 20px;
+      overflow-x: auto;
+      font-size: 0.88rem;
+      line-height: 1.6;
+    }
+
+    .code-block .comment { color: #6b7280; }
+    .code-block .string { color: var(--green); }
+    .code-block .keyword { color: var(--pink); }
+    .code-block .prop { color: var(--accent-light); }
+
+    /* Screenshots */
+    .screenshots {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+      gap: 2rem;
+    }
+
+    .screenshot {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .screenshot:hover { border-color: var(--accent); }
+
+    .screenshot img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .screenshot .caption {
+      padding: 1rem 1.5rem;
+      background: var(--bg-card);
+      font-size: 0.9rem;
+    }
+
+    .screenshot .caption strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .screenshot .caption p {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    /* Steps */
+    .steps {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .step {
+      display: flex;
+      gap: 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .step-number {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      background: var(--accent-glow);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: var(--accent-light);
+      font-size: 1rem;
+    }
+
+    .step-content h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .step-content p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .step-content code {
+      background: var(--bg-code);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.88rem;
+    }
+
+    /* Config tabs */
+    .config-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0;
+    }
+
+    .config-tab {
+      padding: 10px 20px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+    }
+
+    .config-tab.active {
+      color: var(--accent-light);
+      border-bottom-color: var(--accent);
+    }
+
+    .config-tab:hover { color: var(--text); }
+
+    .config-panel { display: none; }
+    .config-panel.active { display: block; }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+
+    footer .footer-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    footer .footer-links {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+
+    footer .footer-links a {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    footer .footer-links a:hover { color: var(--text); }
+
+    footer .copyright {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      nav .nav-links { display: none; }
+
+      .hero { padding: 8rem 1.5rem 4rem; }
+
+      section { padding: 3rem 1.5rem; }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .screenshots {
+        grid-template-columns: 1fr;
+      }
+
+      .install-bar { font-size: 0.8rem; }
+
+      .step { gap: 1rem; }
+    }
+
+    /* Anchor offset for fixed nav */
+    section[id] {
+      scroll-margin-top: 80px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav>
+    <div class="nav-inner">
+      <a href="#" class="logo">
+        <img src="assets/pinot_logo.png" alt="Apache Pinot">
+        MCP Pinot Server
+      </a>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#tools">Tools</a></li>
+        <li><a href="#quickstart">Quick Start</a></li>
+        <li><a href="#integration">Integration</a></li>
+        <li><a href="#demo">Demo</a></li>
+      </ul>
+      <a href="https://github.com/startreedata/mcp-pinot" class="github-btn" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      Production-Ready MCP Server
+    </div>
+    <h1>
+      Real-Time Analytics<br>
+      with <span class="gradient">Apache Pinot + Claude AI</span>
+    </h1>
+    <p>
+      A production-grade Model Context Protocol server that connects Claude AI to your Apache Pinot cluster for real-time analytics, metadata queries, and schema management.
+    </p>
+    <div class="hero-actions">
+      <a href="#quickstart" class="btn btn-primary">Get Started</a>
+      <a href="https://github.com/startreedata/mcp-pinot" class="btn btn-secondary" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+    <div class="install-bar">
+      <span class="prompt">$</span>
+      <span class="cmd">pip install mcp-pinot-server</span>
+      <button class="copy-btn" onclick="navigator.clipboard.writeText('pip install mcp-pinot-server')" title="Copy">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="section-header">
+      <h2>Why MCP Pinot?</h2>
+      <p>Bridge the gap between conversational AI and real-time OLAP analytics with a secure, production-ready server.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F50D;</div>
+        <h3>15 MCP Tools</h3>
+        <p>Query data, list tables, inspect schemas, manage configurations, and more &mdash; all through natural language via Claude.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F512;</div>
+        <h3>Security First</h3>
+        <p>Read-only SQL queries, table-level filtering with glob patterns, OAuth authentication, and TLS/SSL support.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F310;</div>
+        <h3>Dual Transport</h3>
+        <p>STDIO for Claude Desktop integration and HTTP/SSE for web applications &mdash; run both simultaneously.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x2638;</div>
+        <h3>Kubernetes Ready</h3>
+        <p>Complete Helm charts and K8s manifests with health checks, autoscaling, and Ingress TLS termination.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x26A1;</div>
+        <h3>REST API</h3>
+        <p>Direct HTTP endpoints for tool calls &mdash; integrate with any language or framework using simple JSON requests.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F9EA;</div>
+        <h3>Battle Tested</h3>
+        <p>45+ tests with comprehensive coverage, async support, structured logging, and graceful error handling.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tools -->
+  <section id="tools">
+    <div class="section-header">
+      <h2>Available Tools</h2>
+      <p>15 MCP tools for querying data, managing schemas, and controlling table configurations.</p>
+    </div>
+    <div class="tools-table-wrapper">
+      <table class="tools-table">
+        <thead>
+          <tr>
+            <th>Tool</th>
+            <th>Description</th>
+            <th>Category</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>test-connection</code></td>
+            <td>Test and diagnose Pinot cluster connectivity</td>
+            <td><span class="tool-category cat-query">Query</span></td>
+          </tr>
+          <tr>
+            <td><code>read-query</code></td>
+            <td>Execute read-only SELECT queries on Pinot tables</td>
+            <td><span class="tool-category cat-query">Query</span></td>
+          </tr>
+          <tr>
+            <td><code>list-tables</code></td>
+            <td>List all available tables in the cluster</td>
+            <td><span class="tool-category cat-meta">Metadata</span></td>
+          </tr>
+          <tr>
+            <td><code>table-details</code></td>
+            <td>Get table size and storage information</td>
+            <td><span class="tool-category cat-meta">Metadata</span></td>
+          </tr>
+          <tr>
+            <td><code>segment-list</code></td>
+            <td>List all segments for a given table</td>
+            <td><span class="tool-category cat-meta">Metadata</span></td>
+          </tr>
+          <tr>
+            <td><code>segment-metadata-details</code></td>
+            <td>Get detailed metadata for table segments</td>
+            <td><span class="tool-category cat-meta">Metadata</span></td>
+          </tr>
+          <tr>
+            <td><code>index-column-details</code></td>
+            <td>Inspect index and column-level information</td>
+            <td><span class="tool-category cat-meta">Metadata</span></td>
+          </tr>
+          <tr>
+            <td><code>tableconfig-schema-details</code></td>
+            <td>Get combined table config and schema</td>
+            <td><span class="tool-category cat-config">Config</span></td>
+          </tr>
+          <tr>
+            <td><code>get-schema</code></td>
+            <td>Fetch a schema by name</td>
+            <td><span class="tool-category cat-config">Config</span></td>
+          </tr>
+          <tr>
+            <td><code>create-schema</code></td>
+            <td>Create new schemas with override/force options</td>
+            <td><span class="tool-category cat-config">Config</span></td>
+          </tr>
+          <tr>
+            <td><code>update-schema</code></td>
+            <td>Modify existing schemas</td>
+            <td><span class="tool-category cat-config">Config</span></td>
+          </tr>
+          <tr>
+            <td><code>get-table-config</code></td>
+            <td>Retrieve table configuration</td>
+            <td><span class="tool-category cat-config">Config</span></td>
+          </tr>
+          <tr>
+            <td><code>create-table-config</code></td>
+            <td>Create new table configurations</td>
+            <td><span class="tool-category cat-config">Config</span></td>
+          </tr>
+          <tr>
+            <td><code>update-table-config</code></td>
+            <td>Modify existing table configurations</td>
+            <td><span class="tool-category cat-config">Config</span></td>
+          </tr>
+          <tr>
+            <td><code>reload-table-filters</code></td>
+            <td>Dynamically reload table access filters without restarting</td>
+            <td><span class="tool-category cat-config">Config</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Quick Start -->
+  <section id="quickstart">
+    <div class="section-header">
+      <h2>Quick Start</h2>
+      <p>Get up and running in under 5 minutes.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <h3>Install uv</h3>
+          <p>A fast Python package installer written in Rust.</p>
+          <div class="code-block">
+            <div class="code-header">Terminal</div>
+            <pre>curl -LsSf https://astral.sh/uv/install.sh | sh</pre>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <h3>Clone &amp; Install</h3>
+          <p>Clone the repository and install dependencies.</p>
+          <div class="code-block">
+            <div class="code-header">Terminal</div>
+            <pre>git clone https://github.com/startreedata/mcp-pinot.git
+cd mcp-pinot
+uv pip install -e .</pre>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-number">3</div>
+        <div class="step-content">
+          <h3>Configure</h3>
+          <p>Set up your Pinot cluster connection.</p>
+          <div class="code-block">
+            <div class="code-header">Terminal</div>
+            <pre><span class="comment"># Copy the example config</span>
+mv .env.example .env
+
+<span class="comment"># Edit with your Pinot cluster details</span>
+<span class="comment"># PINOT_CONTROLLER_URL=http://localhost:9000</span>
+<span class="comment"># PINOT_BROKER_URL=http://localhost:8000</span></pre>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-number">4</div>
+        <div class="step-content">
+          <h3>Run the Server</h3>
+          <p>Start the MCP server with dual transport support.</p>
+          <div class="code-block">
+            <div class="code-header">Terminal</div>
+            <pre>uv --directory . run mcp_pinot/server.py</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="max-width: 720px; margin: 2rem auto 0;">
+      <h3 style="margin-bottom: 1rem;">Optional: Launch Pinot QuickStart</h3>
+      <p style="color: var(--text-muted); margin-bottom: 1rem;">If you don't have a Pinot cluster, start the QuickStart with Docker:</p>
+      <div class="code-block">
+        <div class="code-header">Terminal</div>
+        <pre>docker run --name pinot-quickstart \
+  -p 2123:2123 -p 9000:9000 -p 8000:8000 \
+  -d apachepinot/pinot:latest QuickStart -type batch</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Integration -->
+  <section id="integration">
+    <div class="section-header">
+      <h2>Integration</h2>
+      <p>Connect to Claude Desktop, use HTTP APIs, or deploy on Kubernetes.</p>
+    </div>
+
+    <div style="max-width: 800px; margin: 0 auto;">
+      <div class="config-tabs">
+        <button class="config-tab active" onclick="showTab('claude')">Claude Desktop</button>
+        <button class="config-tab" onclick="showTab('http')">HTTP / REST API</button>
+        <button class="config-tab" onclick="showTab('docker')">Docker</button>
+        <button class="config-tab" onclick="showTab('k8s')">Kubernetes</button>
+      </div>
+
+      <div id="tab-claude" class="config-panel active">
+        <div class="code-block" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+          <div class="code-header">~/Library/Application Support/Claude/claude_desktop_config.json</div>
+          <pre>{
+  <span class="prop">"mcpServers"</span>: {
+    <span class="prop">"pinot_mcp"</span>: {
+      <span class="prop">"command"</span>: <span class="string">"/path/to/uv"</span>,
+      <span class="prop">"args"</span>: [
+        <span class="string">"--directory"</span>,
+        <span class="string">"/path/to/mcp-pinot"</span>,
+        <span class="string">"run"</span>,
+        <span class="string">"mcp_pinot/server.py"</span>
+      ]
+    }
+  }
+}</pre>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 1rem;">
+          Replace paths with your actual <code>uv</code> and repo locations. Run <code>which uv</code> to find the uv path.
+          Use STDIO transport for Claude Desktop.
+        </p>
+      </div>
+
+      <div id="tab-http" class="config-panel">
+        <div class="code-block" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+          <div class="code-header">Terminal &mdash; curl</div>
+          <pre><span class="comment"># List available tools</span>
+curl -s http://127.0.0.1:8080/api/tools/list | jq
+
+<span class="comment"># Execute a query</span>
+curl -X POST http://127.0.0.1:8080/api/tools/call \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"name": "read-query", "arguments": {"query": "SELECT * FROM airlineStats LIMIT 5"}}'</span>
+
+<span class="comment"># List tables</span>
+curl -X POST http://127.0.0.1:8080/api/tools/call \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="string">'{"name": "list-tables", "arguments": {}}'</span></pre>
+        </div>
+      </div>
+
+      <div id="tab-docker" class="config-panel">
+        <div class="code-block" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+          <div class="code-header">Terminal</div>
+          <pre><span class="comment"># Build the image</span>
+docker build -t mcp-pinot .
+
+<span class="comment"># Run with your config</span>
+docker run -v $(pwd)/.env:/app/.env mcp-pinot</pre>
+        </div>
+      </div>
+
+      <div id="tab-k8s" class="config-panel">
+        <div class="code-block" style="border-top-left-radius: 0; border-top-right-radius: 0;">
+          <div class="code-header">Terminal &mdash; Helm</div>
+          <pre><span class="comment"># Deploy with Helm</span>
+helm install mcp-pinot ./helm/mcp-pinot \
+  --set pinot.controllerUrl=http://pinot-controller:9000 \
+  --set pinot.brokerUrl=http://pinot-broker:8000
+
+<span class="comment"># Or use kubectl directly</span>
+kubectl apply -f k8s/</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Demo -->
+  <section id="demo">
+    <div class="section-header">
+      <h2>See It in Action</h2>
+      <p>MCP Pinot Server working with Claude AI for real-time data analysis.</p>
+    </div>
+    <div class="screenshots">
+      <div class="screenshot">
+        <img src="assets/pinot-mcp-in-action.png" alt="MCP Pinot fetching metadata from a Pinot cluster" loading="lazy">
+        <div class="caption">
+          <strong>Metadata Exploration</strong>
+          <p>Ask Claude to explore your Pinot cluster &mdash; list tables, inspect schemas, and understand your data model.</p>
+        </div>
+      </div>
+      <div class="screenshot">
+        <img src="assets/github-events-analysis.png" alt="MCP Pinot analyzing GitHub events data with histogram" loading="lazy">
+        <div class="caption">
+          <strong>Data Analysis &amp; Visualization</strong>
+          <p>Query data and generate visualizations like histograms, all through natural language prompts.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Configuration -->
+  <section id="config">
+    <div class="section-header">
+      <h2>Configuration</h2>
+      <p>Fine-tune the server with environment variables.</p>
+    </div>
+    <div style="max-width: 800px; margin: 0 auto;">
+      <div class="tools-table-wrapper" style="margin-bottom: 2rem;">
+        <table class="tools-table">
+          <thead>
+            <tr>
+              <th>Variable</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>PINOT_CONTROLLER_URL</code></td>
+              <td>Pinot controller endpoint</td>
+              <td><code>http://localhost:9000</code></td>
+            </tr>
+            <tr>
+              <td><code>PINOT_BROKER_URL</code></td>
+              <td>Pinot broker endpoint</td>
+              <td><code>http://localhost:8000</code></td>
+            </tr>
+            <tr>
+              <td><code>MCP_TRANSPORT</code></td>
+              <td>Transport mode: <code>stdio</code>, <code>http</code>, or <code>both</code></td>
+              <td><code>http</code></td>
+            </tr>
+            <tr>
+              <td><code>MCP_HOST</code></td>
+              <td>HTTP bind address</td>
+              <td><code>0.0.0.0</code></td>
+            </tr>
+            <tr>
+              <td><code>MCP_PORT</code></td>
+              <td>HTTP port</td>
+              <td><code>8080</code></td>
+            </tr>
+            <tr>
+              <td><code>MCP_SSL_CERTFILE</code></td>
+              <td>Path to SSL certificate for HTTPS</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>MCP_SSL_KEYFILE</code></td>
+              <td>Path to SSL private key</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>PINOT_TABLE_FILTER_FILE</code></td>
+              <td>YAML file for table filtering</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>OAUTH_ENABLED</code></td>
+              <td>Enable OAuth authentication</td>
+              <td><code>false</code></td>
+            </tr>
+            <tr>
+              <td><code>PINOT_USE_MSQE</code></td>
+              <td>Enable multi-stage query engine</td>
+              <td><code>false</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+        See the <a href="https://github.com/startreedata/mcp-pinot#configure-pinot-cluster">full configuration guide</a> for all available options including OAuth, table filtering, and timeout settings.
+      </p>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-links">
+        <a href="https://github.com/startreedata/mcp-pinot" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/startreedata/mcp-pinot/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="https://github.com/startreedata/mcp-pinot/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+        <a href="https://pinot.apache.org/" target="_blank" rel="noopener">Apache Pinot</a>
+        <a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener">MCP Protocol</a>
+        <a href="https://startree.ai/" target="_blank" rel="noopener">StarTree</a>
+      </div>
+      <p class="copyright">
+        Apache-2.0 License &middot; Built by <a href="https://github.com/startreedata" target="_blank" rel="noopener">StarTree</a>
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    function showTab(name) {
+      document.querySelectorAll('.config-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.config-panel').forEach(p => p.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + name).classList.add('active');
+    }
+
+    // Smooth highlight for nav links
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('.nav-links a');
+
+    window.addEventListener('scroll', () => {
+      let current = '';
+      sections.forEach(section => {
+        const top = section.offsetTop - 100;
+        if (window.scrollY >= top) {
+          current = section.getAttribute('id');
+        }
+      });
+      navLinks.forEach(link => {
+        link.style.color = link.getAttribute('href') === '#' + current ? '#e2e8f0' : '';
+      });
+    });
+  </script>
+
+</body>
+</html>

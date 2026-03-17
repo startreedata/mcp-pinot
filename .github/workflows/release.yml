@@ -9,9 +9,13 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: startreedata/mcp-pinot
 
+permissions: {}
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         python-version: ["3.12"]
@@ -203,6 +207,7 @@ jobs:
   notify:
     needs: [create-release]
     runs-on: ubuntu-latest
+    permissions: {}
     if: always()
     steps:
     - name: Notify on success

@@ -10,6 +10,9 @@ on:
     paths:
       - 'helm/**'
 
+permissions:
+  contents: read
+
 jobs:
   lint-helm:
     runs-on: ubuntu-latest

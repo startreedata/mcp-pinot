@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 
 [[package]]
@@ -685,7 +685,6 @@ dependencies = [
     { name = "pandas" },
     { name = "pinotdb" },
     { name = "pydantic" },
-    { name = "pydantic-core" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -718,8 +717,7 @@ requires-dist = [
     { name = "mcp", extras = ["cli"], specifier = ">=1.10.0" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pinotdb", specifier = ">=5.6.0" },
-    { name = "pydantic", specifier = "==2.12.5" },
-    { name = "pydantic-core", specifier = "==2.41.5" },
+    { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },

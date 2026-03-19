@@ -5,7 +5,7 @@ import os
 import sys
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 import yaml
 
 
@@ -237,7 +237,7 @@ def reload_table_filters_from_file(file_path: str) -> list[str] | None:
 
 def load_pinot_config() -> PinotConfig:
     """Load and return Pinot configuration from environment variables"""
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
 
     # Get the broker URL if provided
     broker_url = os.getenv("PINOT_BROKER_URL")
@@ -317,7 +317,7 @@ def load_pinot_config() -> PinotConfig:
 
 def load_server_config() -> ServerConfig:
     """Load and return MCP server configuration from environment variables"""
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
 
     return ServerConfig(
         transport=os.getenv("MCP_TRANSPORT", "http").lower(),
@@ -332,7 +332,7 @@ def load_server_config() -> ServerConfig:
 
 def load_oauth_config() -> OAuthConfig:
     """Load and return OAuth configuration from environment variables"""
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
 
     # Parse extra authorization parameters from environment variables
     # Format: OAUTH_EXTRA_AUTH_PARAMS='{"param1": "value1", "param2": "value2"}'

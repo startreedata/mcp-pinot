@@ -263,9 +263,12 @@ class PinotClient:
         broker_url = f"{self.config.broker_scheme}://{self.config.broker_host}:{self.config.broker_port}/{PinotEndpoints.QUERY_SQL}"
         logger.debug(f"Executing query via HTTP: {query[:100]}...")
 
+        query_options = f"timeoutMs={self.config.query_timeout * 1000}"
+        if self.config.use_msqe:
+            query_options += ";useMultiStageEngine=true"
         payload = {
             "sql": query,
-            "queryOptions": f"timeoutMs={self.config.query_timeout * 1000}",
+            "queryOptions": query_options,
         }
 
         response = self.http_request(broker_url, "POST", payload)

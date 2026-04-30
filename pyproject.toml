@@ -37,8 +37,8 @@ dev = [
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["mcp_pinot"]
+[tool.setuptools.packages.find]
+include = ["mcp_pinot", "mcp_pinot_ops*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

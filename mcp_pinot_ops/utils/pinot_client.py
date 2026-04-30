@@ -28,6 +28,8 @@ HEADERS = {
 if PINOT_TOKEN:
     HEADERS["Authorization"] = PINOT_TOKEN
 
+AUTH = (PINOT_USERNAME, PINOT_PASSWORD) if PINOT_USERNAME and PINOT_PASSWORD else None
+
 REQUEST_TIMEOUT = 30
 
 conn = connect(
@@ -56,7 +58,7 @@ class Pinot:
 
     def _get_tables(self, params: dict[str, Any] | None = None) -> list[str]:
         url = f"{PINOT_CONTROLLER_URL}/tables"
-        return requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT).json()[
+        return requests.get(url, headers=HEADERS, auth=AUTH, timeout=REQUEST_TIMEOUT).json()[
             "tables"
         ]
 
@@ -64,19 +66,19 @@ class Pinot:
         self, tableName: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         url = f"{PINOT_CONTROLLER_URL}/tables/{tableName}/size"
-        return requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT).json()
+        return requests.get(url, headers=HEADERS, auth=AUTH, timeout=REQUEST_TIMEOUT).json()
 
     def _get_segment_metadata_detail(
         self, tableName: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         url = f"{PINOT_CONTROLLER_URL}/segments/{tableName}/metadata"
-        return requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT).json()
+        return requests.get(url, headers=HEADERS, auth=AUTH, timeout=REQUEST_TIMEOUT).json()
 
     def _get_segments(
         self, tableName: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         url = f"{PINOT_CONTROLLER_URL}/segments/{tableName}"
-        return requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT).json()
+        return requests.get(url, headers=HEADERS, auth=AUTH, timeout=REQUEST_TIMEOUT).json()
 
     def _get_index_column_detail(
         self, tableName: str, segmentName: str, params: dict[str, Any] | None = None
@@ -86,7 +88,7 @@ class Pinot:
                 f"{PINOT_CONTROLLER_URL}/segments/{tableName}_{type_suffix}/"
                 f"{segmentName}/metadata?columns=*"
             )
-            response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            response = requests.get(url, headers=HEADERS, auth=AUTH, timeout=REQUEST_TIMEOUT)
             if response.status_code == 200:
                 return response.json()
         raise ValueError("Index column detail not found")
@@ -95,7 +97,7 @@ class Pinot:
         self, tableName: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         url = f"{PINOT_CONTROLLER_URL}/tableConfigs/{tableName}"
-        return requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT).json()
+        return requests.get(url, headers=HEADERS, auth=AUTH, timeout=REQUEST_TIMEOUT).json()
 
     def _pause_consumption(
         self, tableName: str, comment: str | None = None
@@ -105,7 +107,7 @@ class Pinot:
         if comment:
             params["comment"] = comment
         response = requests.post(
-            url, headers=HEADERS, params=params, timeout=REQUEST_TIMEOUT
+            url, headers=HEADERS, auth=AUTH, params=params, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()  # Raise an exception for bad status codes
         # Check if response body is empty or just whitespace
@@ -127,7 +129,7 @@ class Pinot:
         if consumeFrom:
             params["consumeFrom"] = consumeFrom
         response = requests.post(
-            url, headers=HEADERS, params=params, timeout=REQUEST_TIMEOUT
+            url, headers=HEADERS, auth=AUTH, params=params, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
         if not response.text or response.text.isspace():
@@ -160,7 +162,7 @@ class Pinot:
             params["batchStatusCheckTimeoutSec"] = batchStatusCheckTimeoutSec
 
         response = requests.post(
-            url, headers=HEADERS, params=params, timeout=REQUEST_TIMEOUT
+            url, headers=HEADERS, auth=AUTH, params=params, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
         if not response.text or response.text.isspace():
@@ -173,7 +175,7 @@ class Pinot:
 
     def _get_pause_status(self, tableName: str) -> dict[str, Any]:
         url = f"{PINOT_CONTROLLER_URL}/tables/{tableName}/pauseStatus"
-        response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        response = requests.get(url, headers=HEADERS, auth=AUTH, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         if not response.text or response.text.isspace():
             return {
@@ -187,7 +189,7 @@ class Pinot:
 
     def _get_consuming_segments_info(self, tableName: str) -> dict[str, Any]:
         url = f"{PINOT_CONTROLLER_URL}/tables/{tableName}/consumingSegmentsInfo"
-        response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        response = requests.get(url, headers=HEADERS, auth=AUTH, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         try:
             return response.json()
@@ -208,7 +210,7 @@ class Pinot:
             params["type"] = tableType
 
         response = requests.post(
-            url, headers=HEADERS, params=params, timeout=REQUEST_TIMEOUT
+            url, headers=HEADERS, auth=AUTH, params=params, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
         try:
@@ -252,7 +254,7 @@ class Pinot:
                     params[k] = v
 
         response = requests.post(
-            url, headers=HEADERS, params=params, timeout=REQUEST_TIMEOUT
+            url, headers=HEADERS, auth=AUTH, params=params, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
         try:
@@ -270,7 +272,7 @@ class Pinot:
         url = f"{PINOT_CONTROLLER_URL}/segments/{tableNameWithType}/reset"
         params = {"errorSegmentsOnly": str(errorSegmentsOnly).lower()}
         response = requests.post(
-            url, headers=HEADERS, params=params, timeout=REQUEST_TIMEOUT
+            url, headers=HEADERS, auth=AUTH, params=params, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
         try:
@@ -294,6 +296,7 @@ class Pinot:
         response = requests.post(
             url,
             headers=headers,
+            auth=AUTH,
             params=params,
             data=schemaJson,
             timeout=REQUEST_TIMEOUT,
@@ -329,6 +332,7 @@ class Pinot:
         response = requests.put(
             url,
             headers=headers,
+            auth=AUTH,
             params=params,
             data=schemaJson,
             timeout=REQUEST_TIMEOUT,
@@ -355,6 +359,7 @@ class Pinot:
         response = requests.post(
             url,
             headers=headers,
+            auth=AUTH,
             params=params,
             data=tableConfigJson,
             timeout=REQUEST_TIMEOUT,
@@ -377,6 +382,7 @@ class Pinot:
         response = requests.put(
             url,
             headers=headers,
+            auth=AUTH,
             params=params,
             data=tableConfigJson,
             timeout=REQUEST_TIMEOUT,
@@ -399,7 +405,7 @@ class Pinot:
             params["type"] = tableType  # Query param for GET
 
         response = requests.get(
-            url, headers=HEADERS, params=params, timeout=REQUEST_TIMEOUT
+            url, headers=HEADERS, auth=AUTH, params=params, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
         # GET /tables/{tableName} may return {"OFFLINE": {...}, "REALTIME": {...}}

@@ -1,3 +1,4 @@
+{{- include "mcp-pinot.validateExposure" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

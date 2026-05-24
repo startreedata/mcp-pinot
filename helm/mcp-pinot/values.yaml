@@ -42,6 +42,10 @@ securityContext:
 
 # Service configuration
 service:
+  # Disabled by default because the default MCP bind host is loopback-only.
+  # To expose the pod through a Service, set service.enabled=true,
+  # mcp.host=0.0.0.0, and mcp.oauth.enabled=true.
+  enabled: false
   type: ClusterIP
   port: 80
   targetPort: 8000
@@ -88,7 +92,9 @@ replicas: 1
 # MCP Server Configuration
 mcp:
   transport: "http"
-  host: "0.0.0.0"
+  # Set to "0.0.0.0" only with OAuth enabled; otherwise the server refuses
+  # network-reachable HTTP binds.
+  host: "127.0.0.1"
   port: 8000
   path: "/mcp"
   ssl:
@@ -96,6 +102,7 @@ mcp:
     keyFile: "/etc/ssl/tls.key"
     certFile: "/etc/ssl/tls.crt"
   oauth:
+    # Required when binding MCP HTTP to a non-loopback host.
     enabled: false
     clientId: ""
     clientSecret: ""

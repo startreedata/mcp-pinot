@@ -5,6 +5,7 @@
 FastMCP-based implementation for the Apache Pinot MCP Server.
 """
 
+from ipaddress import ip_address
 import json
 from typing import Optional
 
@@ -46,6 +47,31 @@ if server_config.oauth_enabled:
 mcp = FastMCP("Pinot MCP Server", auth=_auth)
 
 
+def _is_loopback_host(host: str) -> bool:
+    """Return True when host is a local-only bind address."""
+    if host.lower() == "localhost":
+        return True
+
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _enforce_http_auth_safety(http_enabled: bool) -> None:
+    """Refuse unauthenticated HTTP on network-reachable bind addresses."""
+    if (
+        http_enabled
+        and not server_config.oauth_enabled
+        and not _is_loopback_host(server_config.host)
+    ):
+        raise SystemExit(
+            "Refusing to start: HTTP transport is bound to "
+            f"{server_config.host!r} without OAuth. Set OAUTH_ENABLED=true "
+            "or bind local-only with MCP_HOST=127.0.0.1."
+        )
+
+
 @mcp.tool
 def test_connection() -> str:
     """Test Pinot connection and return diagnostics"""
@@ -81,8 +107,6 @@ def reload_table_filters() -> str:
 def read_query(query: str) -> str:
     """Execute a SELECT query on the Pinot database"""
     try:
-        if not query.strip().upper().startswith("SELECT"):
-            raise ValueError("Only SELECT queries are allowed for read-query")
         results = pinot_client.execute_query(query=query)
         return json.dumps(results, indent=2)
     except Exception as e:
@@ -248,6 +272,9 @@ def pinot_query() -> str:
 def main():
     """Main entry point for FastMCP Pinot Server"""
     tls_enabled = server_config.ssl_keyfile and server_config.ssl_certfile
+    http_enabled = bool(tls_enabled) or server_config.transport != "stdio"
+    _enforce_http_auth_safety(http_enabled)
+
     if tls_enabled:
         app = mcp.http_app(path=server_config.path)
         uvicorn.run(

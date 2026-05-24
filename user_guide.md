@@ -163,11 +163,11 @@ curl -s -X POST http://127.0.0.1:8080/api/tools/call \
 curl -s http://127.0.0.1:8080/api/tools/list
 
 # Restart server if needed
-uv run python examples/http_server_demo.py both
+uv --directory . run mcp_pinot/server.py
 ```
 
 ### Query Errors
-- Only SELECT queries are allowed for security
+- Only one read-only `SELECT` or `WITH ... SELECT` statement is allowed
 - Table names are case-sensitive
 - Use proper SQL syntax for Pinot
 

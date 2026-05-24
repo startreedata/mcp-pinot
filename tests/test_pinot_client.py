@@ -665,6 +665,166 @@ class TestPinotClient:
 
         assert result == [{"col1": "data"}]
 
+    def test_execute_query_rejects_non_select_when_no_filter(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test execute_query rejects write statements even without table filtering."""
+        mock_pinot_config.included_tables = None
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(ValueError, match="Only read-only SELECT queries"):
+            pinot.execute_query("DELETE FROM any_table_name WHERE id = 1")
+
+        mock_requests.post.assert_not_called()
+
+    def test_execute_query_rejects_stacked_statement(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test execute_query rejects stacked statements after a SELECT."""
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(
+            ValueError, match="Only a single read-only SELECT statement"
+        ):
+            pinot.execute_query("SELECT * FROM test_table; DROP TABLE test_table")
+
+        mock_requests.post.assert_not_called()
+
+    def test_execute_query_rejects_obfuscated_destructive_keyword(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test execute_query rejects destructive keywords hidden by comments."""
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(
+            ValueError, match="Only a single read-only SELECT statement"
+        ):
+            pinot.execute_query("SELECT * FROM test_table; DR/**/OP TABLE test_table")
+
+        mock_requests.post.assert_not_called()
+
+    def test_execute_query_rejects_prohibited_keyword_in_cte(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test execute_query rejects write operations embedded in a WITH query."""
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(ValueError, match="prohibited keyword UPDATE"):
+            pinot.execute_query(
+                "WITH cte AS (UPDATE test_table SET name = 'x') SELECT * FROM cte"
+            )
+
+        mock_requests.post.assert_not_called()
+
+    def test_execute_query_rejects_with_without_top_level_select(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test WITH queries must resolve to a top-level SELECT."""
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(ValueError, match="WITH queries must resolve"):
+            pinot.execute_query("WITH cte AS (SELECT * FROM test_table) VALUES (1)")
+
+        mock_requests.post.assert_not_called()
+
+    def test_execute_query_allows_trailing_semicolon_comments_and_string_semicolons(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test read-only validation keeps string semicolons and strips comments."""
+        pinot = PinotClient(mock_pinot_config)
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["literal"]},
+                "rows": [["; DROP TABLE test_table"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        result = pinot.execute_query(
+            "/* leading */ SELECT '; DROP TABLE test_table' AS literal FROM test_table;"
+        )
+
+        assert result == [{"literal": "; DROP TABLE test_table"}]
+        assert mock_requests.post.call_args.kwargs["json"]["sql"] == (
+            "SELECT '; DROP TABLE test_table' AS literal FROM test_table"
+        )
+
+    def test_execute_query_allows_with_select(self, mock_pinot_config, mock_requests):
+        """Test read-only validation allows WITH queries that resolve to SELECT."""
+        pinot = PinotClient(mock_pinot_config)
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        result = pinot.execute_query(
+            "WITH cte AS (SELECT * FROM test_table) SELECT * FROM cte"
+        )
+
+        assert result == [{"col1": "data"}]
+
+    def test_execute_query_allows_order_by_desc(self, mock_pinot_config, mock_requests):
+        """Test DESC sort direction is accepted in read-only SELECT queries."""
+        pinot = PinotClient(mock_pinot_config)
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        result = pinot.execute_query(
+            "SELECT * FROM test_table ORDER BY created_at DESC LIMIT 10"
+        )
+
+        assert result == [{"col1": "data"}]
+        assert mock_requests.post.call_args.kwargs["json"]["sql"] == (
+            "SELECT * FROM test_table ORDER BY created_at DESC LIMIT 10"
+        )
+
+    def test_execute_query_allows_trailing_pinot_option(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test Pinot OPTION clauses are accepted after parser validation."""
+        pinot = PinotClient(mock_pinot_config)
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["col1"]},
+                "rows": [["data"]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        result = pinot.execute_query("SELECT * FROM test_table OPTION(timeoutMs=30000)")
+
+        assert result == [{"col1": "data"}]
+        assert mock_requests.post.call_args.kwargs["json"]["sql"] == (
+            "SELECT * FROM test_table OPTION(timeoutMs=30000)"
+        )
+
+    def test_execute_query_rejects_invalid_select_syntax(
+        self, mock_pinot_config, mock_requests
+    ):
+        """Test parser validation rejects malformed SELECT syntax."""
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(ValueError, match="Only valid read-only SELECT"):
+            pinot.execute_query("SELECT FROM")
+
+        mock_requests.post.assert_not_called()
+
     def test_execute_query_blocks_multiple_unauthorized_tables(
         self, mock_pinot_config, mock_requests
     ):

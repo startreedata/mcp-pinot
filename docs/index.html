@@ -509,6 +509,69 @@
     .config-panel { display: none; }
     .config-panel.active { display: block; }
 
+    .config-reference {
+      max-width: 1050px;
+      margin: 0 auto;
+    }
+
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .config-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      background: var(--bg-card);
+    }
+
+    .config-card h3 {
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .config-card p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .config-card code {
+      background: var(--bg-code);
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: var(--accent-light);
+      font-size: 0.85rem;
+    }
+
+    .config-note {
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      background: var(--accent-glow);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      margin-bottom: 2rem;
+    }
+
+    .config-subsection {
+      margin-top: 2rem;
+      margin-bottom: 1rem;
+    }
+
+    .config-subsection h3 {
+      font-size: 1.1rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .config-subsection p {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+    }
+
     /* Footer */
     footer {
       border-top: 1px solid var(--border);
@@ -582,6 +645,7 @@
         <li><a href="#tools">Tools</a></li>
         <li><a href="#quickstart">Quick Start</a></li>
         <li><a href="#integration">Integration</a></li>
+        <li><a href="#config">Config</a></li>
         <li><a href="#demo">Demo</a></li>
       </ul>
       <a href="https://github.com/startreedata/mcp-pinot" class="github-btn" target="_blank" rel="noopener">
@@ -639,8 +703,8 @@
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F310;</div>
-        <h3>Dual Transport</h3>
-        <p>STDIO for Claude Desktop integration and HTTP/SSE for web applications &mdash; run both simultaneously.</p>
+        <h3>Flexible Transport</h3>
+        <p>STDIO for Claude Desktop integration and HTTP/SSE for web applications with secure local defaults.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x2638;</div>
@@ -807,7 +871,7 @@ mv .env.example .env
         <div class="step-number">4</div>
         <div class="step-content">
           <h3>Run the Server</h3>
-          <p>Start the MCP server with dual transport support.</p>
+          <p>Start the MCP server with the configured transport.</p>
           <div class="code-block">
             <div class="code-header">Terminal</div>
             <pre>uv --directory . run mcp_pinot/server.py</pre>
@@ -855,7 +919,12 @@ mv .env.example .env
         <span class="string">"/path/to/mcp-pinot"</span>,
         <span class="string">"run"</span>,
         <span class="string">"mcp_pinot/server.py"</span>
-      ]
+      ],
+      <span class="prop">"env"</span>: {
+        <span class="prop">"MCP_TRANSPORT"</span>: <span class="string">"stdio"</span>,
+        <span class="prop">"PINOT_CONTROLLER_URL"</span>: <span class="string">"http://localhost:9000"</span>,
+        <span class="prop">"PINOT_BROKER_URL"</span>: <span class="string">"http://localhost:8000"</span>
+      }
     }
   }
 }</pre>
@@ -900,11 +969,14 @@ docker run -v $(pwd)/.env:/app/.env mcp-pinot</pre>
           <div class="code-header">Terminal &mdash; Helm</div>
           <pre><span class="comment"># Deploy with Helm</span>
 helm install mcp-pinot ./helm/mcp-pinot \
-  --set pinot.controllerUrl=http://pinot-controller:9000 \
-  --set pinot.brokerUrl=http://pinot-broker:8000
+  --set pinot.controller.url=http://pinot-controller:9000 \
+  --set pinot.broker.url=http://pinot-broker:8000
 
-<span class="comment"># Or use kubectl directly</span>
-kubectl apply -f k8s/</pre>
+<span class="comment"># Expose through a Service only with OAuth enabled</span>
+helm upgrade mcp-pinot ./helm/mcp-pinot \
+  --set service.enabled=true \
+  --set mcp.host=0.0.0.0 \
+  --set mcp.oauth.enabled=true</pre>
         </div>
       </div>
     </div>
@@ -938,16 +1010,49 @@ kubectl apply -f k8s/</pre>
   <section id="config">
     <div class="section-header">
       <h2>Configuration</h2>
-      <p>Fine-tune the server with environment variables.</p>
+      <p>Configure Pinot connectivity, MCP transport, authentication, and deployment exposure.</p>
     </div>
-    <div style="max-width: 800px; margin: 0 auto;">
+    <div class="config-reference">
+      <div class="config-note">
+        The server loads environment variables and a <code>.env</code> file from the current working directory.
+        Values in <code>.env</code> override process environment variables. Keep local defaults for desktop use, and enable OAuth before binding HTTP or HTTPS to a non-loopback host.
+      </div>
+
+      <div class="config-grid">
+        <div class="config-card">
+          <h3>Claude Desktop</h3>
+          <p>Use STDIO for local desktop integrations.</p>
+          <code>MCP_TRANSPORT=stdio</code>
+        </div>
+        <div class="config-card">
+          <h3>Local HTTP</h3>
+          <p>Default HTTP/SSE profile for local development.</p>
+          <code>MCP_HOST=127.0.0.1</code>
+        </div>
+        <div class="config-card">
+          <h3>Remote HTTP</h3>
+          <p>Network exposure requires OAuth and TLS or an authenticated proxy.</p>
+          <code>MCP_HOST=0.0.0.0</code><br>
+          <code>OAUTH_ENABLED=true</code>
+        </div>
+        <div class="config-card">
+          <h3>Helm Exposure</h3>
+          <p>Services are opt-in and must be OAuth-gated for non-loopback hosts.</p>
+          <code>service.enabled=true</code>
+        </div>
+      </div>
+
+      <div class="config-subsection">
+        <h3>Pinot Connection</h3>
+        <p>Use either <code>PINOT_BROKER_URL</code> or the individual broker host, port, and scheme overrides.</p>
+      </div>
       <div class="tools-table-wrapper" style="margin-bottom: 2rem;">
         <table class="tools-table">
           <thead>
             <tr>
               <th>Variable</th>
               <th>Description</th>
-              <th>Default</th>
+              <th>Default / Notes</th>
             </tr>
           </thead>
           <tbody>
@@ -962,8 +1067,81 @@ kubectl apply -f k8s/</pre>
               <td><code>http://localhost:8000</code></td>
             </tr>
             <tr>
+              <td><code>PINOT_BROKER_HOST</code></td>
+              <td>Optional broker host override</td>
+              <td>Parsed from <code>PINOT_BROKER_URL</code></td>
+            </tr>
+            <tr>
+              <td><code>PINOT_BROKER_PORT</code></td>
+              <td>Optional broker port override</td>
+              <td>Parsed from <code>PINOT_BROKER_URL</code></td>
+            </tr>
+            <tr>
+              <td><code>PINOT_BROKER_SCHEME</code></td>
+              <td>Optional broker scheme override</td>
+              <td>Parsed from <code>PINOT_BROKER_URL</code></td>
+            </tr>
+            <tr>
+              <td><code>PINOT_USERNAME</code> / <code>PINOT_PASSWORD</code></td>
+              <td>Basic authentication for Pinot</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>PINOT_TOKEN</code></td>
+              <td>Bearer or raw token for Pinot</td>
+              <td>Takes precedence over token file</td>
+            </tr>
+            <tr>
+              <td><code>PINOT_TOKEN_FILENAME</code></td>
+              <td>File containing a Pinot token</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>PINOT_DATABASE</code></td>
+              <td>Optional database header</td>
+              <td>empty</td>
+            </tr>
+            <tr>
+              <td><code>PINOT_USE_MSQE</code></td>
+              <td>Enable Pinot multi-stage query engine</td>
+              <td><code>false</code></td>
+            </tr>
+            <tr>
+              <td><code>PINOT_REQUEST_TIMEOUT</code></td>
+              <td>HTTP request timeout in seconds</td>
+              <td><code>60</code></td>
+            </tr>
+            <tr>
+              <td><code>PINOT_CONNECTION_TIMEOUT</code></td>
+              <td>HTTP connection timeout in seconds</td>
+              <td><code>60</code></td>
+            </tr>
+            <tr>
+              <td><code>PINOT_QUERY_TIMEOUT</code></td>
+              <td>SQL query timeout in seconds</td>
+              <td><code>60</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="config-subsection">
+        <h3>MCP Server</h3>
+        <p>HTTP binds to loopback by default. Non-loopback binds fail closed unless OAuth is enabled.</p>
+      </div>
+      <div class="tools-table-wrapper" style="margin-bottom: 2rem;">
+        <table class="tools-table">
+          <thead>
+            <tr>
+              <th>Variable</th>
+              <th>Description</th>
+              <th>Default / Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
               <td><code>MCP_TRANSPORT</code></td>
-              <td>Transport mode: <code>stdio</code>, <code>http</code>, or <code>both</code></td>
+              <td>Transport mode: <code>stdio</code> or <code>http</code></td>
               <td><code>http</code></td>
             </tr>
             <tr>
@@ -977,6 +1155,11 @@ kubectl apply -f k8s/</pre>
               <td><code>8080</code></td>
             </tr>
             <tr>
+              <td><code>MCP_PATH</code></td>
+              <td>MCP HTTP path</td>
+              <td><code>/mcp</code></td>
+            </tr>
+            <tr>
               <td><code>MCP_SSL_CERTFILE</code></td>
               <td>Path to SSL certificate for HTTPS</td>
               <td>&mdash;</td>
@@ -986,10 +1169,28 @@ kubectl apply -f k8s/</pre>
               <td>Path to SSL private key</td>
               <td>&mdash;</td>
             </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="config-subsection">
+        <h3>OAuth and Access Controls</h3>
+        <p>OAuth is required for HTTP or HTTPS exposure outside loopback. Table filtering improves UX, but Pinot ACLs remain the production security boundary.</p>
+      </div>
+      <div class="tools-table-wrapper" style="margin-bottom: 2rem;">
+        <table class="tools-table">
+          <thead>
+            <tr>
+              <th>Variable</th>
+              <th>Description</th>
+              <th>Default / Notes</th>
+            </tr>
+          </thead>
+          <tbody>
             <tr>
               <td><code>PINOT_TABLE_FILTER_FILE</code></td>
               <td>YAML file for table filtering</td>
-              <td>&mdash;</td>
+              <td>Startup fails if configured and missing</td>
             </tr>
             <tr>
               <td><code>OAUTH_ENABLED</code></td>
@@ -997,15 +1198,57 @@ kubectl apply -f k8s/</pre>
               <td><code>false</code></td>
             </tr>
             <tr>
-              <td><code>PINOT_USE_MSQE</code></td>
-              <td>Enable multi-stage query engine</td>
-              <td><code>false</code></td>
+              <td><code>OAUTH_CLIENT_ID</code></td>
+              <td>OAuth client ID</td>
+              <td>Required when OAuth is enabled</td>
+            </tr>
+            <tr>
+              <td><code>OAUTH_CLIENT_SECRET</code></td>
+              <td>OAuth client secret</td>
+              <td>Required when OAuth is enabled</td>
+            </tr>
+            <tr>
+              <td><code>OAUTH_BASE_URL</code></td>
+              <td>Public base URL for this MCP server</td>
+              <td><code>http://localhost:8080</code></td>
+            </tr>
+            <tr>
+              <td><code>OAUTH_AUTHORIZATION_ENDPOINT</code></td>
+              <td>Upstream authorization endpoint</td>
+              <td>Required when OAuth is enabled</td>
+            </tr>
+            <tr>
+              <td><code>OAUTH_TOKEN_ENDPOINT</code></td>
+              <td>Upstream token endpoint</td>
+              <td>Required when OAuth is enabled</td>
+            </tr>
+            <tr>
+              <td><code>OAUTH_JWKS_URI</code></td>
+              <td>JWKS URI used for token verification</td>
+              <td>Required when OAuth is enabled</td>
+            </tr>
+            <tr>
+              <td><code>OAUTH_ISSUER</code></td>
+              <td>Expected token issuer</td>
+              <td>Required when OAuth is enabled</td>
+            </tr>
+            <tr>
+              <td><code>OAUTH_AUDIENCE</code></td>
+              <td>Optional expected audience claim</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>OAUTH_EXTRA_AUTH_PARAMS</code></td>
+              <td>Additional authorization parameters as JSON</td>
+              <td>&mdash;</td>
             </tr>
           </tbody>
         </table>
       </div>
       <p style="text-align: center; color: var(--text-muted); font-size: 0.9rem;">
-        See the <a href="https://github.com/startreedata/mcp-pinot#configure-pinot-cluster">full configuration guide</a> for all available options including OAuth, table filtering, and timeout settings.
+        See the <a href="https://github.com/startreedata/mcp-pinot#configuration-reference">README configuration reference</a>,
+        <a href="https://github.com/startreedata/mcp-pinot/blob/main/SECURITY.md">SECURITY.md</a>, and
+        <a href="https://github.com/startreedata/mcp-pinot/tree/main/helm">Helm chart docs</a> for deployment details.
       </p>
     </div>
   </section>

@@ -57,7 +57,7 @@ class ServerConfig:
     """Configuration container for MCP server transport settings"""
 
     transport: str = "http"
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8080
     ssl_keyfile: str | None = None
     ssl_certfile: str | None = None
@@ -321,7 +321,7 @@ def load_server_config() -> ServerConfig:
 
     return ServerConfig(
         transport=os.getenv("MCP_TRANSPORT", "http").lower(),
-        host=os.getenv("MCP_HOST", "0.0.0.0"),
+        host=os.getenv("MCP_HOST", "127.0.0.1"),
         port=int(os.getenv("MCP_PORT", "8080")),
         ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
         ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),

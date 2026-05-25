@@ -62,6 +62,30 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+Validate MCP HTTP exposure settings.
+*/}}
+{{- define "mcp-pinot.isLoopbackHost" -}}
+{{- $host := lower (toString .Values.mcp.host) -}}
+{{- if or (eq $host "localhost") (eq $host "::1") (hasPrefix "127." $host) -}}true{{- else -}}false{{- end -}}
+{{- end }}
+
+{{- define "mcp-pinot.validateExposure" -}}
+{{- $isLoopback := eq (include "mcp-pinot.isLoopbackHost" .) "true" -}}
+{{- $serviceEnabled := .Values.service.enabled -}}
+{{- $traefikEnabled := .Values.traefik.enabled -}}
+{{- $healthCheckEnabled := or .Values.healthCheck.liveness.enabled .Values.healthCheck.readiness.enabled -}}
+{{- if and $traefikEnabled (not $serviceEnabled) -}}
+{{- fail "traefik.enabled=true requires service.enabled=true" -}}
+{{- end -}}
+{{- if and (or $serviceEnabled $traefikEnabled $healthCheckEnabled) $isLoopback -}}
+{{- fail "service, Traefik, and HTTP health checks require mcp.host to be non-loopback; set mcp.host=0.0.0.0 and mcp.oauth.enabled=true" -}}
+{{- end -}}
+{{- if and (not $isLoopback) (not .Values.mcp.oauth.enabled) -}}
+{{- fail "mcp.host is non-loopback, so mcp.oauth.enabled must be true" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Certificate template for internal certificates
 */}}
 {{- define "mcp-pinot.certificate" -}}

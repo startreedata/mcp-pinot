@@ -8,6 +8,9 @@ from typing import Any, Dict, Tuple
 import pandas as pd
 from pinotdb import connect
 import requests
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import ParseError
 
 from .config import PinotConfig, get_logger, reload_table_filters_from_file
 
@@ -44,6 +47,289 @@ class PinotEndpoints:
     SEGMENT_METADATA = "segments/{}/metadata"
     SEGMENT_DETAIL = "segments/{}_{}/{}/metadata?columns=*"
     TABLE_CONFIG = "tableConfigs/{}"
+
+
+_READ_QUERY_START_KEYWORDS = {"SELECT", "WITH"}
+_PROHIBITED_READ_QUERY_KEYWORDS = {
+    "ALTER",
+    "CALL",
+    "COPY",
+    "CREATE",
+    "DELETE",
+    "DESCRIBE",
+    "DROP",
+    "EXEC",
+    "EXECUTE",
+    "EXPLAIN",
+    "EXPORT",
+    "GRANT",
+    "IMPORT",
+    "INSERT",
+    "INTO",
+    "LOAD",
+    "MERGE",
+    "REFRESH",
+    "REPLACE",
+    "RESET",
+    "REVOKE",
+    "SET",
+    "SHOW",
+    "TRUNCATE",
+    "UPDATE",
+    "UPSERT",
+    "USE",
+}
+
+
+def _strip_sql_comments(query: str) -> str:
+    """Remove SQL comments while preserving quoted strings and identifiers."""
+    result: list[str] = []
+    quote: str | None = None
+    i = 0
+
+    while i < len(query):
+        char = query[i]
+        next_char = query[i + 1] if i + 1 < len(query) else ""
+
+        if quote:
+            result.append(char)
+            if char == "\\" and quote in {"'", '"'} and next_char:
+                result.append(next_char)
+                i += 2
+                continue
+            if char == quote:
+                if next_char == quote:
+                    result.append(next_char)
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+
+        if char in {"'", '"', "`"}:
+            quote = char
+            result.append(char)
+            i += 1
+            continue
+
+        if char == "-" and next_char == "-":
+            i += 2
+            while i < len(query) and query[i] not in {"\n", "\r"}:
+                i += 1
+            result.append("\n")
+            continue
+
+        if char == "/" and next_char == "*":
+            i += 2
+            while i + 1 < len(query) and not (query[i] == "*" and query[i + 1] == "/"):
+                i += 1
+            i = min(i + 2, len(query))
+            result.append(" ")
+            continue
+
+        result.append(char)
+        i += 1
+
+    return "".join(result)
+
+
+def _split_sql_statements(query: str) -> list[str]:
+    """Split SQL on semicolons outside quoted strings and identifiers."""
+    query = _strip_sql_comments(query)
+    statements: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    i = 0
+
+    while i < len(query):
+        char = query[i]
+        next_char = query[i + 1] if i + 1 < len(query) else ""
+
+        if quote:
+            current.append(char)
+            if char == "\\" and quote in {"'", '"'} and next_char:
+                current.append(next_char)
+                i += 2
+                continue
+            if char == quote:
+                if next_char == quote:
+                    current.append(next_char)
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+
+        if char in {"'", '"', "`"}:
+            quote = char
+            current.append(char)
+            i += 1
+            continue
+
+        if char == ";":
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement)
+            current = []
+            i += 1
+            continue
+
+        current.append(char)
+        i += 1
+
+    statement = "".join(current).strip()
+    if statement:
+        statements.append(statement)
+
+    return statements
+
+
+def _sql_words(statement: str, *, top_level_only: bool = False) -> list[str]:
+    """Return unquoted SQL word tokens in order."""
+    words: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    depth = 0
+    i = 0
+
+    def append_current_word() -> None:
+        if current and (not top_level_only or depth == 0):
+            words.append("".join(current).upper())
+        current.clear()
+
+    while i < len(statement):
+        char = statement[i]
+        next_char = statement[i + 1] if i + 1 < len(statement) else ""
+
+        if quote:
+            if char == "\\" and quote in {"'", '"'} and next_char:
+                i += 2
+                continue
+            if char == quote:
+                if next_char == quote:
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+
+        if char in {"'", '"', "`"}:
+            append_current_word()
+            quote = char
+            i += 1
+            continue
+
+        if char.isalnum() or char == "_":
+            current.append(char)
+        elif char == "(":
+            append_current_word()
+            depth += 1
+        elif char == ")":
+            append_current_word()
+            depth = max(0, depth - 1)
+        else:
+            append_current_word()
+        i += 1
+
+    append_current_word()
+
+    return words
+
+
+def _strip_trailing_pinot_option(statement: str) -> str:
+    """Remove a top-level trailing Pinot OPTION clause for SQL parser validation."""
+    quote: str | None = None
+    depth = 0
+    i = 0
+
+    def option_clause_ends_statement(index: int) -> bool:
+        while index < len(statement) and statement[index].isspace():
+            index += 1
+        if index >= len(statement) or statement[index] != "(":
+            return False
+
+        option_quote: str | None = None
+        option_depth = 0
+        while index < len(statement):
+            char = statement[index]
+            next_char = statement[index + 1] if index + 1 < len(statement) else ""
+
+            if option_quote:
+                if char == "\\" and option_quote in {"'", '"'} and next_char:
+                    index += 2
+                    continue
+                if char == option_quote:
+                    if next_char == option_quote:
+                        index += 2
+                        continue
+                    option_quote = None
+                index += 1
+                continue
+
+            if char in {"'", '"', "`"}:
+                option_quote = char
+            elif char == "(":
+                option_depth += 1
+            elif char == ")":
+                option_depth -= 1
+                if option_depth == 0:
+                    index += 1
+                    break
+            index += 1
+
+        if option_depth != 0:
+            return False
+
+        while index < len(statement) and statement[index].isspace():
+            index += 1
+
+        return index == len(statement)
+
+    while i < len(statement):
+        char = statement[i]
+        next_char = statement[i + 1] if i + 1 < len(statement) else ""
+
+        if quote:
+            if char == "\\" and quote in {"'", '"'} and next_char:
+                i += 2
+                continue
+            if char == quote:
+                if next_char == quote:
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+
+        if char in {"'", '"', "`"}:
+            quote = char
+            i += 1
+            continue
+
+        if char == "(":
+            depth += 1
+            i += 1
+            continue
+
+        if char == ")":
+            depth = max(0, depth - 1)
+            i += 1
+            continue
+
+        if depth == 0 and (char.isalpha() or char == "_"):
+            word_start = i
+            while i < len(statement) and (
+                statement[i].isalnum() or statement[i] == "_"
+            ):
+                i += 1
+            word = statement[word_start:i]
+            if word.upper() == "OPTION" and option_clause_ends_statement(i):
+                return statement[:word_start].rstrip()
+            continue
+
+        i += 1
+
+    return statement
 
 
 def create_connection(config: PinotConfig) -> connect:
@@ -296,6 +582,7 @@ class PinotClient:
         query: str,
         params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        query = self.validate_read_query(query)
         logger.debug(f"Executing query: {query[:100]}...")  # Log first 100 chars
 
         # Validate table access authorization
@@ -315,6 +602,52 @@ class PinotClient:
                 )
                 logger.error(error_msg)
                 raise
+
+    def validate_read_query(self, query: str) -> str:
+        """Validate and normalize SQL accepted by the read-query tool."""
+        if not isinstance(query, str):
+            raise ValueError("read-query requires a SQL string")
+
+        statements = _split_sql_statements(query)
+        if not statements:
+            raise ValueError("Only read-only SELECT queries are allowed for read-query")
+
+        if len(statements) != 1:
+            raise ValueError(
+                "Only a single read-only SELECT statement is allowed for read-query"
+            )
+
+        statement = statements[0]
+        words = _sql_words(statement)
+        top_level_words = _sql_words(statement, top_level_only=True)
+        if not top_level_words or top_level_words[0] not in _READ_QUERY_START_KEYWORDS:
+            raise ValueError("Only read-only SELECT queries are allowed for read-query")
+
+        prohibited_keyword = next(
+            (word for word in words if word in _PROHIBITED_READ_QUERY_KEYWORDS),
+            None,
+        )
+        if prohibited_keyword:
+            raise ValueError(
+                "Only read-only SELECT queries are allowed for read-query; "
+                f"found prohibited keyword {prohibited_keyword}"
+            )
+
+        if top_level_words[0] == "WITH" and "SELECT" not in top_level_words[1:]:
+            raise ValueError("WITH queries must resolve to a SELECT statement")
+
+        parse_statement = _strip_trailing_pinot_option(statement)
+        try:
+            expression = sqlglot.parse_one(parse_statement, read="trino")
+        except ParseError as e:
+            raise ValueError(
+                "Only valid read-only SELECT queries are allowed for read-query"
+            ) from e
+
+        if not isinstance(expression, exp.Select):
+            raise ValueError("Only read-only SELECT queries are allowed for read-query")
+
+        return statement
 
     def preprocess_query(self, query: str) -> str:
         """Preprocess query by removing database prefix and adding timeout options"""
@@ -390,8 +723,7 @@ class PinotClient:
             list[str]: Unique list of table names found in the query
         """
         # Remove comments and normalize whitespace
-        query = re.sub(r"--.*?$", "", query, flags=re.MULTILINE)
-        query = re.sub(r"/\*.*?\*/", "", query, flags=re.DOTALL)
+        query = _strip_sql_comments(query)
         query = " ".join(query.split())
 
         matches = []

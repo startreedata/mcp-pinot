@@ -58,10 +58,12 @@
 
 #### Dependencies
 - **Updated uvicorn**: Enhanced to `uvicorn[standard]` for better HTTP support
-- **Minimal Dependencies**: No new required dependencies added
+- **SQL parsing**: Added `sqlglot` for parser-backed read-query validation
 - **Optional SSL**: SSL libraries only used when certificates provided
 
 ### 🔒 Security
+- **Loopback HTTP default**: The default HTTP bind host is now `127.0.0.1`; the server refuses non-loopback HTTP binds unless OAuth is enabled.
+- **Read-only query enforcement**: `read-query` now rejects non-SELECT statements, stacked statements, and write/DDL/admin keywords before forwarding SQL to Pinot.
 - **DNS rebinding mitigation**: Raised minimum `mcp[cli]` dependency to `>=1.10.0` (fixes HTTP/SSE rebinding protections) and recommend binding HTTP to loopback or enabling TLS when exposed
 
 ### 🌐 API Endpoints
@@ -83,10 +85,10 @@
 
 #### New MCP Server Configuration
 ```bash
-MCP_TRANSPORT=both          # Transport mode: stdio/http/both (default: both)
-MCP_HOST=0.0.0.0           # HTTP bind host (default: 0.0.0.0)
+MCP_TRANSPORT=http          # Transport mode: stdio/http (default: http)
+MCP_HOST=127.0.0.1         # HTTP bind host (default: 127.0.0.1)
 MCP_PORT=8080              # HTTP port (default: 8080)
-MCP_ENDPOINT=/sse          # SSE endpoint path (default: /sse)
+MCP_PATH=/mcp              # MCP HTTP path (default: /mcp)
 MCP_SSL_KEYFILE=           # SSL private key path (optional)
 MCP_SSL_CERTFILE=          # SSL certificate path (optional)
 ```

@@ -28,7 +28,7 @@ and ask clarifying questions when needed.
 
 You have access to the following tools to assist in your analysis:
 
-1. read-query: Execute a SQL query on Pinot and return the results
+1. read-query: Execute one read-only SELECT query on Pinot and return the results
 2. list-tables: List all available tables in Pinot
 3. list-schema: List the schema for a specific table
 4. table-details: Get detailed information about a specific table

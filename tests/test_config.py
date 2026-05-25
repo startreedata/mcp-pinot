@@ -213,7 +213,7 @@ class TestServerConfig:
         """Test ServerConfig default values"""
         config = ServerConfig()
         assert config.transport == "http"
-        assert config.host == "0.0.0.0"
+        assert config.host == "127.0.0.1"
         assert config.port == 8080
         assert config.ssl_keyfile is None
         assert config.ssl_certfile is None
@@ -246,7 +246,7 @@ class TestLoadServerConfig:
             with patch.dict(os.environ, {}, clear=True):
                 config = load_server_config()
                 assert config.transport == "http"
-                assert config.host == "0.0.0.0"
+                assert config.host == "127.0.0.1"
                 assert config.port == 8080
                 assert config.ssl_keyfile is None
                 assert config.ssl_certfile is None
@@ -290,7 +290,7 @@ class TestLoadServerConfig:
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_server_config()
                 assert config.transport == "http"
-                assert config.host == "0.0.0.0"  # default
+                assert config.host == "127.0.0.1"  # default
                 assert config.port == 3000
                 assert config.ssl_keyfile is None  # default
                 assert config.ssl_certfile is None  # default

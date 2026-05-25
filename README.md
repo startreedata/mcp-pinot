@@ -8,6 +8,7 @@
 - [Docker Build](#docker-build)
 - [Claude Desktop Integration](#claude-desktop-integration)
 - [Try a Prompt](#try-a-prompt)
+- [Security and Vulnerability Reporting](#security-and-vulnerability-reporting)
 - [Developer Notes](#developer-notes)
 
 ## Overview
@@ -166,6 +167,13 @@ To disable table filtering, either:
 
 When not configured, all tables in the Pinot cluster are visible.
 
+### Read-only Query Enforcement
+
+The `read-query` tool always validates SQL before forwarding it to Pinot. It
+accepts one statement only, and that statement must be a read-only `SELECT` or
+`WITH ... SELECT` query. SQL comments are stripped, semicolon-stacked statements
+are rejected, and write/DDL/admin keywords are blocked.
+
 ### Configure OAuth Authentication (Optional)
 To enable OAuth authentication, set the following environment variables in your `.env` file:
 
@@ -204,7 +212,9 @@ uv --directory . run mcp_pinot/server.py
 You should see logs indicating that the server is running.
 
 > Security notes:
-> - The HTTP transport binds to `0.0.0.0` by default; prefer the `stdio` transport for Claude Desktop, or bind HTTP to `127.0.0.1` via `MCP_HOST=127.0.0.1`, or enable TLS (`MCP_SSL_KEYFILE`/`MCP_SSL_CERTFILE`) before exposing it.
+> - The HTTP transport binds to `127.0.0.1` by default. Prefer the `stdio` transport for Claude Desktop; set `MCP_HOST=0.0.0.0` only when the server is protected by OAuth and TLS or an authenticated reverse proxy.
+> - The server refuses to start when HTTP is bound to a non-loopback host and `OAUTH_ENABLED` is not `true`.
+> - `read-query` enforces a single read-only SQL statement before execution. This is a guardrail, not a replacement for Pinot authentication and authorization.
 > - Ensure you are using `mcp[cli]` version `>=1.10.0`, which includes DNS rebinding protections for the HTTP/SSE server.
 
 ### Launch Pinot Quickstart (Optional)
@@ -279,6 +289,12 @@ dxt pack
 ```
 
 After this you'll get a .dxt file in your dir. Double click on that file to install it in claude desktop
+
+## Security and Vulnerability Reporting
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting instructions,
+security categories, and the checklist for safely exposing the MCP HTTP
+endpoint.
 
 ## Developer
 

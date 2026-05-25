@@ -4,7 +4,7 @@ from unittest.mock import patch
 from fastmcp import Client
 import pytest
 
-from mcp_pinot.server import main, mcp
+from mcp_pinot.server import _is_loopback_host, main, mcp
 
 
 @pytest.fixture
@@ -123,13 +123,35 @@ class TestFastMCPServer:
     @pytest.mark.asyncio
     async def test_tool_read_query_invalid(self, mock_pinot_client):
         """Test the read_query tool with invalid query"""
+        mock_pinot_client.execute_query.side_effect = ValueError(
+            "Only read-only SELECT queries are allowed for read-query"
+        )
+
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "read_query", {"query": "INSERT INTO test_table VALUES (1)"}
             )
 
             # Should return error message
-            assert "Error: Only SELECT queries are allowed" in result.data
+            assert "Error: Only read-only SELECT queries are allowed" in result.data
+            mock_pinot_client.execute_query.assert_called_once_with(
+                query="INSERT INTO test_table VALUES (1)"
+            )
+
+    @pytest.mark.asyncio
+    async def test_tool_read_query_rejects_stacked_statement(self, mock_pinot_client):
+        """Test the read_query tool rejects stacked statements from the client layer."""
+        mock_pinot_client.execute_query.side_effect = ValueError(
+            "Only a single read-only SELECT statement is allowed for read-query"
+        )
+
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "read_query",
+                {"query": "SELECT * FROM test_table; DROP TABLE test_table"},
+            )
+
+            assert "Error: Only a single read-only SELECT statement" in result.data
 
     @pytest.mark.asyncio
     async def test_tool_read_query_error(self, mock_pinot_client):
@@ -318,14 +340,31 @@ class TestFastMCPServer:
 class TestMainFunction:
     """Test the main function with different configurations"""
 
+    @pytest.mark.parametrize(
+        "host",
+        ["127.0.0.1", "127.1.2.3", "::1", "localhost"],
+    )
+    def test_is_loopback_host(self, host):
+        """Test loopback host detection."""
+        assert _is_loopback_host(host) is True
+
+    @pytest.mark.parametrize(
+        "host",
+        ["0.0.0.0", "::", "192.168.1.10", "example.com"],
+    )
+    def test_is_loopback_host_rejects_network_hosts(self, host):
+        """Test network-reachable hosts are not treated as loopback."""
+        assert _is_loopback_host(host) is False
+
     def test_main_function_http_transport(self, mock_pinot_client):
         """Test the main function with HTTP transport"""
         with patch("mcp_pinot.server.server_config") as mock_server_config:
             mock_server_config.transport = "http"
-            mock_server_config.host = "0.0.0.0"
+            mock_server_config.host = "127.0.0.1"
             mock_server_config.port = 8000
             mock_server_config.ssl_keyfile = None
             mock_server_config.ssl_certfile = None
+            mock_server_config.oauth_enabled = False
 
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
                 # Call the main function
@@ -345,6 +384,7 @@ class TestMainFunction:
             mock_server_config.ssl_keyfile = "/path/to/key.pem"
             mock_server_config.ssl_certfile = "/path/to/cert.pem"
             mock_server_config.path = "/mcp"
+            mock_server_config.oauth_enabled = True
 
             with patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run:
                 # Call the main function
@@ -364,6 +404,7 @@ class TestMainFunction:
             mock_server_config.port = 8000
             mock_server_config.ssl_keyfile = None
             mock_server_config.ssl_certfile = None
+            mock_server_config.oauth_enabled = True
 
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
                 # Call the main function
@@ -383,6 +424,7 @@ class TestMainFunction:
             mock_server_config.path = "/mcp"
             mock_server_config.ssl_keyfile = None
             mock_server_config.ssl_certfile = None
+            mock_server_config.oauth_enabled = False
 
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
                 # Call the main function
@@ -392,3 +434,56 @@ class TestMainFunction:
                 mock_mcp_run.assert_called_once()
                 call_args = mock_mcp_run.call_args
                 assert call_args[1]["transport"] == "stdio"
+
+    def test_main_function_refuses_network_http_without_oauth(self, mock_pinot_client):
+        """Test HTTP transport fails closed on non-loopback hosts without OAuth."""
+        with patch("mcp_pinot.server.server_config") as mock_server_config:
+            mock_server_config.transport = "http"
+            mock_server_config.host = "0.0.0.0"
+            mock_server_config.port = 8000
+            mock_server_config.path = "/mcp"
+            mock_server_config.ssl_keyfile = None
+            mock_server_config.ssl_certfile = None
+            mock_server_config.oauth_enabled = False
+
+            with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
+                with pytest.raises(SystemExit, match="Refusing to start"):
+                    main()
+
+                mock_mcp_run.assert_not_called()
+
+    def test_main_function_refuses_network_https_without_oauth(self, mock_pinot_client):
+        """Test TLS alone is not accepted as HTTP authentication."""
+        with patch("mcp_pinot.server.server_config") as mock_server_config:
+            mock_server_config.transport = "http"
+            mock_server_config.host = "0.0.0.0"
+            mock_server_config.port = 8000
+            mock_server_config.path = "/mcp"
+            mock_server_config.ssl_keyfile = "/path/to/key.pem"
+            mock_server_config.ssl_certfile = "/path/to/cert.pem"
+            mock_server_config.oauth_enabled = False
+
+            with patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run:
+                with pytest.raises(SystemExit, match="without OAuth"):
+                    main()
+
+                mock_uvicorn_run.assert_not_called()
+
+    def test_main_function_refuses_stdio_tls_http_without_oauth(
+        self, mock_pinot_client
+    ):
+        """Test TLS-enabled stdio config still fails closed because HTTP starts."""
+        with patch("mcp_pinot.server.server_config") as mock_server_config:
+            mock_server_config.transport = "stdio"
+            mock_server_config.host = "0.0.0.0"
+            mock_server_config.port = 8000
+            mock_server_config.path = "/mcp"
+            mock_server_config.ssl_keyfile = "/path/to/key.pem"
+            mock_server_config.ssl_certfile = "/path/to/cert.pem"
+            mock_server_config.oauth_enabled = False
+
+            with patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run:
+                with pytest.raises(SystemExit, match="without OAuth"):
+                    main()
+
+                mock_uvicorn_run.assert_not_called()

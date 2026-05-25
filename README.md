@@ -5,6 +5,7 @@
 - [Overview](#overview)
 - [Features](#features)
 - [Quick Start](#quick-start)
+- [Configuration Reference](#configuration-reference)
 - [Docker Build](#docker-build)
 - [Claude Desktop Integration](#claude-desktop-integration)
 - [Try a Prompt](#try-a-prompt)
@@ -77,6 +78,78 @@ The MCP server expects a uvicorn config style `.env` file in the root directory 
 ```bash
 mv .env.example .env
 ```
+
+## Configuration Reference
+
+The server loads configuration from environment variables and from a `.env` file
+found from the current working directory. Values in `.env` override process
+environment variables, so run the server from the repository directory or pass
+the same variables through your process manager, container, or Claude Desktop
+configuration.
+
+### Common Profiles
+
+| Use case | Required settings | Notes |
+|---|---|---|
+| Claude Desktop | `MCP_TRANSPORT=stdio` | Recommended for local desktop use. No HTTP listener is started unless TLS certs are configured. |
+| Local HTTP | `MCP_TRANSPORT=http`, `MCP_HOST=127.0.0.1` | Default local development profile. Accessible only from the same machine. |
+| Remote HTTP/HTTPS | `MCP_TRANSPORT=http`, `MCP_HOST=0.0.0.0`, `OAUTH_ENABLED=true` | The server refuses non-loopback HTTP/HTTPS binds unless OAuth is enabled. Use TLS directly or an authenticated reverse proxy. |
+| Helm exposure | `service.enabled=true`, `mcp.host=0.0.0.0`, `mcp.oauth.enabled=true` | Helm defaults are local-only and render no Service unless exposure is explicitly enabled. |
+
+### Pinot Connection
+
+| Variable | Default | Description |
+|---|---|---|
+| `PINOT_CONTROLLER_URL` | `http://localhost:9000` | Pinot controller endpoint used for metadata and table/schema operations. |
+| `PINOT_BROKER_URL` | `http://localhost:8000` | Pinot broker endpoint used for SQL queries. |
+| `PINOT_BROKER_HOST` | Parsed from `PINOT_BROKER_URL` | Optional host override for the broker connection. |
+| `PINOT_BROKER_PORT` | Parsed from `PINOT_BROKER_URL` | Optional port override for the broker connection. |
+| `PINOT_BROKER_SCHEME` | Parsed from `PINOT_BROKER_URL` | Optional scheme override, usually `http` or `https`. |
+| `PINOT_USERNAME` / `PINOT_PASSWORD` | unset | Basic authentication for Pinot. |
+| `PINOT_TOKEN` | unset | Bearer or raw token for Pinot; takes precedence over `PINOT_TOKEN_FILENAME`. |
+| `PINOT_TOKEN_FILENAME` | unset | File containing a Pinot token. A missing or empty file logs a warning and continues without token auth. |
+| `PINOT_DATABASE` | empty | Optional database header for multi-database Pinot deployments. |
+| `PINOT_USE_MSQE` | `false` | Enables Pinot multi-stage query engine query option. |
+| `PINOT_REQUEST_TIMEOUT` | `60` | HTTP request timeout in seconds. |
+| `PINOT_CONNECTION_TIMEOUT` | `60` | HTTP connection timeout in seconds. |
+| `PINOT_QUERY_TIMEOUT` | `60` | SQL query timeout in seconds. |
+
+### MCP Server
+
+| Variable | Default | Description |
+|---|---|---|
+| `MCP_TRANSPORT` | `http` | Transport mode. Use `stdio` for Claude Desktop and `http` for HTTP/SSE clients. |
+| `MCP_HOST` | `127.0.0.1` | HTTP bind host. Set `0.0.0.0` only with OAuth enabled. |
+| `MCP_PORT` | `8080` | HTTP listen port. |
+| `MCP_PATH` | `/mcp` | MCP HTTP path. |
+| `MCP_SSL_KEYFILE` | unset | TLS private key path. Requires `MCP_SSL_CERTFILE`. |
+| `MCP_SSL_CERTFILE` | unset | TLS certificate path. Requires `MCP_SSL_KEYFILE`. |
+
+### OAuth
+
+OAuth is required before binding HTTP or HTTPS to a non-loopback host.
+
+| Variable | Default | Description |
+|---|---|---|
+| `OAUTH_ENABLED` | `false` | Enables OAuth authentication. |
+| `OAUTH_CLIENT_ID` | empty | OAuth client ID. |
+| `OAUTH_CLIENT_SECRET` | empty | OAuth client secret. |
+| `OAUTH_BASE_URL` | `http://localhost:8080` | Public base URL for this MCP server. |
+| `OAUTH_AUTHORIZATION_ENDPOINT` | empty | Upstream authorization endpoint. |
+| `OAUTH_TOKEN_ENDPOINT` | empty | Upstream token endpoint. |
+| `OAUTH_JWKS_URI` | empty | JWKS URI used for token verification. |
+| `OAUTH_ISSUER` | empty | Expected token issuer. |
+| `OAUTH_AUDIENCE` | unset | Optional expected audience claim. |
+| `OAUTH_EXTRA_AUTH_PARAMS` | unset | Optional JSON object with additional authorization parameters. |
+
+### Table Filtering
+
+| Variable | Default | Description |
+|---|---|---|
+| `PINOT_TABLE_FILTER_FILE` | unset | YAML file with `included_tables` glob patterns. If configured and missing, startup fails. |
+
+See [SECURITY.md](SECURITY.md) for the production exposure checklist and
+vulnerability reporting process.
 
 ### Configure Table Filtering (Optional)
 

@@ -1,4 +1,5 @@
 # Pinot MCP Server
+<!-- mcp-name: io.github.startreedata/mcp-pinot -->
 
 ## Table of Contents
 

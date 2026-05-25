@@ -1,0 +1,60 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.startreedata/mcp-pinot",
+  "title": "Apache Pinot MCP Server",
+  "description": "Explore and query Apache Pinot clusters through MCP.",
+  "repository": {
+    "url": "https://github.com/startreedata/mcp-pinot",
+    "source": "github"
+  },
+  "websiteUrl": "https://startreedata.github.io/mcp-pinot/",
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "mcp-pinot-server",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "PINOT_CONTROLLER_URL",
+          "description": "HTTP(S) endpoint of the Pinot Controller.",
+          "format": "string",
+          "default": "http://localhost:9000"
+        },
+        {
+          "name": "PINOT_BROKER_URL",
+          "description": "HTTP(S) endpoint of the Pinot Broker.",
+          "format": "string",
+          "default": "http://localhost:8000"
+        },
+        {
+          "name": "PINOT_USERNAME",
+          "description": "Optional Pinot basic-auth username.",
+          "format": "string"
+        },
+        {
+          "name": "PINOT_PASSWORD",
+          "description": "Optional Pinot basic-auth password.",
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "PINOT_TOKEN",
+          "description": "Optional Pinot bearer token. Overrides username and password when set.",
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "PINOT_USE_MSQE",
+          "description": "Whether to enable Pinot multi-stage query engine support.",
+          "format": "boolean",
+          "default": "true"
+        }
+      ]
+    }
+  ]
+}

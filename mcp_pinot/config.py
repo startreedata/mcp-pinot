@@ -87,7 +87,8 @@ class OAuthConfig:
     issuer: str
     audience: str | None = None
     extra_authorize_params: dict[str, str] | None = None
-    scopes: list[str] | None = None
+    scopes: list[str] | None = None  # advertised as scopes_supported (not enforced)
+    required_scopes: list[str] | None = None  # enforced on access tokens (opt-in)
 
 
 def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
@@ -365,6 +366,20 @@ def _parse_oauth_scopes(raw: str | None) -> list[str]:
     return [scope for scope in scopes if scope] or list(DEFAULT_OAUTH_SCOPES)
 
 
+def _parse_optional_scopes(raw: str | None) -> list[str] | None:
+    """Parse OAUTH_REQUIRED_SCOPES (space/comma-separated) into a list, or None.
+
+    Returns None when unset/empty so the JWT verifier does NOT enforce scopes by
+    default — OIDC scopes like 'profile'/'email' rarely appear on access tokens, so
+    enforcing them would reject otherwise-valid tokens. This is distinct from
+    OAUTH_SCOPES, which is only *advertised* (scopes_supported), never enforced.
+    """
+    if not raw or not raw.strip():
+        return None
+    scopes = [scope.strip() for scope in raw.replace(",", " ").split()]
+    return [scope for scope in scopes if scope] or None
+
+
 def load_oauth_config() -> OAuthConfig:
     """Load and return OAuth configuration from environment variables"""
     load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
@@ -396,4 +411,5 @@ def load_oauth_config() -> OAuthConfig:
         audience=os.getenv("OAUTH_AUDIENCE"),
         extra_authorize_params=extra_authorize_params,
         scopes=_parse_oauth_scopes(os.getenv("OAUTH_SCOPES")),
+        required_scopes=_parse_optional_scopes(os.getenv("OAUTH_REQUIRED_SCOPES")),
     )

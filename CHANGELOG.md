@@ -7,13 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-16
+
+### Breaking Changes
+- Tool results are now **structured** (typed `outputSchema` + `structuredContent`).
+  The JSON text shape also changed — e.g. `read_query` returns
+  `{columns, rows, row_count, total_rows, has_more}` instead of a bare array, and
+  `list_tables` returns `{tables, ...}`. A JSON text block is still emitted for
+  backward compatibility, but its shape differs.
+- `read_query` and `list_tables` now **paginate** and default to `limit=100`
+  (previously all rows/tables were returned). Use `limit`/`offset` and `has_more`.
+- Tool failures now raise `ToolError` (surfaced as `isError`) instead of returning
+  an `"Error: ..."` string in the success channel.
+
 ### Added
 - Pluggable authentication provider system: the active provider is selected with
   `AUTH_PROVIDER` and resolved through a registry with Python entry-point
   discovery (group `mcp_pinot.auth_providers`). External or proprietary providers
   can be added without modifying the server.
-- `OAUTH_SCOPES` configuration (default `openid profile email`) controlling the
-  scopes advertised in OAuth discovery metadata and required on access tokens.
+- `OAUTH_SCOPES` (default `openid profile email`) controlling the scopes
+  **advertised** in OAuth discovery metadata (`scopes_supported`), and a separate
+  `OAUTH_REQUIRED_SCOPES` (default: none) to **enforce** scopes on access tokens.
 - Structured, typed tool outputs: every tool now returns a documented output
   schema (`structuredContent`) instead of an opaque JSON string.
 - MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) on

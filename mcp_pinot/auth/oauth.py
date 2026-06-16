@@ -19,7 +19,11 @@ def build_oauth_auth(server_config: ServerConfig) -> OAuthProxy:
         jwks_uri=oauth_config.jwks_uri,
         issuer=oauth_config.issuer,
         audience=oauth_config.audience,
-        required_scopes=oauth_config.scopes,
+        # Enforced on the access token. Default None (do not enforce): OIDC scopes
+        # such as profile/email are rarely present on access tokens, so requiring
+        # them would 401 valid users. Set OAUTH_REQUIRED_SCOPES to opt in. This is
+        # distinct from valid_scopes below (which is only advertised).
+        required_scopes=oauth_config.required_scopes,
     )
 
     return OAuthProxy(

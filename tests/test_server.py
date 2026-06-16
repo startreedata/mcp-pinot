@@ -139,18 +139,36 @@ class TestFastMCPServer:
         assert result.structured_content["tables_count"] == 1
 
     @pytest.mark.asyncio
-    async def test_tool_test_connection_error_is_masked(self, mock_pinot_client):
-        """Internal errors are masked; only an actionable message reaches clients."""
-        mock_pinot_client.test_connection.side_effect = Exception("broker:9000 down")
+    async def test_tool_test_connection_does_not_leak_internals(
+        self, mock_pinot_client
+    ):
+        """The internal config block (broker host/port, controller URL) is not surfaced.
 
+        The real PinotClient.test_connection() never raises — it returns a dict that
+        also contains a 'config' block with connection internals. The tool must not
+        pass those through to callers (ConnectionDiagnostics drops undeclared fields).
+        """
+        mock_pinot_client.test_connection.return_value = {
+            "connection_test": False,
+            "query_test": False,
+            "tables_test": False,
+            "error": "connection failed",
+            "config": {
+                "broker_host": "broker-internal.svc",
+                "broker_port": 8099,
+                "controller_url": "https://controller-internal.svc:9000",
+            },
+        }
         async with Client(mcp) as client:
-            with pytest.raises(ToolError) as exc_info:
-                await client.call_tool("test_connection", {})
+            result = await client.call_tool("test_connection", {})
 
-        message = str(exc_info.value)
-        assert "test_connection failed" in message
-        # The raw internal detail must not leak to the client.
-        assert "broker:9000" not in message
+        sc = result.structured_content
+        assert result.is_error is False
+        assert sc["connection_test"] is False
+        # The structured internal config block must NOT pass through.
+        assert "config" not in sc
+        assert "broker_host" not in sc
+        assert "controller_url" not in sc
 
     @pytest.mark.asyncio
     async def test_tool_read_query(self, mock_pinot_client):
@@ -304,6 +322,22 @@ class TestFastMCPServer:
         assert result.structured_content["status"] == "created"
 
     @pytest.mark.asyncio
+    async def test_tool_create_schema_handles_string_success_body(
+        self, mock_pinot_client
+    ):
+        """Pinot can return a bare JSON string on success; the tool must not crash."""
+        mock_pinot_client.create_schema.return_value = "myschema successfully added"
+        schema_json = '{"schemaName": "test", "dimensionFieldSpecs": []}'
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "create_schema", {"schemaJson": schema_json}
+            )
+        sc = result.structured_content
+        assert result.is_error is False
+        assert sc["status"] == "success"
+        assert "myschema successfully added" in sc["message"]
+
+    @pytest.mark.asyncio
     async def test_tool_create_schema_dry_run_does_not_apply(self, mock_pinot_client):
         """dry_run previews without mutating and validates the payload."""
         schema_json = '{"schemaName": "previewed", "dimensionFieldSpecs": []}'
@@ -394,11 +428,12 @@ class TestMainFunction:
         assert _is_loopback_host(host) is False
 
     def test_main_function_http_transport(self, mock_pinot_client):
-        """Test the main function with HTTP transport"""
+        """main() forwards transport/host/port/path for HTTP."""
         with patch("mcp_pinot.server.server_config") as mock_server_config:
             mock_server_config.transport = "http"
             mock_server_config.host = "127.0.0.1"
             mock_server_config.port = 8000
+            mock_server_config.path = "/mcp"
             mock_server_config.ssl_keyfile = None
             mock_server_config.ssl_certfile = None
             mock_server_config.oauth_enabled = False
@@ -407,8 +442,11 @@ class TestMainFunction:
                 main()
 
                 mock_mcp_run.assert_called_once()
-                call_args = mock_mcp_run.call_args
-                assert call_args[1]["transport"] == "http"
+                kwargs = mock_mcp_run.call_args.kwargs
+                assert kwargs["transport"] == "http"
+                assert kwargs["host"] == "127.0.0.1"
+                assert kwargs["port"] == 8000
+                assert kwargs["path"] == "/mcp"
 
     def test_main_function_http_transport_with_ssl(self, mock_pinot_client):
         """Test the main function with HTTP transport and SSL"""

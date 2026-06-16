@@ -26,6 +26,9 @@ uv run pytest --cov=mcp_pinot --cov-report=term-missing   # tests + coverage (>=
 ```
 
 - Code is type-annotated and checked with mypy; new code should be typed.
+- mypy and the coverage gate are scoped to the `mcp_pinot` package (the FastMCP
+  server). The legacy `mcp_pinot_ops` server is linted by ruff but is not yet under
+  mypy or coverage, pending its consolidation into `mcp_pinot`.
 - Tests use the in-memory FastMCP `Client` pattern (see `tests/test_server.py`).
   Add tests for new tools, config, and error paths.
 - Keep `CHANGELOG.md` up to date under the `## [Unreleased]` section, following

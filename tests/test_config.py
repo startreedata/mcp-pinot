@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 from typing import ClassVar
 from unittest.mock import patch
@@ -556,6 +557,23 @@ class TestLoadOAuthConfigScopes:
                 config = load_oauth_config()
                 assert config.scopes == ["openid", "pinot:read"]
 
+    def test_required_scopes_default_none(self):
+        """required_scopes is unset by default (advertised != enforced)."""
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, dict(self._base_env), clear=True):
+                config = load_oauth_config()
+                assert config.required_scopes is None
+
+    def test_required_scopes_from_env(self):
+        env_vars = {
+            **self._base_env,
+            "OAUTH_REQUIRED_SCOPES": "pinot:read, pinot:admin",
+        }
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_oauth_config()
+                assert config.required_scopes == ["pinot:read", "pinot:admin"]
+
 
 class TestReadTokenFromFile:
     """Test the _read_token_from_file function"""
@@ -619,6 +637,10 @@ class TestReadTokenFromFile:
         finally:
             os.unlink(temp_file)
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="chmod 0o000 does not deny read access on Windows",
+    )
     def test_read_token_from_file_permission_denied(self):
         """Test reading token from file with no read permission"""
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:

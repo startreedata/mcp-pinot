@@ -63,8 +63,12 @@ def _load_entry_point_providers() -> None:
             logger.debug(
                 "Registered auth provider %r from entry point", entry_point.name
             )
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Failed to load auth provider %r: %s", entry_point.name, exc)
+        except Exception:  # pragma: no cover - defensive
+            logger.warning(
+                "Failed to load auth provider %r from entry point",
+                entry_point.name,
+                exc_info=True,
+            )
 
 
 def available_providers() -> list[str]:
@@ -86,7 +90,7 @@ def build_auth(server_config: ServerConfig) -> "AuthProvider | None":
     _load_entry_point_providers()
     builder = _PROVIDERS.get(name)
     if builder is None:
-        available = ", ".join([*sorted(_PROVIDERS), "none"])
+        available = ", ".join(sorted(_PROVIDERS))
         raise ValueError(
             f"Unknown auth provider {name!r}. Set AUTH_PROVIDER to one of: {available}."
         )

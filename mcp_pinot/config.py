@@ -63,6 +63,15 @@ class ServerConfig:
     ssl_certfile: str | None = None
     oauth_enabled: bool = False
     path: str = "/mcp"
+    # Name of the active auth provider (see mcp_pinot.auth). None disables auth.
+    auth_provider: str | None = None
+
+
+# Default OAuth scopes advertised in the server's discovery metadata
+# (scopes_supported) and requested by clients. Without a non-empty
+# scopes_supported, the mcp-remote bridge (Claude Desktop) treats every scope as
+# invalid and refuses to start the OAuth flow. See fastmcp#1716.
+DEFAULT_OAUTH_SCOPES = ["openid", "profile", "email"]
 
 
 @dataclass
@@ -78,6 +87,7 @@ class OAuthConfig:
     issuer: str
     audience: str | None = None
     extra_authorize_params: dict[str, str] | None = None
+    scopes: list[str] | None = None
 
 
 def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
@@ -111,7 +121,7 @@ def _read_token_from_file(token_filename: str) -> str | None:
             logger.error(f"Token path is not a file: {token_filename}")
             return None
 
-        with open(token_filename, "r", encoding="utf-8") as f:
+        with open(token_filename, encoding="utf-8") as f:
             token = f.read().strip()
 
         if not token:
@@ -168,7 +178,7 @@ def _parse_table_filter_config(filter_file_path: str) -> dict | None:
         dict | None: Parsed configuration or None on error
     """
     try:
-        with open(filter_file_path, "r", encoding="utf-8") as file:
+        with open(filter_file_path, encoding="utf-8") as file:
             config = yaml.safe_load(file)
 
         if not config:
@@ -195,7 +205,7 @@ def _load_table_filters(filter_file_path: str | None) -> list[str] | None:
         list[str] | None: List of included table names, or None if not configured.
                          Returns None (no filtering) if the list is empty.
     """
-    if not _validate_filter_file_path(filter_file_path):
+    if not filter_file_path or not _validate_filter_file_path(filter_file_path):
         return None
 
     config = _parse_table_filter_config(filter_file_path)
@@ -264,10 +274,8 @@ def load_pinot_config() -> PinotConfig:
                 f"PINOT_BROKER_HOST='{broker_host}' overrides host "
                 f"'{url_host}' from PINOT_BROKER_URL"
             )
-        if (
-            os.getenv("PINOT_BROKER_PORT")
-            and int(os.getenv("PINOT_BROKER_PORT")) != url_port
-        ):
+        broker_port_env = os.getenv("PINOT_BROKER_PORT")
+        if broker_port_env and int(broker_port_env) != url_port:
             logger.warning(
                 f"PINOT_BROKER_PORT='{broker_port}' overrides port "
                 f"'{url_port}' from PINOT_BROKER_URL"
@@ -315,6 +323,20 @@ def load_pinot_config() -> PinotConfig:
     )
 
 
+def _resolve_auth_provider() -> str | None:
+    """Resolve the active auth provider name from the environment.
+
+    Honors ``AUTH_PROVIDER`` when set; otherwise falls back to the legacy
+    ``OAUTH_ENABLED`` flag ('true' -> 'oauth') for backward compatibility.
+    """
+    explicit = os.getenv("AUTH_PROVIDER")
+    if explicit and explicit.strip():
+        return explicit.strip().lower()
+    if os.getenv("OAUTH_ENABLED", "false").lower() == "true":
+        return "oauth"
+    return None
+
+
 def load_server_config() -> ServerConfig:
     """Load and return MCP server configuration from environment variables"""
     load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
@@ -327,7 +349,20 @@ def load_server_config() -> ServerConfig:
         ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
         oauth_enabled=os.getenv("OAUTH_ENABLED", "false").lower() == "true",
         path=os.getenv("MCP_PATH", "/mcp"),
+        auth_provider=_resolve_auth_provider(),
     )
+
+
+def _parse_oauth_scopes(raw: str | None) -> list[str]:
+    """Parse OAUTH_SCOPES (space- or comma-separated) into a list of scopes.
+
+    Falls back to DEFAULT_OAUTH_SCOPES when unset/empty so the server always
+    advertises a non-empty scopes_supported in its OAuth discovery metadata.
+    """
+    if not raw or not raw.strip():
+        return list(DEFAULT_OAUTH_SCOPES)
+    scopes = [scope.strip() for scope in raw.replace(",", " ").split()]
+    return [scope for scope in scopes if scope] or list(DEFAULT_OAUTH_SCOPES)
 
 
 def load_oauth_config() -> OAuthConfig:
@@ -360,4 +395,5 @@ def load_oauth_config() -> OAuthConfig:
         issuer=os.getenv("OAUTH_ISSUER", ""),
         audience=os.getenv("OAUTH_AUDIENCE"),
         extra_authorize_params=extra_authorize_params,
+        scopes=_parse_oauth_scopes(os.getenv("OAUTH_SCOPES")),
     )

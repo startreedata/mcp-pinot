@@ -3,7 +3,7 @@ from fnmatch import fnmatch
 import json
 import re
 from threading import Lock
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import pandas as pd
 from pinotdb import connect
@@ -17,7 +17,7 @@ from .config import PinotConfig, get_logger, reload_table_filters_from_file
 logger = get_logger()
 
 
-def get_auth_credentials(config: PinotConfig) -> Tuple[str | None, str | None]:
+def get_auth_credentials(config: PinotConfig) -> tuple[str | None, str | None]:
     """Extract authentication credentials for PinotDB connection"""
     if config.token:
         if config.token.startswith("Bearer "):
@@ -29,7 +29,7 @@ def get_auth_credentials(config: PinotConfig) -> Tuple[str | None, str | None]:
     return None, None
 
 
-def test_connection_query(connection) -> None:
+def test_connection_query(connection: Any) -> None:
     """Test connection with a simple query"""
     test_cursor = connection.cursor()
     test_cursor.execute("SELECT 1")
@@ -426,7 +426,7 @@ class PinotClient:
             "new_filters": new_filters,
         }
 
-    def _create_auth_headers(self) -> Dict[str, str]:
+    def _create_auth_headers(self) -> dict[str, str]:
         """Create HTTP headers with authentication based on configuration"""
         headers = {"accept": "application/json", "Content-Type": "application/json"}
 
@@ -446,7 +446,7 @@ class PinotClient:
         self,
         url: str,
         method: str = "GET",
-        json_data: Dict = None,
+        json_data: dict[str, Any] | None = None,
     ) -> requests.Response:
         """Make HTTP request with authentication headers and timeout handling"""
         headers = self._create_auth_headers()
@@ -498,7 +498,7 @@ class PinotClient:
 
     def test_connection(self) -> dict[str, Any]:
         """Test the connection and return diagnostic information"""
-        result = {
+        result: dict[str, Any] = {
             "connection_test": False,
             "query_test": False,
             "tables_test": False,
@@ -561,7 +561,7 @@ class PinotClient:
         result_data = response.json()
 
         # Check for query errors in response
-        if "exceptions" in result_data and result_data["exceptions"]:
+        if result_data.get("exceptions"):
             raise Exception(f"Query error: {result_data['exceptions']}")
 
         # Parse the result into pandas-like format
@@ -570,7 +570,7 @@ class PinotClient:
             rows = result_data["resultTable"]["rows"]
 
             # Convert to list of dictionaries
-            result = [dict(zip(columns, row)) for row in rows]
+            result = [dict(zip(columns, row, strict=False)) for row in rows]
             logger.debug(f"HTTP query returned {len(result)} rows")
             return result
         else:
@@ -761,11 +761,12 @@ class PinotClient:
         Raises:
             ValueError: If table is not in included_tables filter
         """
-        if not self._is_table_filtering_enabled():
+        included = self._included_tables
+        if not included:
             return
 
-        if not self._matches_patterns(table_name, self._included_tables):
-            allowed = ", ".join(self._included_tables)
+        if not self._matches_patterns(table_name, included):
+            allowed = ", ".join(included)
             raise ValueError(
                 f"Access denied to table '{table_name}'. Allowed tables: {allowed}"
             )
@@ -787,7 +788,7 @@ class PinotClient:
                 raise ValueError(f"Missing required field '{key}' in JSON")
             self._validate_table_name_access(name)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON: {e}")
+            raise ValueError(f"Invalid JSON: {e}") from e
 
     def _validate_table_access(self, query: str) -> None:
         """Validate that query only accesses allowed tables.
@@ -798,7 +799,8 @@ class PinotClient:
         Raises:
             ValueError: If query references tables not in included_tables filter
         """
-        if not self._is_table_filtering_enabled():
+        included = self._included_tables
+        if not included:
             return
 
         table_names = self._extract_sql_table_names(query)
@@ -809,11 +811,11 @@ class PinotClient:
         unauthorized_tables = [
             table
             for table in table_names
-            if not self._matches_patterns(table, self._included_tables)
+            if not self._matches_patterns(table, included)
         ]
 
         if unauthorized_tables:
-            allowed = ", ".join(self._included_tables)
+            allowed = ", ".join(included)
             unauthorized = ", ".join(unauthorized_tables)
             raise ValueError(
                 f"Query references unauthorized tables: {unauthorized}. "
@@ -822,10 +824,11 @@ class PinotClient:
 
     def _filter_tables(self, tables: list[str]) -> list[str]:
         """Filter tables based on included_tables configuration."""
-        if not tables or not self._is_table_filtering_enabled():
+        included = self._included_tables
+        if not tables or not included:
             return tables
 
-        return [t for t in tables if self._matches_patterns(t, self._included_tables)]
+        return [t for t in tables if self._matches_patterns(t, included)]
 
     def get_tables(self, params: dict[str, Any] | None = None) -> list[str]:
         url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}"

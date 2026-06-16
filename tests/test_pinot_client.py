@@ -318,7 +318,7 @@ class TestPinotClient:
         with patch.object(pinot, "get_connection") as mock_get_conn:
             mock_get_conn.side_effect = Exception("Connection failed")
 
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Connection failed"):
                 pinot.execute_query_pinotdb("SELECT * FROM test_table")
 
             assert pinot._conn is None

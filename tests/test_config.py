@@ -1,14 +1,17 @@
 import os
 import tempfile
+from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
 
 from mcp_pinot.config import (
+    DEFAULT_OAUTH_SCOPES,
     OAuthConfig,
     ServerConfig,
     _load_table_filters,
     _parse_broker_url,
+    _parse_oauth_scopes,
     _parse_table_filter_config,
     _read_token_from_file,
     load_oauth_config,
@@ -197,8 +200,8 @@ class TestLoadPinotConfig:
                 assert config.broker_port == 8443
                 assert config.broker_scheme == "https"
                 assert config.username == "testuser"
-                assert config.password == "testpass"  # noqa: S105
-                assert config.token == "testtoken"  # noqa: S105
+                assert config.password == "testpass"
+                assert config.token == "testtoken"
                 assert config.database == "testdb"
                 assert config.use_msqe is True
                 assert config.request_timeout == 30
@@ -302,11 +305,8 @@ class TestLoadServerConfig:
 
         with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
             with patch.dict(os.environ, env_vars, clear=True):
-                try:
+                with pytest.raises(ValueError):
                     load_server_config()
-                    assert False, "Should have raised ValueError for invalid port"
-                except ValueError:
-                    pass  # Expected behavior
 
     def test_load_server_config_oauth_enabled(self):
         """Test loading server config with OAuth enabled"""
@@ -494,6 +494,67 @@ class TestLoadOAuthConfig:
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_oauth_config()
                 assert config.extra_authorize_params is None
+
+
+class TestParseOAuthScopes:
+    """Test the _parse_oauth_scopes helper"""
+
+    def test_unset_returns_default(self):
+        assert _parse_oauth_scopes(None) == DEFAULT_OAUTH_SCOPES
+
+    def test_blank_returns_default(self):
+        assert _parse_oauth_scopes("   ") == DEFAULT_OAUTH_SCOPES
+
+    def test_space_separated(self):
+        assert _parse_oauth_scopes("openid email") == ["openid", "email"]
+
+    def test_comma_separated(self):
+        assert _parse_oauth_scopes("openid, profile, email") == [
+            "openid",
+            "profile",
+            "email",
+        ]
+
+    def test_mixed_separators_and_extra_whitespace(self):
+        assert _parse_oauth_scopes(" openid , profile  email ") == [
+            "openid",
+            "profile",
+            "email",
+        ]
+
+    def test_returns_a_copy_not_the_default_list(self):
+        # Mutating the result must not corrupt the module-level default.
+        result = _parse_oauth_scopes(None)
+        result.append("offline_access")
+        assert DEFAULT_OAUTH_SCOPES == ["openid", "profile", "email"]
+
+
+class TestLoadOAuthConfigScopes:
+    """Test OAUTH_SCOPES handling in load_oauth_config"""
+
+    _base_env: ClassVar[dict[str, str]] = {
+        "OAUTH_CLIENT_ID": "test_client",
+        "OAUTH_CLIENT_SECRET": "test_secret",
+        "OAUTH_BASE_URL": "http://localhost:8000",
+        "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
+        "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
+        "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
+        "OAUTH_ISSUER": "http://auth.example.com",
+    }
+
+    def test_default_scopes_when_unset(self):
+        """Default scopes keep scopes_supported non-empty (fastmcp#1716)."""
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, dict(self._base_env), clear=True):
+                config = load_oauth_config()
+                assert config.scopes == ["openid", "profile", "email"]
+
+    def test_custom_scopes_from_env(self):
+        env_vars = {**self._base_env, "OAUTH_SCOPES": "openid pinot:read"}
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_oauth_config()
+                assert config.scopes == ["openid", "pinot:read"]
 
 
 class TestReadTokenFromFile:

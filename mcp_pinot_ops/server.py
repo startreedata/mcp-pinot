@@ -780,7 +780,7 @@ async def main():
                 raise ValueError(f"Unknown tool: {name}")
 
         except Exception as e:
-            return [types.TextContent(type="text", text=f"Error: {str(e)}")]
+            return [types.TextContent(type="text", text=f"Error: {e!s}")]
 
     try:
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):

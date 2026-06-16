@@ -23,6 +23,11 @@ dependencies = [
 [project.scripts]
 mcp-pinot = "mcp_pinot.server:main"
 
+# Built-in auth providers. Downstream forks can add their own provider by
+# declaring an entry point in this group without modifying upstream code.
+[project.entry-points."mcp_pinot.auth_providers"]
+oauth = "mcp_pinot.auth.oauth:build_oauth_auth"
+
 [project.urls]
 Home = "http://github.com/startreedata/mcp-pinot"
 
@@ -33,6 +38,7 @@ dev = [
     "pytest-mock",
     "pytest-cov",
     "ruff>=0.1.6",
+    "mypy>=1.11",
 ]
 
 [build-system]
@@ -40,14 +46,21 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["mcp_pinot"]
+packages = ["mcp_pinot", "mcp_pinot.auth"]
+
+[tool.setuptools.package-data]
+mcp_pinot = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 norecursedirs = ["lib", ".git", ".tox", "dist", "build", "*.egg"]
+markers = [
+    "asyncio: mark test as an async test",
+]
 addopts = [
     "-v",
     "--tb=short",
@@ -61,18 +74,23 @@ src = ["mcp_pinot"]
 
 [tool.ruff.lint]
 select = [
-    # Phase 1: Foundation rules
     "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings  
+    "W",      # pycodestyle warnings
     "F",      # Pyflakes
     "I",      # isort
     "S",      # bandit security
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "RUF",    # Ruff-specific rules
 ]
 
 ignore = [
     # Development necessities
     "S104",    # bind all interfaces (dev servers)
     "S108",    # temp files (testing)
+    "SIM117",  # nested with-statements are clearer than combined ones here
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -110,6 +128,23 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
+[tool.mypy]
+python_version = "3.12"
+files = ["mcp_pinot"]
+ignore_missing_imports = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_incomplete_defs = true
+warn_redundant_casts = true
+warn_unused_configs = true
+
+[tool.coverage.run]
+source = ["mcp_pinot"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 85
+
 [tool.uv.workspace]
 members = [
     "mcp-pinot",
@@ -122,4 +157,5 @@ dev = [
     "pytest-cov>=6.1.1",
     "pytest-mock>=3.14.0",
     "ruff>=0.12.0",
+    "mypy>=1.11",
 ]

@@ -1,7 +1,7 @@
-import json
 from unittest.mock import patch
 
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 import pytest
 
 from mcp_pinot.server import _is_loopback_host, main, mcp
@@ -9,19 +9,31 @@ from mcp_pinot.server import _is_loopback_host, main, mcp
 
 @pytest.fixture
 def mock_pinot_client():
-    """Fixture to mock the PinotClient."""
+    """Fixture to mock the PinotClient with realistic return types."""
     with patch("mcp_pinot.server.pinot_client") as mock_client:
-        mock_client.test_connection.return_value = {"status": "connected"}
-        mock_client.execute_query.return_value = {
-            "resultTable": {"rows": [["test", "data"]]},
-            "numRowsResultSet": 1,
+        mock_client.test_connection.return_value = {
+            "connection_test": True,
+            "query_test": True,
+            "tables_test": True,
+            "error": None,
+            "tables_count": 1,
+            "sample_tables": ["test_table"],
         }
-        mock_client.get_tables.return_value = {"tables": ["test_table"]}
+        # execute_query returns a list of row dicts (matches the real client).
+        mock_client.execute_query.return_value = [{"col1": "test", "col2": "data"}]
+        mock_client.reload_table_filters.return_value = {
+            "status": "success",
+            "message": "Table filters reloaded successfully",
+            "previous_filter_count": 0,
+            "new_filter_count": 2,
+        }
+        # get_tables returns a list of names (matches the real client).
+        mock_client.get_tables.return_value = ["test_table"]
         mock_client.get_table_detail.return_value = {
             "tableName": "test_table",
-            "columnCount": 5,
+            "reportedSizeInBytes": 1024,
         }
-        mock_client.get_segments.return_value = {"segments": ["segment1"]}
+        mock_client.get_segments.return_value = {"OFFLINE": ["segment1"]}
         mock_client.get_index_column_detail.return_value = {"indexes": ["index1"]}
         mock_client.get_segment_metadata_detail.return_value = {"metadata": "test"}
         mock_client.get_tableconfig_schema_detail.return_value = {"config": "test"}
@@ -45,13 +57,12 @@ class TestFastMCPServer:
     @pytest.mark.asyncio
     async def test_tools_registration(self):
         """Test that all tools are properly registered"""
-        # Get the registered tools
         tools = await mcp.list_tools()
         tool_names = [t.name for t in tools]
 
-        # Check that all expected tools are registered
         expected_tools = [
             "test_connection",
+            "reload_table_filters",
             "read_query",
             "list_tables",
             "table_details",
@@ -73,268 +84,328 @@ class TestFastMCPServer:
             )
 
     @pytest.mark.asyncio
+    async def test_every_tool_has_output_schema_and_annotations(self):
+        """Definition-quality contract: every tool documents output + annotations."""
+        async with Client(mcp) as client:
+            tools = await client.list_tools()
+
+        assert tools, "no tools registered"
+        for tool in tools:
+            assert tool.inputSchema, f"{tool.name} missing inputSchema"
+            assert tool.outputSchema, f"{tool.name} missing outputSchema"
+            assert tool.annotations is not None, f"{tool.name} missing annotations"
+            assert tool.annotations.title, f"{tool.name} missing annotation title"
+            assert tool.annotations.readOnlyHint is not None, (
+                f"{tool.name} missing readOnlyHint"
+            )
+
+    @pytest.mark.asyncio
+    async def test_read_query_param_constraints_in_schema(self):
+        """read_query advertises the pagination bounds in its input schema."""
+        async with Client(mcp) as client:
+            tools = {t.name: t for t in await client.list_tools()}
+        props = tools["read_query"].inputSchema["properties"]
+        assert props["limit"]["maximum"] == 10000
+        assert props["limit"]["minimum"] == 1
+        assert props["offset"]["minimum"] == 0
+
+    @pytest.mark.asyncio
+    async def test_get_table_config_table_type_is_enum(self):
+        """tableType is constrained to the valid Pinot table types."""
+        async with Client(mcp) as client:
+            tools = {t.name: t for t in await client.list_tools()}
+        schema = tools["get_table_config"].inputSchema
+        # Literal[...] | None renders as an enum (often via anyOf); assert the
+        # allowed values appear somewhere in the property schema.
+        assert "OFFLINE" in str(schema) and "REALTIME" in str(schema)
+
+    @pytest.mark.asyncio
     async def test_prompts_registration(self):
         """Test that prompts are properly registered"""
-        # Get the registered prompts
         prompts = await mcp.list_prompts()
         prompt_names = [p.name for p in prompts]
-
-        # Check that the expected prompt is registered
         assert "pinot_query" in prompt_names, (
             "Prompt pinot_query not found in registered prompts"
         )
 
     @pytest.mark.asyncio
     async def test_tool_test_connection(self, mock_pinot_client):
-        """Test the test_connection tool"""
+        """test_connection returns typed diagnostics."""
         async with Client(mcp) as client:
             result = await client.call_tool("test_connection", {})
 
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert data["status"] == "connected"
+        assert result.is_error is False
+        assert result.structured_content["connection_test"] is True
+        assert result.structured_content["tables_count"] == 1
 
     @pytest.mark.asyncio
-    async def test_tool_test_connection_error(self, mock_pinot_client):
-        """Test the test_connection tool with error"""
-        # Mock client to raise exception
-        mock_pinot_client.test_connection.side_effect = Exception("Connection failed")
+    async def test_tool_test_connection_does_not_leak_internals(
+        self, mock_pinot_client
+    ):
+        """The internal config block (broker host/port, controller URL) is not surfaced.
 
+        The real PinotClient.test_connection() never raises — it returns a dict that
+        also contains a 'config' block with connection internals. The tool must not
+        pass those through to callers (ConnectionDiagnostics drops undeclared fields).
+        """
+        mock_pinot_client.test_connection.return_value = {
+            "connection_test": False,
+            "query_test": False,
+            "tables_test": False,
+            "error": "connection failed",
+            "config": {
+                "broker_host": "broker-internal.svc",
+                "broker_port": 8099,
+                "controller_url": "https://controller-internal.svc:9000",
+            },
+        }
         async with Client(mcp) as client:
             result = await client.call_tool("test_connection", {})
 
-            # Should return error message
-            assert "Error: Connection failed" in result.data
+        sc = result.structured_content
+        assert result.is_error is False
+        assert sc["connection_test"] is False
+        # The structured internal config block must NOT pass through.
+        assert "config" not in sc
+        assert "broker_host" not in sc
+        assert "controller_url" not in sc
 
     @pytest.mark.asyncio
     async def test_tool_read_query(self, mock_pinot_client):
-        """Test the read_query tool"""
+        """read_query returns a typed, paginated QueryResult."""
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "read_query", {"query": "SELECT * FROM test_table"}
             )
 
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert "resultTable" in data
+        sc = result.structured_content
+        assert result.is_error is False
+        assert sc["row_count"] == 1
+        assert sc["total_rows"] == 1
+        assert sc["has_more"] is False
+        assert sc["columns"] == ["col1", "col2"]
+        assert sc["rows"][0]["col1"] == "test"
+        mock_pinot_client.execute_query.assert_called_once_with(
+            query="SELECT * FROM test_table"
+        )
 
     @pytest.mark.asyncio
-    async def test_tool_read_query_invalid(self, mock_pinot_client):
-        """Test the read_query tool with invalid query"""
+    async def test_tool_read_query_paginates(self, mock_pinot_client):
+        """read_query honors limit/offset and reports has_more."""
+        mock_pinot_client.execute_query.return_value = [
+            {"n": 1},
+            {"n": 2},
+            {"n": 3},
+        ]
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "read_query",
+                {"query": "SELECT n FROM t", "limit": 2, "offset": 0},
+            )
+
+        sc = result.structured_content
+        assert sc["row_count"] == 2
+        assert sc["total_rows"] == 3
+        assert sc["has_more"] is True
+
+    @pytest.mark.asyncio
+    async def test_tool_read_query_rejects_out_of_range_limit(self, mock_pinot_client):
+        """Schema constraints reject an invalid limit before the tool runs."""
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "read_query",
+                {"query": "SELECT 1", "limit": 0},
+                raise_on_error=False,
+            )
+        assert result.is_error is True
+        mock_pinot_client.execute_query.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_tool_read_query_invalid_passes_message_through(
+        self, mock_pinot_client
+    ):
+        """Validation ValueErrors surface verbatim so the model can self-correct."""
         mock_pinot_client.execute_query.side_effect = ValueError(
             "Only read-only SELECT queries are allowed for read-query"
         )
 
         async with Client(mcp) as client:
-            result = await client.call_tool(
-                "read_query", {"query": "INSERT INTO test_table VALUES (1)"}
-            )
-
-            # Should return error message
-            assert "Error: Only read-only SELECT queries are allowed" in result.data
-            mock_pinot_client.execute_query.assert_called_once_with(
-                query="INSERT INTO test_table VALUES (1)"
-            )
+            with pytest.raises(
+                ToolError, match="Only read-only SELECT queries are allowed"
+            ):
+                await client.call_tool(
+                    "read_query", {"query": "INSERT INTO test_table VALUES (1)"}
+                )
 
     @pytest.mark.asyncio
-    async def test_tool_read_query_rejects_stacked_statement(self, mock_pinot_client):
-        """Test the read_query tool rejects stacked statements from the client layer."""
-        mock_pinot_client.execute_query.side_effect = ValueError(
-            "Only a single read-only SELECT statement is allowed for read-query"
-        )
+    async def test_tool_read_query_error_is_masked(self, mock_pinot_client):
+        """Non-validation errors are masked behind an actionable message."""
+        mock_pinot_client.execute_query.side_effect = Exception("secret-host:7000")
 
         async with Client(mcp) as client:
-            result = await client.call_tool(
-                "read_query",
-                {"query": "SELECT * FROM test_table; DROP TABLE test_table"},
-            )
+            with pytest.raises(ToolError) as exc_info:
+                await client.call_tool(
+                    "read_query", {"query": "SELECT * FROM test_table"}
+                )
 
-            assert "Error: Only a single read-only SELECT statement" in result.data
-
-    @pytest.mark.asyncio
-    async def test_tool_read_query_error(self, mock_pinot_client):
-        """Test the read_query tool with error"""
-        # Mock client to raise exception
-        mock_pinot_client.execute_query.side_effect = Exception("Query failed")
-
-        async with Client(mcp) as client:
-            result = await client.call_tool(
-                "read_query", {"query": "SELECT * FROM test_table"}
-            )
-
-            # Should return error message
-            assert "Error: Query failed" in result.data
+        message = str(exc_info.value)
+        assert "read_query failed" in message
+        assert "secret-host" not in message
 
     @pytest.mark.asyncio
     async def test_tool_list_tables(self, mock_pinot_client):
-        """Test the list_tables tool"""
+        """list_tables returns a typed, paginated TableList."""
         async with Client(mcp) as client:
             result = await client.call_tool("list_tables", {})
 
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert "tables" in data
+        sc = result.structured_content
+        assert sc["tables"] == ["test_table"]
+        assert sc["table_count"] == 1
+        assert sc["total_tables"] == 1
+        assert sc["has_more"] is False
+
+    @pytest.mark.asyncio
+    async def test_tool_reload_table_filters(self, mock_pinot_client):
+        """reload_table_filters returns a typed FilterReloadResult."""
+        async with Client(mcp) as client:
+            result = await client.call_tool("reload_table_filters", {})
+
+        assert result.structured_content["status"] == "success"
+        assert result.structured_content["new_filter_count"] == 2
 
     @pytest.mark.asyncio
     async def test_tool_table_details(self, mock_pinot_client):
-        """Test the table_details tool"""
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "table_details", {"tableName": "test_table"}
             )
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert data["tableName"] == "test_table"
+        assert result.structured_content["tableName"] == "test_table"
 
     @pytest.mark.asyncio
     async def test_tool_segment_list(self, mock_pinot_client):
-        """Test the segment_list tool"""
         async with Client(mcp) as client:
             result = await client.call_tool("segment_list", {"tableName": "test_table"})
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert "segments" in data
+        assert "OFFLINE" in result.structured_content
 
     @pytest.mark.asyncio
     async def test_tool_index_column_details(self, mock_pinot_client):
-        """Test the index_column_details tool"""
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "index_column_details",
                 {"tableName": "test_table", "segmentName": "segment1"},
             )
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert "indexes" in data
+        assert "indexes" in result.structured_content
 
     @pytest.mark.asyncio
     async def test_tool_segment_metadata_details(self, mock_pinot_client):
-        """Test the segment_metadata_details tool"""
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "segment_metadata_details", {"tableName": "test_table"}
             )
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert "metadata" in data
+        assert "metadata" in result.structured_content
 
     @pytest.mark.asyncio
     async def test_tool_tableconfig_schema_details(self, mock_pinot_client):
-        """Test the tableconfig_schema_details tool"""
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "tableconfig_schema_details", {"tableName": "test_table"}
             )
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert "config" in data
+        assert "config" in result.structured_content
 
     @pytest.mark.asyncio
     async def test_tool_create_schema(self, mock_pinot_client):
-        """Test the create_schema tool"""
         schema_json = '{"schemaName": "test", "dimensionFieldSpecs": []}'
-
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "create_schema", {"schemaJson": schema_json}
             )
+        assert result.structured_content["status"] == "created"
 
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert data["status"] == "created"
+    @pytest.mark.asyncio
+    async def test_tool_create_schema_handles_string_success_body(
+        self, mock_pinot_client
+    ):
+        """Pinot can return a bare JSON string on success; the tool must not crash."""
+        mock_pinot_client.create_schema.return_value = "myschema successfully added"
+        schema_json = '{"schemaName": "test", "dimensionFieldSpecs": []}'
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "create_schema", {"schemaJson": schema_json}
+            )
+        sc = result.structured_content
+        assert result.is_error is False
+        assert sc["status"] == "success"
+        assert "myschema successfully added" in sc["message"]
+
+    @pytest.mark.asyncio
+    async def test_tool_create_schema_dry_run_does_not_apply(self, mock_pinot_client):
+        """dry_run previews without mutating and validates the payload."""
+        schema_json = '{"schemaName": "previewed", "dimensionFieldSpecs": []}'
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "create_schema", {"schemaJson": schema_json, "dry_run": True}
+            )
+        assert result.structured_content["status"] == "dry_run"
+        assert "previewed" in result.structured_content["message"]
+        mock_pinot_client.create_schema.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_tool_create_schema_dry_run_rejects_bad_json(self, mock_pinot_client):
+        """dry_run rejects an invalid JSON payload with an actionable error."""
+        async with Client(mcp) as client:
+            with pytest.raises(ToolError, match="Invalid JSON payload"):
+                await client.call_tool(
+                    "create_schema", {"schemaJson": "{not json", "dry_run": True}
+                )
+        mock_pinot_client.create_schema.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_tool_update_schema(self, mock_pinot_client):
-        """Test the update_schema tool"""
         schema_json = '{"schemaName": "test", "dimensionFieldSpecs": []}'
-
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "update_schema", {"schemaName": "test", "schemaJson": schema_json}
             )
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert data["status"] == "updated"
+        assert result.structured_content["status"] == "updated"
 
     @pytest.mark.asyncio
     async def test_tool_get_schema(self, mock_pinot_client):
-        """Test the get_schema tool"""
         async with Client(mcp) as client:
             result = await client.call_tool("get_schema", {"schemaName": "test"})
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert "schema" in data
+        assert "schema" in result.structured_content
 
     @pytest.mark.asyncio
     async def test_tool_create_table_config(self, mock_pinot_client):
-        """Test the create_table_config tool"""
         config_json = '{"tableName": "test", "tableType": "OFFLINE"}'
-
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "create_table_config", {"tableConfigJson": config_json}
             )
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert data["status"] == "created"
+        assert result.structured_content["status"] == "created"
 
     @pytest.mark.asyncio
     async def test_tool_update_table_config(self, mock_pinot_client):
-        """Test the update_table_config tool"""
         config_json = '{"tableName": "test", "tableType": "OFFLINE"}'
-
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "update_table_config",
                 {"tableName": "test", "tableConfigJson": config_json},
             )
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert data["status"] == "updated"
+        assert result.structured_content["status"] == "updated"
 
     @pytest.mark.asyncio
     async def test_tool_get_table_config(self, mock_pinot_client):
-        """Test the get_table_config tool"""
         async with Client(mcp) as client:
             result = await client.call_tool("get_table_config", {"tableName": "test"})
-
-            # Should return JSON string
-            assert isinstance(result.data, str)
-            data = json.loads(result.data)
-            assert "config" in data
+        assert "config" in result.structured_content
 
     @pytest.mark.asyncio
     async def test_prompt_pinot_query(self):
-        """Test the pinot_query prompt"""
         async with Client(mcp) as client:
             result = await client.get_prompt("pinot_query", {})
-
-            # Should return the prompt template
-            assert len(result.messages) > 0
-            assert hasattr(result.messages[0].content, "text")
-            assert len(result.messages[0].content.text) > 0
+        assert len(result.messages) > 0
+        assert hasattr(result.messages[0].content, "text")
+        assert len(result.messages[0].content.text) > 0
 
 
 class TestMainFunction:
@@ -357,23 +428,25 @@ class TestMainFunction:
         assert _is_loopback_host(host) is False
 
     def test_main_function_http_transport(self, mock_pinot_client):
-        """Test the main function with HTTP transport"""
+        """main() forwards transport/host/port/path for HTTP."""
         with patch("mcp_pinot.server.server_config") as mock_server_config:
             mock_server_config.transport = "http"
             mock_server_config.host = "127.0.0.1"
             mock_server_config.port = 8000
+            mock_server_config.path = "/mcp"
             mock_server_config.ssl_keyfile = None
             mock_server_config.ssl_certfile = None
             mock_server_config.oauth_enabled = False
 
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
-                # Call the main function
                 main()
 
-                # Verify mcp.run was called
                 mock_mcp_run.assert_called_once()
-                call_args = mock_mcp_run.call_args
-                assert call_args[1]["transport"] == "http"
+                kwargs = mock_mcp_run.call_args.kwargs
+                assert kwargs["transport"] == "http"
+                assert kwargs["host"] == "127.0.0.1"
+                assert kwargs["port"] == 8000
+                assert kwargs["path"] == "/mcp"
 
     def test_main_function_http_transport_with_ssl(self, mock_pinot_client):
         """Test the main function with HTTP transport and SSL"""
@@ -386,11 +459,12 @@ class TestMainFunction:
             mock_server_config.path = "/mcp"
             mock_server_config.oauth_enabled = True
 
-            with patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run:
-                # Call the main function
+            with (
+                patch("mcp_pinot.server._auth", object()),
+                patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run,
+            ):
                 main()
 
-                # Verify uvicorn.run was called with SSL parameters
                 mock_uvicorn_run.assert_called_once()
                 call_args = mock_uvicorn_run.call_args
                 assert call_args[1]["ssl_keyfile"] == "/path/to/key.pem"
@@ -406,11 +480,12 @@ class TestMainFunction:
             mock_server_config.ssl_certfile = None
             mock_server_config.oauth_enabled = True
 
-            with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
-                # Call the main function
+            with (
+                patch("mcp_pinot.server._auth", object()),
+                patch("mcp_pinot.server.mcp.run") as mock_mcp_run,
+            ):
                 main()
 
-                # Verify mcp.run was called
                 mock_mcp_run.assert_called_once()
                 call_args = mock_mcp_run.call_args
                 assert call_args[1]["transport"] == "streamable-http"
@@ -427,10 +502,8 @@ class TestMainFunction:
             mock_server_config.oauth_enabled = False
 
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
-                # Call the main function
                 main()
 
-                # Verify mcp.run was called
                 mock_mcp_run.assert_called_once()
                 call_args = mock_mcp_run.call_args
                 assert call_args[1]["transport"] == "stdio"
@@ -464,7 +537,7 @@ class TestMainFunction:
             mock_server_config.oauth_enabled = False
 
             with patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run:
-                with pytest.raises(SystemExit, match="without OAuth"):
+                with pytest.raises(SystemExit, match="without authentication"):
                     main()
 
                 mock_uvicorn_run.assert_not_called()
@@ -483,7 +556,7 @@ class TestMainFunction:
             mock_server_config.oauth_enabled = False
 
             with patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run:
-                with pytest.raises(SystemExit, match="without OAuth"):
+                with pytest.raises(SystemExit, match="without authentication"):
                     main()
 
                 mock_uvicorn_run.assert_not_called()

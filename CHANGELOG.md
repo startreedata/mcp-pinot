@@ -1,160 +1,54 @@
 # Changelog
 
-## [Unreleased] - 2025-09-06
+All notable changes to this project are documented here.
 
-### 🚀 Major Features Added
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-#### HTTP/HTTPS Transport Support
-- **Dual Transport Mode**: Server now runs both STDIO and HTTP simultaneously by default
-- **SSE Transport**: Full Server-Sent Events support for MCP communication
-- **REST API**: Simple HTTP endpoints for direct tool calls
-- **SSL/TLS Support**: HTTPS capability with certificate configuration
-- **Production Ready**: Kubernetes deployment manifests included
+## [Unreleased]
 
-#### Configuration Enhancements
-- **New ServerConfig**: Added transport configuration options
-- **Environment Variables**: MCP_TRANSPORT, MCP_HOST, MCP_PORT, MCP_SSL_* settings
-- **Flexible Transport Selection**: "stdio", "http", or "both" modes
-- **Backward Compatible**: Existing STDIO usage unchanged
+## [0.2.0] - 2026-06-16
 
-#### Kubernetes Support
-- **Complete K8s Manifests**: Deployment, Service, Ingress, ConfigMap, Secret
-- **HTTPS via Ingress**: TLS termination with cert-manager support
-- **Scalable Deployment**: Multiple replicas with health checks
-- **Production Configuration**: Resource limits, security settings
+### Breaking Changes
+- Tool results are now **structured** (typed `outputSchema` + `structuredContent`).
+  The JSON text shape also changed — e.g. `read_query` returns
+  `{columns, rows, row_count, total_rows, has_more}` instead of a bare array, and
+  `list_tables` returns `{tables, ...}`. A JSON text block is still emitted for
+  backward compatibility, but its shape differs.
+- `read_query` and `list_tables` now **paginate** and default to `limit=100`
+  (previously all rows/tables were returned). Use `limit`/`offset` and `has_more`.
+- Tool failures now raise `ToolError` (surfaced as `isError`) instead of returning
+  an `"Error: ..."` string in the success channel.
 
-### 🧪 Testing & Quality
+### Added
+- Pluggable authentication provider system: the active provider is selected with
+  `AUTH_PROVIDER` and resolved through a registry with Python entry-point
+  discovery (group `mcp_pinot.auth_providers`). External or proprietary providers
+  can be added without modifying the server.
+- `OAUTH_SCOPES` (default `openid profile email`) controlling the scopes
+  **advertised** in OAuth discovery metadata (`scopes_supported`), and a separate
+  `OAUTH_REQUIRED_SCOPES` (default: none) to **enforce** scopes on access tokens.
+- Structured, typed tool outputs: every tool now returns a documented output
+  schema (`structuredContent`) instead of an opaque JSON string.
+- MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) on
+  all tools, and per-parameter descriptions and validation constraints.
+- Pagination (`limit`/`offset` with a `has_more` flag) for `read_query` and
+  `list_tables`.
+- `dry_run` previews for the schema and table-config write tools.
+- Server `instructions` to guide MCP clients.
 
-#### Comprehensive Test Suite
-- **45+ New Tests**: HTTP transport, configuration, integration tests
-- **100% Config Coverage**: All configuration logic tested
-- **Backward Compatibility**: All existing tests still pass
-- **Mock Testing**: Proper async testing with mocks
+### Changed
+- OAuth discovery now advertises a non-empty `scopes_supported`, so the
+  `mcp-remote` bridge (Claude Desktop) completes the OAuth flow instead of
+  refusing it. (See fastmcp#1716.)
+- Tool failures now raise structured `ToolError`s with actionable messages;
+  internal error details are masked (`mask_error_details=True`) to avoid leaking
+  connection internals.
+- OAuth construction moved behind a single `build_auth()` seam; the non-loopback
+  HTTP safety check now applies to any active auth provider, not only OAuth.
 
-#### Test Files Added
-- `tests/test_http_transport.py` - HTTP transport functionality
-- `tests/test_http_integration.py` - Integration testing
-- Enhanced `tests/test_config.py` - Server configuration tests
-
-### 📚 Documentation & Examples
-
-#### User Guides
-- `USER_GUIDE.md` - Complete usage documentation
-- `k8s/README.md` - Kubernetes deployment guide
-- `user_guide.md` - HTTP API usage examples
-
-#### Demo Scripts
-- `examples/http_server_demo.py` - Interactive transport demos
-- `simple_query_builtin.py` - Dependency-free Python querying
-- `test_rest_api.sh` - Comprehensive curl-based testing
-
-### 🔧 Technical Improvements
-
-#### Server Architecture
-- **Modular Design**: Separated transport logic from server logic
-- **Concurrent Execution**: Both transports run simultaneously
-- **Error Handling**: Graceful shutdown and error propagation
-- **Logging**: Enhanced logging for transport operations
-
-#### Dependencies
-- **Updated uvicorn**: Enhanced to `uvicorn[standard]` for better HTTP support
-- **SQL parsing**: Added `sqlglot` for parser-backed read-query validation
-- **Optional SSL**: SSL libraries only used when certificates provided
-
-### 🔒 Security
-- **Loopback HTTP default**: The default HTTP bind host is now `127.0.0.1`; the server refuses non-loopback HTTP binds unless OAuth is enabled.
-- **Read-only query enforcement**: `read-query` now rejects non-SELECT statements, stacked statements, and write/DDL/admin keywords before forwarding SQL to Pinot.
-- **DNS rebinding mitigation**: Raised minimum `mcp[cli]` dependency to `>=1.10.0` (fixes HTTP/SSE rebinding protections) and recommend binding HTTP to loopback or enabling TLS when exposed
-
-### 🌐 API Endpoints
-
-#### New REST API
-- `GET /api/tools/list` - List available MCP tools
-- `POST /api/tools/call` - Execute tool calls directly
-- `GET /sse` - MCP SSE endpoint for real-time communication
-- `POST /sse` - SSE message handling
-
-#### MCP Tools Available via HTTP
-- `test-connection` - Test Pinot connectivity
-- `list-tables` - List all Pinot tables
-- `read-query` - Execute SELECT queries
-- `table-details` - Get table information
-- Plus 10 additional tools for schema/config management
-
-### 🎯 Environment Variables
-
-#### New MCP Server Configuration
-```bash
-MCP_TRANSPORT=http          # Transport mode: stdio/http (default: http)
-MCP_HOST=127.0.0.1         # HTTP bind host (default: 127.0.0.1)
-MCP_PORT=8080              # HTTP port (default: 8080)
-MCP_PATH=/mcp              # MCP HTTP path (default: /mcp)
-MCP_SSL_KEYFILE=           # SSL private key path (optional)
-MCP_SSL_CERTFILE=          # SSL certificate path (optional)
-```
-
-#### Existing Pinot Configuration (Unchanged)
-```bash
-PINOT_CONTROLLER_URL=http://localhost:9000
-PINOT_BROKER_URL=http://localhost:8000
-PINOT_USERNAME=            # Optional
-PINOT_PASSWORD=            # Optional
-PINOT_TOKEN=               # Optional
-```
-
-### 🎉 Benefits
-
-#### For Development
-- **Claude Desktop**: Works seamlessly via STDIO
-- **Web Testing**: Easy HTTP API testing with curl/Python
-- **Local Development**: Both transports available simultaneously
-
-#### For Production
-- **Kubernetes Ready**: Complete deployment manifests
-- **HTTPS Secure**: Full TLS/SSL support
-- **Scalable**: Multiple replicas and load balancing
-- **Monitoring**: Health checks and structured logging
-
-#### For Users
-- **No Dependencies**: Query with built-in Python or curl
-- **Simple API**: REST endpoints for easy integration
-- **Flexible**: Choose transport based on use case
-- **Reliable**: Comprehensive testing and error handling
-
-### 🔄 Migration Guide
-
-#### Existing Users (No Changes Required)
-- Default behavior now includes HTTP transport alongside STDIO
-- All existing STDIO functionality unchanged
-- No configuration changes needed
-
-#### New HTTP Users
-```bash
-# Start server with both transports (default)
-uv run python mcp_pinot/server.py
-
-# Query via HTTP
-curl -X POST http://127.0.0.1:8080/api/tools/call \
-  -H "Content-Type: application/json" \
-  -d '{"name": "list-tables", "arguments": {}}'
-```
-
-#### Kubernetes Deployment
-```bash
-# Deploy to Kubernetes
-kubectl apply -f k8s/
-
-# Access via HTTPS
-https://your-domain.com/sse
-```
-
-### 📈 Statistics
-
-- **2,899 insertions, 116 deletions**
-- **20 files changed**
-- **45+ new tests added**
-- **7 new Kubernetes manifests**
-- **5 new demo/test scripts**
-- **3 comprehensive documentation files**
-
-This release transforms the MCP Pinot Server from a STDIO-only tool into a production-ready, dual-transport server capable of serving both local desktop clients and remote web applications with full HTTPS support.
+### Security
+- HTTP transport binds to `127.0.0.1` by default; the server refuses to start on
+  a non-loopback host unless an auth provider is enabled.
+- `read_query` enforces single-statement, read-only SQL (SELECT / WITH ... SELECT)
+  via `sqlglot`, rejecting stacked statements and write/DDL/admin keywords.

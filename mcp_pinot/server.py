@@ -5,46 +5,63 @@
 FastMCP-based implementation for the Apache Pinot MCP Server.
 """
 
+from collections.abc import Callable
 from ipaddress import ip_address
 import json
-from typing import Optional
+from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
-from fastmcp.server.auth import OAuthProxy
-from fastmcp.server.auth.providers.jwt import JWTVerifier
+from fastmcp.exceptions import ToolError
+from mcp.types import ToolAnnotations
+from pydantic import Field
 import uvicorn
 
-from mcp_pinot.config import load_oauth_config, load_pinot_config, load_server_config
+from mcp_pinot.auth import build_auth
+from mcp_pinot.config import get_logger, load_pinot_config, load_server_config
+from mcp_pinot.models import (
+    ConnectionDiagnostics,
+    FilterReloadResult,
+    OperationResult,
+    QueryResult,
+    TableList,
+)
 from mcp_pinot.pinot_client import PinotClient
 from mcp_pinot.prompts import PROMPT_TEMPLATE
+
+logger = get_logger()
 
 # Initialize configurations and create client
 pinot_config = load_pinot_config()
 server_config = load_server_config()
 pinot_client = PinotClient(pinot_config)
 
-# Build auth if OAuth is enabled
-_auth = None
-if server_config.oauth_enabled:
-    oauth_config = load_oauth_config()
+# Build the auth provider selected by configuration (None disables auth).
+_auth = build_auth(server_config)
 
-    token_verifier = JWTVerifier(
-        jwks_uri=oauth_config.jwks_uri,
-        issuer=oauth_config.issuer,
-        audience=oauth_config.audience,
-    )
+mcp = FastMCP(
+    "Pinot MCP Server",
+    instructions=(
+        "Query and inspect an Apache Pinot real-time OLAP cluster. Use read_query "
+        "for read-only SQL (SELECT or WITH ... SELECT); queries are validated and "
+        "paginated. Call list_tables to discover case-sensitive table names, and "
+        "the inspection tools (table_details, get_schema, get_table_config, "
+        "segment_list) before composing queries or changes. Tools annotated "
+        "destructive (update_schema, update_table_config) modify cluster metadata; "
+        "create_* tools add new objects. Every write tool accepts dry_run=true to "
+        "validate and preview without applying the change."
+    ),
+    auth=_auth,
+    # Internal exceptions are replaced with a generic message; only ToolError
+    # messages (which we craft to be safe and actionable) reach the client.
+    mask_error_details=True,
+)
 
-    _auth = OAuthProxy(
-        upstream_authorization_endpoint=oauth_config.upstream_authorization_endpoint,
-        upstream_token_endpoint=oauth_config.upstream_token_endpoint,
-        upstream_client_id=oauth_config.client_id,
-        upstream_client_secret=oauth_config.client_secret,
-        token_verifier=token_verifier,
-        extra_authorize_params=oauth_config.extra_authorize_params,
-        base_url=oauth_config.base_url,
-    )
-
-mcp = FastMCP("Pinot MCP Server", auth=_auth)
+# Reusable hints appended to client-facing error messages (Recovery Guide).
+_HINT_READ = (
+    "Verify the table name (case-sensitive; see list_tables) and that the Pinot "
+    "cluster is reachable."
+)
+_HINT_WRITE = "Verify the JSON payload is valid and the Pinot controller is reachable."
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -60,207 +77,569 @@ def _is_loopback_host(host: str) -> bool:
 
 def _enforce_http_auth_safety(http_enabled: bool) -> None:
     """Refuse unauthenticated HTTP on network-reachable bind addresses."""
-    if (
-        http_enabled
-        and not server_config.oauth_enabled
-        and not _is_loopback_host(server_config.host)
-    ):
+    if http_enabled and _auth is None and not _is_loopback_host(server_config.host):
         raise SystemExit(
             "Refusing to start: HTTP transport is bound to "
-            f"{server_config.host!r} without OAuth. Set OAUTH_ENABLED=true "
-            "or bind local-only with MCP_HOST=127.0.0.1."
+            f"{server_config.host!r} without authentication. Enable an auth "
+            "provider (set AUTH_PROVIDER or OAUTH_ENABLED=true) or bind "
+            "local-only with MCP_HOST=127.0.0.1."
         )
 
 
-@mcp.tool
-def test_connection() -> str:
-    """Test Pinot connection and return diagnostics"""
-    try:
-        results = pinot_client.test_connection()
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+def _fail(action: str, exc: Exception, hint: str = "") -> ToolError:
+    """Log an internal error and return a sanitized, actionable ToolError."""
+    logger.error("%s failed: %s", action, exc, exc_info=True)
+    message = f"{action} failed."
+    if hint:
+        message = f"{message} {hint}"
+    return ToolError(message)
 
 
-@mcp.tool
-def reload_table_filters() -> str:
-    """Reload table filter configuration from file without restarting server.
+def _call[T](
+    action: str, hint: str, fn: Callable[..., T], *args: Any, **kwargs: Any
+) -> T:
+    """Invoke a client call, mapping failures to client-facing tool errors.
 
-    This allows dynamic updates to the table access list:
-    1. Edit the YAML filter file (configured via PINOT_TABLE_FILTER_FILE)
-    2. Call this tool to reload the configuration
-    3. New filters take effect immediately for all subsequent operations
-
-    Useful for updating table access lists dynamically in production without downtime.
-
-    Returns:
-        JSON with reload status, previous/new filter counts, and filter lists
+    ValueError messages (our own validation guidance) are surfaced verbatim so the
+    model can self-correct; any other exception is logged and replaced with a
+    generic, non-leaking message.
     """
     try:
-        results = pinot_client.reload_table_filters()
-        return json.dumps(results, indent=2)
+        return fn(*args, **kwargs)
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
     except Exception as e:
-        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+        raise _fail(action, e, hint) from e
 
 
-@mcp.tool
-def read_query(query: str) -> str:
-    """Execute a SELECT query on the Pinot database"""
+def _preview_name(json_str: str, key: str) -> str:
+    """Validate a write payload's JSON and extract its required name field."""
     try:
-        results = pinot_client.execute_query(query=query)
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+        data = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise ToolError(f"Invalid JSON payload: {e}") from e
+    name = data.get(key) if isinstance(data, dict) else None
+    if not name:
+        raise ToolError(f"Missing required field '{key}' in the JSON payload.")
+    return str(name)
 
 
-@mcp.tool
-def list_tables() -> str:
-    """List all tables in Pinot"""
-    try:
-        results = pinot_client.get_tables()
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Test connection",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def test_connection() -> ConnectionDiagnostics:
+    """Probe Pinot connectivity and return diagnostics.
+
+    Runs three checks — broker connection, a trivial ``SELECT 1`` query, and a
+    controller table listing — and reports which succeeded plus a small sample of
+    tables. Useful for troubleshooting configuration before using other tools.
+    """
+    results = _call("test_connection", _HINT_READ, pinot_client.test_connection)
+    return ConnectionDiagnostics.model_validate(results)
 
 
-@mcp.tool
-def table_details(tableName: str) -> str:
-    """Get table size details"""
-    try:
-        results = pinot_client.get_table_detail(tableName=tableName)
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Reload table filters",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+)
+def reload_table_filters() -> FilterReloadResult:
+    """Reload the table access filter file without restarting the server.
+
+    Re-reads the YAML file configured via ``PINOT_TABLE_FILTER_FILE`` and applies
+    the new allow-list immediately to all subsequent operations.
+
+    Returns:
+        FilterReloadResult with the reload status and the previous/new filter counts.
+    """
+    results = _call(
+        "reload_table_filters",
+        "Verify PINOT_TABLE_FILTER_FILE points to a valid YAML file.",
+        pinot_client.reload_table_filters,
+    )
+    return FilterReloadResult.model_validate(results)
 
 
-@mcp.tool
-def segment_list(tableName: str) -> str:
-    """List segments for a table"""
-    try:
-        results = pinot_client.get_segments(tableName=tableName)
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Read query",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def read_query(
+    query: Annotated[
+        str,
+        Field(
+            description=(
+                "A single read-only statement in Pinot SQL: 'SELECT ...' or "
+                "'WITH ... SELECT ...'. Stacked statements and DML/DDL/admin "
+                "keywords (INSERT, UPDATE, DELETE, DROP, SET, ...) are rejected."
+            ),
+            min_length=1,
+        ),
+    ],
+    limit: Annotated[
+        int,
+        Field(description="Maximum rows to return in this page.", ge=1, le=10000),
+    ] = 100,
+    offset: Annotated[
+        int,
+        Field(description="Zero-based row offset for pagination.", ge=0),
+    ] = 0,
+) -> QueryResult:
+    """Run a read-only SQL query against Pinot and return a page of rows.
+
+    Only a single SELECT (or WITH ... SELECT) statement is allowed; the query is
+    rejected if it contains multiple statements or write/DDL/admin keywords.
+    Results are paginated to keep responses small — use ``limit``/``offset`` and
+    the ``has_more`` flag to page through large result sets.
+
+    Args:
+        query: The read-only SQL statement to execute.
+        limit: Maximum number of rows to return in this page (1-10000).
+        offset: Zero-based offset of the first row to return.
+
+    Returns:
+        QueryResult with the page of rows, the column list, total row count, and a
+        ``has_more`` flag.
+    """
+    rows = _call("read_query", _HINT_READ, pinot_client.execute_query, query=query)
+    total = len(rows)
+    page = rows[offset : offset + limit]
+    columns = list(page[0].keys()) if page else (list(rows[0].keys()) if rows else [])
+    return QueryResult(
+        columns=columns,
+        rows=page,
+        row_count=len(page),
+        total_rows=total,
+        offset=offset,
+        has_more=offset + len(page) < total,
+    )
 
 
-@mcp.tool
-def index_column_details(tableName: str, segmentName: str) -> str:
-    """Get index/column details for a segment"""
-    try:
-        results = pinot_client.get_index_column_detail(
-            tableName=tableName,
-            segmentName=segmentName,
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="List tables",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def list_tables(
+    limit: Annotated[
+        int,
+        Field(description="Maximum tables to return in this page.", ge=1, le=10000),
+    ] = 100,
+    offset: Annotated[
+        int,
+        Field(description="Zero-based offset for pagination.", ge=0),
+    ] = 0,
+) -> TableList:
+    """List Pinot tables visible to this server (subject to table filters).
+
+    Returns a paginated list of table names. Use ``limit``/``offset`` and the
+    ``has_more`` flag to page through clusters with many tables.
+    """
+    tables = _call("list_tables", _HINT_READ, pinot_client.get_tables)
+    total = len(tables)
+    page = tables[offset : offset + limit]
+    return TableList(
+        tables=page,
+        table_count=len(page),
+        total_tables=total,
+        offset=offset,
+        has_more=offset + len(page) < total,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Table size details",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def table_details(
+    tableName: Annotated[
+        str,
+        Field(
+            description="Pinot table name (case-sensitive), without the "
+            "_OFFLINE/_REALTIME suffix.",
+            min_length=1,
+        ),
+    ],
+) -> dict[str, Any]:
+    """Get storage size details (reported and estimated bytes) for a table."""
+    return _call(
+        "table_details", _HINT_READ, pinot_client.get_table_detail, tableName=tableName
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="List segments",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def segment_list(
+    tableName: Annotated[
+        str,
+        Field(description="Pinot table name (case-sensitive).", min_length=1),
+    ],
+) -> dict[str, Any]:
+    """List the segments for a table, grouped by table type (OFFLINE/REALTIME)."""
+    return _call(
+        "segment_list", _HINT_READ, pinot_client.get_segments, tableName=tableName
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Index/column details",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def index_column_details(
+    tableName: Annotated[
+        str,
+        Field(description="Pinot table name (case-sensitive).", min_length=1),
+    ],
+    segmentName: Annotated[
+        str,
+        Field(description="Segment name, as returned by segment_list.", min_length=1),
+    ],
+) -> dict[str, Any]:
+    """Get per-column index metadata for a specific segment."""
+    return _call(
+        "index_column_details",
+        _HINT_READ,
+        pinot_client.get_index_column_detail,
+        tableName=tableName,
+        segmentName=segmentName,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Segment metadata",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def segment_metadata_details(
+    tableName: Annotated[
+        str,
+        Field(description="Pinot table name (case-sensitive).", min_length=1),
+    ],
+) -> dict[str, Any]:
+    """Get metadata for all segments of a table (rows, sizes, time boundaries)."""
+    return _call(
+        "segment_metadata_details",
+        _HINT_READ,
+        pinot_client.get_segment_metadata_detail,
+        tableName=tableName,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Table config and schema",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def tableconfig_schema_details(
+    tableName: Annotated[
+        str,
+        Field(description="Pinot table name (case-sensitive).", min_length=1),
+    ],
+) -> dict[str, Any]:
+    """Get the combined table configuration and schema for a table."""
+    return _call(
+        "tableconfig_schema_details",
+        _HINT_READ,
+        pinot_client.get_tableconfig_schema_detail,
+        tableName=tableName,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Create schema",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
+def create_schema(
+    schemaJson: Annotated[
+        str,
+        Field(
+            description="Pinot schema definition as a JSON string; must include "
+            "'schemaName'.",
+            min_length=2,
+        ),
+    ],
+    override: Annotated[
+        bool,
+        Field(description="Replace an existing schema with the same name."),
+    ] = True,
+    force: Annotated[
+        bool,
+        Field(description="Force creation, skipping certain validations."),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        Field(description="Validate and preview without applying the change."),
+    ] = False,
+) -> OperationResult:
+    """Create a new Pinot schema.
+
+    Set ``dry_run=true`` to validate the payload and preview the effect without
+    applying it.
+    """
+    if dry_run:
+        name = _preview_name(schemaJson, "schemaName")
+        return OperationResult(
+            status="dry_run",
+            message=f"Would create schema '{name}' "
+            f"(override={override}, force={force}). No change applied.",
         )
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+    results = _call(
+        "create_schema",
+        _HINT_WRITE,
+        pinot_client.create_schema,
+        schemaJson,
+        override,
+        force,
+    )
+    return OperationResult.model_validate(results)
 
 
-@mcp.tool
-def segment_metadata_details(tableName: str) -> str:
-    """Get metadata for segments of a table"""
-    try:
-        results = pinot_client.get_segment_metadata_detail(tableName=tableName)
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
-
-
-@mcp.tool
-def tableconfig_schema_details(tableName: str) -> str:
-    """Get table config and schema"""
-    try:
-        results = pinot_client.get_tableconfig_schema_detail(tableName=tableName)
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
-
-
-@mcp.tool
-def create_schema(schemaJson: str, override: bool = True, force: bool = False) -> str:
-    """Create a new schema"""
-    try:
-        results = pinot_client.create_schema(
-            schemaJson,
-            override,
-            force,
-        )
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
-
-
-@mcp.tool
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Update schema",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
 def update_schema(
-    schemaName: str, schemaJson: str, reload: bool = False, force: bool = False
-) -> str:
-    """Update an existing schema"""
-    try:
-        results = pinot_client.update_schema(
-            schemaName,
-            schemaJson,
-            reload,
-            force,
+    schemaName: Annotated[
+        str,
+        Field(description="Name of the existing schema to update.", min_length=1),
+    ],
+    schemaJson: Annotated[
+        str,
+        Field(description="Updated schema definition as a JSON string.", min_length=2),
+    ],
+    reload: Annotated[
+        bool,
+        Field(description="Reload affected segments after updating."),
+    ] = False,
+    force: Annotated[
+        bool,
+        Field(description="Force update, skipping certain validations."),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        Field(description="Validate and preview without applying the change."),
+    ] = False,
+) -> OperationResult:
+    """Update an existing Pinot schema.
+
+    This can change column definitions on a live table; set ``dry_run=true`` to
+    preview without applying.
+    """
+    if dry_run:
+        return OperationResult(
+            status="dry_run",
+            message=f"Would update schema '{schemaName}' "
+            f"(reload={reload}, force={force}). No change applied.",
         )
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+    results = _call(
+        "update_schema",
+        _HINT_WRITE,
+        pinot_client.update_schema,
+        schemaName,
+        schemaJson,
+        reload,
+        force,
+    )
+    return OperationResult.model_validate(results)
 
 
-@mcp.tool
-def get_schema(schemaName: str) -> str:
-    """Fetch a schema by name"""
-    try:
-        results = pinot_client.get_schema(schemaName=schemaName)
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Get schema",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def get_schema(
+    schemaName: Annotated[
+        str,
+        Field(description="Schema name (case-sensitive).", min_length=1),
+    ],
+) -> dict[str, Any]:
+    """Fetch a Pinot schema definition by name."""
+    return _call(
+        "get_schema", _HINT_READ, pinot_client.get_schema, schemaName=schemaName
+    )
 
 
-@mcp.tool
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Create table config",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
 def create_table_config(
-    tableConfigJson: str, validationTypesToSkip: Optional[str] = None
-) -> str:
-    """Create table configuration"""
-    try:
-        results = pinot_client.create_table_config(
-            tableConfigJson,
-            validationTypesToSkip,
+    tableConfigJson: Annotated[
+        str,
+        Field(
+            description="Pinot table configuration as a JSON string; must include "
+            "'tableName'.",
+            min_length=2,
+        ),
+    ],
+    validationTypesToSkip: Annotated[
+        str | None,
+        Field(
+            description="Comma-separated validation types to skip, e.g. 'TASK,UPSERT'."
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        Field(description="Validate and preview without applying the change."),
+    ] = False,
+) -> OperationResult:
+    """Create a new Pinot table configuration.
+
+    Set ``dry_run=true`` to validate the payload and preview without applying.
+    """
+    if dry_run:
+        name = _preview_name(tableConfigJson, "tableName")
+        return OperationResult(
+            status="dry_run",
+            message=f"Would create table config '{name}'. No change applied.",
         )
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+    results = _call(
+        "create_table_config",
+        _HINT_WRITE,
+        pinot_client.create_table_config,
+        tableConfigJson,
+        validationTypesToSkip,
+    )
+    return OperationResult.model_validate(results)
 
 
-@mcp.tool
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Update table config",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
 def update_table_config(
-    tableName: str,
-    tableConfigJson: str,
-    validationTypesToSkip: Optional[str] = None,
-) -> str:
-    """Update table configuration"""
-    try:
-        results = pinot_client.update_table_config(
-            tableName,
-            tableConfigJson,
-            validationTypesToSkip,
+    tableName: Annotated[
+        str,
+        Field(description="Name of the existing table to update.", min_length=1),
+    ],
+    tableConfigJson: Annotated[
+        str,
+        Field(
+            description="Updated table configuration as a JSON string.", min_length=2
+        ),
+    ],
+    validationTypesToSkip: Annotated[
+        str | None,
+        Field(
+            description="Comma-separated validation types to skip, e.g. 'TASK,UPSERT'."
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        Field(description="Validate and preview without applying the change."),
+    ] = False,
+) -> OperationResult:
+    """Update an existing Pinot table configuration.
+
+    This changes the configuration of a live table; set ``dry_run=true`` to
+    preview without applying.
+    """
+    if dry_run:
+        return OperationResult(
+            status="dry_run",
+            message=f"Would update table config '{tableName}'. No change applied.",
         )
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+    results = _call(
+        "update_table_config",
+        _HINT_WRITE,
+        pinot_client.update_table_config,
+        tableName,
+        tableConfigJson,
+        validationTypesToSkip,
+    )
+    return OperationResult.model_validate(results)
 
 
-@mcp.tool
-def get_table_config(tableName: str, tableType: Optional[str] = None) -> str:
-    """Get table configuration"""
-    try:
-        results = pinot_client.get_table_config(
-            tableName=tableName,
-            tableType=tableType,
-        )
-        return json.dumps(results, indent=2)
-    except Exception as e:
-        return f"Error: {str(e)}"
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Get table config",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def get_table_config(
+    tableName: Annotated[
+        str,
+        Field(description="Pinot table name (case-sensitive).", min_length=1),
+    ],
+    tableType: Annotated[
+        Literal["OFFLINE", "REALTIME"] | None,
+        Field(
+            description="Restrict to one table type; omit to return both when present."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Get the configuration for a table, optionally restricted to a table type."""
+    return _call(
+        "get_table_config",
+        _HINT_READ,
+        pinot_client.get_table_config,
+        tableName=tableName,
+        tableType=tableType,
+    )
 
 
 @mcp.prompt
@@ -286,10 +665,11 @@ def main():
         )
     elif server_config.transport == "stdio":
         # stdio transport - no configuration needed
-        mcp.run(transport=server_config.transport)
+        mcp.run(transport="stdio")
     else:
+        # transport is validated by FastMCP at runtime; it is a dynamic env value.
         mcp.run(
-            transport=server_config.transport,
+            transport=server_config.transport,  # type: ignore[arg-type]
             host=server_config.host,
             port=server_config.port,
             path=server_config.path,

@@ -12,28 +12,24 @@ permissions:
 jobs:
   lint-python:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v6
-    
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.12'
-    
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
         version: "latest"
-    
+        python-version: '3.12'
+
     - name: Install dependencies
-      run: |
-        uv pip install --system -e .[dev]
-    
+      run: uv sync
+
     - name: Run ruff check
-      run: |
-        uv run ruff check .
-    
+      run: uv run ruff check .
+
     - name: Run ruff format check
-      run: |
-        uv run ruff format --check .
+      run: uv run ruff format --check .
+
+    - name: Run mypy
+      run: uv run mypy

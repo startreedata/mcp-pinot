@@ -521,7 +521,7 @@ class Pinot:
                     if config_key in index_config:
                         del index_config[config_key]
             else:
-                index_config[config_key] = sorted(list(existing_columns))
+                index_config[config_key] = sorted(existing_columns)
 
             # 3. Update the table config via PUT
             # The PUT /tables/{tableName} expects the raw config object as the body
@@ -668,7 +668,7 @@ class Pinot:
                 except json.JSONDecodeError as json_err:
                     raise ValueError(
                         f"Invalid JSON provided for aggregationConfigsJson: {json_err}"
-                    )
+                    ) from json_err
             elif functionColumnPairs:
                 new_star_tree_config["functionColumnPairs"] = functionColumnPairs
             # else: No aggregations specified; defaults may apply.

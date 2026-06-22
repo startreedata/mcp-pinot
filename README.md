@@ -1,6 +1,11 @@
 # Pinot MCP Server
 <!-- mcp-name: io.github.startreedata/mcp-pinot -->
 
+[![Build and Test](https://github.com/startreedata/mcp-pinot/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/startreedata/mcp-pinot/actions/workflows/build-and-test.yml)
+[![PyPI version](https://img.shields.io/pypi/v/mcp-pinot-server.svg)](https://pypi.org/project/mcp-pinot-server/)
+[![Python versions](https://img.shields.io/pypi/pyversions/mcp-pinot-server.svg)](https://pypi.org/project/mcp-pinot-server/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 ## Table of Contents
 
 - [Overview](#overview)

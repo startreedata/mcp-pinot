@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a problem with the Pinot MCP server
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please do **not** include
+        secrets (tokens, passwords, connection strings) in this report.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, including the tool/query you called.
+      placeholder: |
+        1. Configure ...
+        2. Call tool ...
+        3. See error ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: mcp-pinot-server version
+      placeholder: e.g. 3.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options:
+        - stdio
+        - http
+        - https
+    validations:
+      required: true
+  - type: input
+    id: pinot-version
+    attributes:
+      label: Apache Pinot version
+      placeholder: e.g. 1.2.0
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste any relevant log output (redact secrets).
+      render: shell
+    validations:
+      required: false

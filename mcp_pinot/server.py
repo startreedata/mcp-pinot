@@ -684,6 +684,52 @@ def pinot_query() -> str:
     return PROMPT_TEMPLATE.strip()
 
 
+@mcp.prompt
+def explore_table(table_name: str) -> str:
+    """Guide a structured exploration of a single Pinot table.
+
+    Args:
+        table_name: The Pinot table to explore (case-sensitive).
+    """
+    return (
+        f"Help me explore the Pinot table '{table_name}'.\n"
+        f"1. Call get_schema and get_table_config for '{table_name}' to learn its "
+        f"columns, types, and time column.\n"
+        f"2. Call table_details and segment_list for its size and segment layout.\n"
+        f"3. Run read_query with a small LIMIT (e.g. 10) to sample rows from "
+        f"'{table_name}'.\n"
+        f"4. Summarize the table's purpose, key dimensions/metrics, and time range."
+    )
+
+
+@mcp.resource("pinot://tables", mime_type="application/json")
+def tables_resource() -> str:
+    """The Pinot tables visible to this server (honors table filters)."""
+    tables = _call("tables_resource", _HINT_READ, pinot_client.get_tables)
+    return json.dumps({"tables": tables})
+
+
+@mcp.resource("pinot://schema/{schema_name}", mime_type="application/json")
+def schema_resource(schema_name: str) -> str:
+    """The Pinot schema definition for a given schema name."""
+    raw = _call(
+        "schema_resource", _HINT_READ, pinot_client.get_schema, schemaName=schema_name
+    )
+    return json.dumps(raw)
+
+
+@mcp.resource("pinot://table-config/{table_name}", mime_type="application/json")
+def table_config_resource(table_name: str) -> str:
+    """The Pinot table configuration for a given table name."""
+    raw = _call(
+        "table_config_resource",
+        _HINT_READ,
+        pinot_client.get_table_config,
+        tableName=table_name,
+    )
+    return json.dumps(raw)
+
+
 def main():
     """Main entry point for FastMCP Pinot Server"""
     tls_enabled = server_config.ssl_keyfile and server_config.ssl_certfile

@@ -113,3 +113,137 @@ class OperationResult(BaseModel):
     message: str | None = Field(
         default=None, description="Human-readable detail, when provided."
     )
+
+
+class TableSizeDetails(BaseModel):
+    """Storage size for a table (Pinot ``GET /tables/{name}/size``).
+
+    Declared fields document the common size metrics; any additional fields Pinot
+    returns (per-segment breakdowns, etc.) are preserved.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    tableName: str | None = Field(default=None, description="The table name.")
+    reportedSizeInBytes: int | None = Field(
+        default=None,
+        description="Size reported by the servers currently hosting the table's "
+        "segments, in bytes.",
+    )
+    estimatedSizeInBytes: int | None = Field(
+        default=None,
+        description="Estimated size assuming every replica is present, in bytes.",
+    )
+
+
+class SegmentList(BaseModel):
+    """Segment names for a table, grouped by table type."""
+
+    model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: Any) -> Any:
+        # Some Pinot versions return a list of single-key maps, e.g.
+        # ``[{"OFFLINE": [...]}, {"REALTIME": [...]}]``. Merge into one mapping so
+        # the result is always an object keyed by table type.
+        if isinstance(data, list):
+            merged: dict[str, Any] = {}
+            for item in data:
+                if isinstance(item, dict):
+                    merged.update(item)
+            return merged
+        return data
+
+    OFFLINE: list[str] | None = Field(
+        default=None, description="OFFLINE segment names, when the table has them."
+    )
+    REALTIME: list[str] | None = Field(
+        default=None, description="REALTIME segment names, when the table has them."
+    )
+
+
+class SegmentIndexDetails(BaseModel):
+    """Per-column index metadata for a single segment."""
+
+    model_config = ConfigDict(extra="allow")
+
+    indexes: Any = Field(
+        default=None,
+        description="Per-column index metadata (index types present on each column).",
+    )
+    columns: Any = Field(
+        default=None, description="Per-column metadata for the segment, when present."
+    )
+
+
+class SegmentMetadata(BaseModel):
+    """Metadata for a table's segments (rows, sizes, time boundaries).
+
+    Pinot returns a mapping keyed by segment name whose values vary per segment,
+    so the contents are preserved as-is rather than enumerated here.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+class PinotSchema(BaseModel):
+    """A Pinot table schema definition (column field specs)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    schemaName: str | None = Field(default=None, description="The schema name.")
+    dimensionFieldSpecs: list[dict[str, Any]] | None = Field(
+        default=None, description="Dimension (attribute) column specifications."
+    )
+    metricFieldSpecs: list[dict[str, Any]] | None = Field(
+        default=None, description="Metric (aggregatable measure) column specifications."
+    )
+    dateTimeFieldSpecs: list[dict[str, Any]] | None = Field(
+        default=None, description="Date/time column specifications."
+    )
+    primaryKeyColumns: list[str] | None = Field(
+        default=None, description="Primary key columns, for upsert-enabled tables."
+    )
+
+
+class TableConfig(BaseModel):
+    """A Pinot table configuration (``GET /tables/{name}``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    tableName: str | None = Field(default=None, description="The table name.")
+    tableType: str | None = Field(
+        default=None, description="Table type: 'OFFLINE' or 'REALTIME'."
+    )
+    segmentsConfig: dict[str, Any] | None = Field(
+        default=None,
+        description="Retention, replication, and time-column settings.",
+    )
+    tableIndexConfig: dict[str, Any] | None = Field(
+        default=None, description="Index configuration (inverted, sorted, range, ...)."
+    )
+    tenants: dict[str, Any] | None = Field(
+        default=None, description="Broker and server tenant assignment."
+    )
+    ingestionConfig: dict[str, Any] | None = Field(
+        default=None, description="Ingestion / transform configuration, when present."
+    )
+
+
+class TableConfigSchema(BaseModel):
+    """Combined table configuration and schema (``GET /tableConfigs/{name}``).
+
+    The Pinot ``schema`` key is preserved as an extra field (rather than declared)
+    to avoid shadowing Pydantic's reserved ``schema`` attribute.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    tableName: str | None = Field(default=None, description="The table name.")
+    offline: dict[str, Any] | None = Field(
+        default=None, description="OFFLINE table configuration, when present."
+    )
+    realtime: dict[str, Any] | None = Field(
+        default=None, description="REALTIME table configuration, when present."
+    )

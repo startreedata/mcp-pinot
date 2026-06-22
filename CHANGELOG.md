@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Documented output schemas for the inspection tools (`table_details`,
+  `segment_list`, `index_column_details`, `segment_metadata_details`,
+  `tableconfig_schema_details`, `get_schema`, `get_table_config`) via typed
+  Pydantic models, so every tool advertises a documented `outputSchema`. Extra
+  fields are preserved (`extra="allow"`), so response shapes are unchanged.
+- The schema/table-config write tools (`create_schema`, `update_schema`,
+  `create_table_config`, `update_table_config`) now accept their JSON payload as
+  a structured object **or** a JSON string (back-compatible), giving clients a
+  real input schema for the payload.
+
 ## [0.2.0] - 2026-06-16
 
 ### Breaking Changes

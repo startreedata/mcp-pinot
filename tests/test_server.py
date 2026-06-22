@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from fastmcp import Client
@@ -108,6 +109,54 @@ class TestFastMCPServer:
         assert props["limit"]["maximum"] == 10000
         assert props["limit"]["minimum"] == 1
         assert props["offset"]["minimum"] == 0
+
+    @pytest.mark.asyncio
+    async def test_inspection_tools_document_output_fields(self):
+        """Pass-through inspection tools publish documented output schemas."""
+        async with Client(mcp) as client:
+            tools = {t.name: t for t in await client.list_tools()}
+
+        def schema_text(name: str) -> str:
+            return json.dumps(tools[name].outputSchema)
+
+        assert "schemaName" in schema_text("get_schema")
+        assert "dimensionFieldSpecs" in schema_text("get_schema")
+        assert "reportedSizeInBytes" in schema_text("table_details")
+        assert "tableType" in schema_text("get_table_config")
+        assert "OFFLINE" in schema_text("segment_list")
+
+    @pytest.mark.asyncio
+    async def test_write_tools_accept_object_or_string_payload(self):
+        """schemaJson / tableConfigJson advertise object-or-string input."""
+        async with Client(mcp) as client:
+            tools = {t.name: t for t in await client.list_tools()}
+        schema_prop = tools["create_schema"].inputSchema["properties"]["schemaJson"]
+        config_prop = tools["create_table_config"].inputSchema["properties"][
+            "tableConfigJson"
+        ]
+        assert "anyOf" in schema_prop
+        assert "anyOf" in config_prop
+
+    @pytest.mark.asyncio
+    async def test_create_schema_accepts_structured_object(self, mock_pinot_client):
+        """A structured object payload is serialized to JSON for the client."""
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "create_schema",
+                {"schemaJson": {"schemaName": "obj_schema", "dimensionFieldSpecs": []}},
+            )
+        assert result.structured_content["status"] == "created"
+        called_arg = mock_pinot_client.create_schema.call_args.args[0]
+        assert isinstance(called_arg, str)
+        assert "obj_schema" in called_arg
+
+    def test_segment_list_normalizes_list_form(self):
+        """SegmentList merges Pinot's list-of-maps form into one object."""
+        from mcp_pinot.models import SegmentList
+
+        merged = SegmentList.model_validate([{"OFFLINE": ["s1"]}, {"REALTIME": ["s2"]}])
+        assert merged.OFFLINE == ["s1"]
+        assert merged.REALTIME == ["s2"]
 
     @pytest.mark.asyncio
     async def test_get_table_config_table_type_is_enum(self):

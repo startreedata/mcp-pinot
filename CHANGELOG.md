@@ -36,6 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `list_tables`.
 - `dry_run` previews for the schema and table-config write tools.
 - Server `instructions` to guide MCP clients.
+- Documented output schemas for the inspection tools (`table_details`,
+  `segment_list`, `index_column_details`, `segment_metadata_details`,
+  `tableconfig_schema_details`, `get_schema`, `get_table_config`) via typed
+  Pydantic models; declared fields are documented while extra fields are
+  preserved (`extra="allow"`), so response shapes are unchanged.
+- The schema/table-config write tools accept their JSON payload as a structured
+  object **or** a JSON string (back-compatible).
+- MCP **resources** (`pinot://tables`, `pinot://schema/{name}`,
+  `pinot://table-config/{name}`) and an `explore_table` prompt.
+- Repo supportability: `SUPPORT.md`, GitHub issue templates, and README status
+  badges.
 
 ### Changed
 - OAuth discovery now advertises a non-empty `scopes_supported`, so the

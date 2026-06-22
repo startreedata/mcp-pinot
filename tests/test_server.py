@@ -129,6 +129,42 @@ class TestFastMCPServer:
         )
 
     @pytest.mark.asyncio
+    async def test_explore_table_prompt_renders(self):
+        """The explore_table prompt renders with the provided table name."""
+        async with Client(mcp) as client:
+            result = await client.get_prompt("explore_table", {"table_name": "orders"})
+        text = " ".join(
+            m.content.text for m in result.messages if hasattr(m.content, "text")
+        )
+        assert "orders" in text
+
+    @pytest.mark.asyncio
+    async def test_resources_registered(self, mock_pinot_client):
+        """Catalog resources are registered (static + templated)."""
+        async with Client(mcp) as client:
+            resources = await client.list_resources()
+            templates = await client.list_resource_templates()
+        static_uris = {str(r.uri) for r in resources}
+        template_uris = {t.uriTemplate for t in templates}
+        assert "pinot://tables" in static_uris
+        assert any("pinot://schema/" in u for u in template_uris)
+        assert any("pinot://table-config/" in u for u in template_uris)
+
+    @pytest.mark.asyncio
+    async def test_read_tables_and_schema_resources(self, mock_pinot_client):
+        """The static and templated resources read through to the client."""
+        async with Client(mcp) as client:
+            tables = await client.read_resource("pinot://tables")
+            schema = await client.read_resource("pinot://schema/test_table")
+            config = await client.read_resource("pinot://table-config/test_table")
+        tables_text = " ".join(c.text for c in tables if hasattr(c, "text"))
+        schema_text = " ".join(c.text for c in schema if hasattr(c, "text"))
+        config_text = " ".join(c.text for c in config if hasattr(c, "text"))
+        assert "test_table" in tables_text
+        assert "schema" in schema_text
+        assert "config" in config_text
+
+    @pytest.mark.asyncio
     async def test_tool_test_connection(self, mock_pinot_client):
         """test_connection returns typed diagnostics."""
         async with Client(mcp) as client:

@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from fastmcp import Client
@@ -110,6 +111,54 @@ class TestFastMCPServer:
         assert props["offset"]["minimum"] == 0
 
     @pytest.mark.asyncio
+    async def test_inspection_tools_document_output_fields(self):
+        """Pass-through inspection tools publish documented output schemas."""
+        async with Client(mcp) as client:
+            tools = {t.name: t for t in await client.list_tools()}
+
+        def schema_text(name: str) -> str:
+            return json.dumps(tools[name].outputSchema)
+
+        assert "schemaName" in schema_text("get_schema")
+        assert "dimensionFieldSpecs" in schema_text("get_schema")
+        assert "reportedSizeInBytes" in schema_text("table_details")
+        assert "tableType" in schema_text("get_table_config")
+        assert "OFFLINE" in schema_text("segment_list")
+
+    @pytest.mark.asyncio
+    async def test_write_tools_accept_object_or_string_payload(self):
+        """schemaJson / tableConfigJson advertise object-or-string input."""
+        async with Client(mcp) as client:
+            tools = {t.name: t for t in await client.list_tools()}
+        schema_prop = tools["create_schema"].inputSchema["properties"]["schemaJson"]
+        config_prop = tools["create_table_config"].inputSchema["properties"][
+            "tableConfigJson"
+        ]
+        assert "anyOf" in schema_prop
+        assert "anyOf" in config_prop
+
+    @pytest.mark.asyncio
+    async def test_create_schema_accepts_structured_object(self, mock_pinot_client):
+        """A structured object payload is serialized to JSON for the client."""
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "create_schema",
+                {"schemaJson": {"schemaName": "obj_schema", "dimensionFieldSpecs": []}},
+            )
+        assert result.structured_content["status"] == "created"
+        called_arg = mock_pinot_client.create_schema.call_args.args[0]
+        assert isinstance(called_arg, str)
+        assert "obj_schema" in called_arg
+
+    def test_segment_list_normalizes_list_form(self):
+        """SegmentList merges Pinot's list-of-maps form into one object."""
+        from mcp_pinot.models import SegmentList
+
+        merged = SegmentList.model_validate([{"OFFLINE": ["s1"]}, {"REALTIME": ["s2"]}])
+        assert merged.OFFLINE == ["s1"]
+        assert merged.REALTIME == ["s2"]
+
+    @pytest.mark.asyncio
     async def test_get_table_config_table_type_is_enum(self):
         """tableType is constrained to the valid Pinot table types."""
         async with Client(mcp) as client:
@@ -127,6 +176,42 @@ class TestFastMCPServer:
         assert "pinot_query" in prompt_names, (
             "Prompt pinot_query not found in registered prompts"
         )
+
+    @pytest.mark.asyncio
+    async def test_explore_table_prompt_renders(self):
+        """The explore_table prompt renders with the provided table name."""
+        async with Client(mcp) as client:
+            result = await client.get_prompt("explore_table", {"table_name": "orders"})
+        text = " ".join(
+            m.content.text for m in result.messages if hasattr(m.content, "text")
+        )
+        assert "orders" in text
+
+    @pytest.mark.asyncio
+    async def test_resources_registered(self, mock_pinot_client):
+        """Catalog resources are registered (static + templated)."""
+        async with Client(mcp) as client:
+            resources = await client.list_resources()
+            templates = await client.list_resource_templates()
+        static_uris = {str(r.uri) for r in resources}
+        template_uris = {t.uriTemplate for t in templates}
+        assert "pinot://tables" in static_uris
+        assert any("pinot://schema/" in u for u in template_uris)
+        assert any("pinot://table-config/" in u for u in template_uris)
+
+    @pytest.mark.asyncio
+    async def test_read_tables_and_schema_resources(self, mock_pinot_client):
+        """The static and templated resources read through to the client."""
+        async with Client(mcp) as client:
+            tables = await client.read_resource("pinot://tables")
+            schema = await client.read_resource("pinot://schema/test_table")
+            config = await client.read_resource("pinot://table-config/test_table")
+        tables_text = " ".join(c.text for c in tables if hasattr(c, "text"))
+        schema_text = " ".join(c.text for c in schema if hasattr(c, "text"))
+        config_text = " ".join(c.text for c in config if hasattr(c, "text"))
+        assert "test_table" in tables_text
+        assert "schema" in schema_text
+        assert "config" in config_text
 
     @pytest.mark.asyncio
     async def test_tool_test_connection(self, mock_pinot_client):

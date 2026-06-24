@@ -22,8 +22,15 @@ from mcp_pinot.models import (
     ConnectionDiagnostics,
     FilterReloadResult,
     OperationResult,
+    PinotSchema,
     QueryResult,
+    SegmentIndexDetails,
+    SegmentList,
+    SegmentMetadata,
+    TableConfig,
+    TableConfigSchema,
     TableList,
+    TableSizeDetails,
 )
 from mcp_pinot.pinot_client import PinotClient
 from mcp_pinot.prompts import PROMPT_TEMPLATE
@@ -124,6 +131,18 @@ def _preview_name(json_str: str, key: str) -> str:
     if not name:
         raise ToolError(f"Missing required field '{key}' in the JSON payload.")
     return str(name)
+
+
+def _as_json_str(payload: dict[str, Any] | str) -> str:
+    """Normalize a JSON-object-or-string write payload to a JSON string.
+
+    Tools accept either a structured object (preferred — clients get a real input
+    schema) or a raw JSON string (back-compat). Downstream client methods and the
+    Pinot REST API expect a JSON string, so objects are serialized here.
+    """
+    if isinstance(payload, dict):
+        return json.dumps(payload)
+    return payload
 
 
 @mcp.tool(
@@ -282,11 +301,12 @@ def table_details(
             min_length=1,
         ),
     ],
-) -> dict[str, Any]:
+) -> TableSizeDetails:
     """Get storage size details (reported and estimated bytes) for a table."""
-    return _call(
+    raw = _call(
         "table_details", _HINT_READ, pinot_client.get_table_detail, tableName=tableName
     )
+    return TableSizeDetails.model_validate(raw)
 
 
 @mcp.tool(
@@ -302,11 +322,12 @@ def segment_list(
         str,
         Field(description="Pinot table name (case-sensitive).", min_length=1),
     ],
-) -> dict[str, Any]:
+) -> SegmentList:
     """List the segments for a table, grouped by table type (OFFLINE/REALTIME)."""
-    return _call(
+    raw = _call(
         "segment_list", _HINT_READ, pinot_client.get_segments, tableName=tableName
     )
+    return SegmentList.model_validate(raw)
 
 
 @mcp.tool(
@@ -326,15 +347,16 @@ def index_column_details(
         str,
         Field(description="Segment name, as returned by segment_list.", min_length=1),
     ],
-) -> dict[str, Any]:
+) -> SegmentIndexDetails:
     """Get per-column index metadata for a specific segment."""
-    return _call(
+    raw = _call(
         "index_column_details",
         _HINT_READ,
         pinot_client.get_index_column_detail,
         tableName=tableName,
         segmentName=segmentName,
     )
+    return SegmentIndexDetails.model_validate(raw)
 
 
 @mcp.tool(
@@ -350,14 +372,15 @@ def segment_metadata_details(
         str,
         Field(description="Pinot table name (case-sensitive).", min_length=1),
     ],
-) -> dict[str, Any]:
+) -> SegmentMetadata:
     """Get metadata for all segments of a table (rows, sizes, time boundaries)."""
-    return _call(
+    raw = _call(
         "segment_metadata_details",
         _HINT_READ,
         pinot_client.get_segment_metadata_detail,
         tableName=tableName,
     )
+    return SegmentMetadata.model_validate(raw)
 
 
 @mcp.tool(
@@ -373,14 +396,15 @@ def tableconfig_schema_details(
         str,
         Field(description="Pinot table name (case-sensitive).", min_length=1),
     ],
-) -> dict[str, Any]:
+) -> TableConfigSchema:
     """Get the combined table configuration and schema for a table."""
-    return _call(
+    raw = _call(
         "tableconfig_schema_details",
         _HINT_READ,
         pinot_client.get_tableconfig_schema_detail,
         tableName=tableName,
     )
+    return TableConfigSchema.model_validate(raw)
 
 
 @mcp.tool(
@@ -394,11 +418,10 @@ def tableconfig_schema_details(
 )
 def create_schema(
     schemaJson: Annotated[
-        str,
+        dict[str, Any] | str,
         Field(
-            description="Pinot schema definition as a JSON string; must include "
-            "'schemaName'.",
-            min_length=2,
+            description="Pinot schema definition as a JSON object (preferred) or a "
+            "JSON string; must include 'schemaName'.",
         ),
     ],
     override: Annotated[
@@ -416,9 +439,11 @@ def create_schema(
 ) -> OperationResult:
     """Create a new Pinot schema.
 
-    Set ``dry_run=true`` to validate the payload and preview the effect without
+    Accepts the schema as a JSON object (preferred) or a JSON string. Set
+    ``dry_run=true`` to validate the payload and preview the effect without
     applying it.
     """
+    schemaJson = _as_json_str(schemaJson)
     if dry_run:
         name = _preview_name(schemaJson, "schemaName")
         return OperationResult(
@@ -452,8 +477,11 @@ def update_schema(
         Field(description="Name of the existing schema to update.", min_length=1),
     ],
     schemaJson: Annotated[
-        str,
-        Field(description="Updated schema definition as a JSON string.", min_length=2),
+        dict[str, Any] | str,
+        Field(
+            description="Updated schema definition as a JSON object (preferred) or a "
+            "JSON string.",
+        ),
     ],
     reload: Annotated[
         bool,
@@ -470,9 +498,11 @@ def update_schema(
 ) -> OperationResult:
     """Update an existing Pinot schema.
 
-    This can change column definitions on a live table; set ``dry_run=true`` to
-    preview without applying.
+    Accepts the schema as a JSON object (preferred) or a JSON string. This can
+    change column definitions on a live table; set ``dry_run=true`` to preview
+    without applying.
     """
+    schemaJson = _as_json_str(schemaJson)
     if dry_run:
         return OperationResult(
             status="dry_run",
@@ -504,11 +534,12 @@ def get_schema(
         str,
         Field(description="Schema name (case-sensitive).", min_length=1),
     ],
-) -> dict[str, Any]:
+) -> PinotSchema:
     """Fetch a Pinot schema definition by name."""
-    return _call(
+    raw = _call(
         "get_schema", _HINT_READ, pinot_client.get_schema, schemaName=schemaName
     )
+    return PinotSchema.model_validate(raw)
 
 
 @mcp.tool(
@@ -522,11 +553,10 @@ def get_schema(
 )
 def create_table_config(
     tableConfigJson: Annotated[
-        str,
+        dict[str, Any] | str,
         Field(
-            description="Pinot table configuration as a JSON string; must include "
-            "'tableName'.",
-            min_length=2,
+            description="Pinot table configuration as a JSON object (preferred) or a "
+            "JSON string; must include 'tableName'.",
         ),
     ],
     validationTypesToSkip: Annotated[
@@ -542,8 +572,10 @@ def create_table_config(
 ) -> OperationResult:
     """Create a new Pinot table configuration.
 
-    Set ``dry_run=true`` to validate the payload and preview without applying.
+    Accepts the config as a JSON object (preferred) or a JSON string. Set
+    ``dry_run=true`` to validate the payload and preview without applying.
     """
+    tableConfigJson = _as_json_str(tableConfigJson)
     if dry_run:
         name = _preview_name(tableConfigJson, "tableName")
         return OperationResult(
@@ -575,9 +607,10 @@ def update_table_config(
         Field(description="Name of the existing table to update.", min_length=1),
     ],
     tableConfigJson: Annotated[
-        str,
+        dict[str, Any] | str,
         Field(
-            description="Updated table configuration as a JSON string.", min_length=2
+            description="Updated table configuration as a JSON object (preferred) or "
+            "a JSON string.",
         ),
     ],
     validationTypesToSkip: Annotated[
@@ -593,9 +626,11 @@ def update_table_config(
 ) -> OperationResult:
     """Update an existing Pinot table configuration.
 
-    This changes the configuration of a live table; set ``dry_run=true`` to
-    preview without applying.
+    Accepts the config as a JSON object (preferred) or a JSON string. This changes
+    the configuration of a live table; set ``dry_run=true`` to preview without
+    applying.
     """
+    tableConfigJson = _as_json_str(tableConfigJson)
     if dry_run:
         return OperationResult(
             status="dry_run",
@@ -631,21 +666,68 @@ def get_table_config(
             description="Restrict to one table type; omit to return both when present."
         ),
     ] = None,
-) -> dict[str, Any]:
+) -> TableConfig:
     """Get the configuration for a table, optionally restricted to a table type."""
-    return _call(
+    raw = _call(
         "get_table_config",
         _HINT_READ,
         pinot_client.get_table_config,
         tableName=tableName,
         tableType=tableType,
     )
+    return TableConfig.model_validate(raw)
 
 
 @mcp.prompt
 def pinot_query() -> str:
     """Query Pinot database with MCP Server + Claude"""
     return PROMPT_TEMPLATE.strip()
+
+
+@mcp.prompt
+def explore_table(table_name: str) -> str:
+    """Guide a structured exploration of a single Pinot table.
+
+    Args:
+        table_name: The Pinot table to explore (case-sensitive).
+    """
+    return (
+        f"Help me explore the Pinot table '{table_name}'.\n"
+        f"1. Call get_schema and get_table_config for '{table_name}' to learn its "
+        f"columns, types, and time column.\n"
+        f"2. Call table_details and segment_list for its size and segment layout.\n"
+        f"3. Run read_query with a small LIMIT (e.g. 10) to sample rows from "
+        f"'{table_name}'.\n"
+        f"4. Summarize the table's purpose, key dimensions/metrics, and time range."
+    )
+
+
+@mcp.resource("pinot://tables", mime_type="application/json")
+def tables_resource() -> str:
+    """The Pinot tables visible to this server (honors table filters)."""
+    tables = _call("tables_resource", _HINT_READ, pinot_client.get_tables)
+    return json.dumps({"tables": tables})
+
+
+@mcp.resource("pinot://schema/{schema_name}", mime_type="application/json")
+def schema_resource(schema_name: str) -> str:
+    """The Pinot schema definition for a given schema name."""
+    raw = _call(
+        "schema_resource", _HINT_READ, pinot_client.get_schema, schemaName=schema_name
+    )
+    return json.dumps(raw)
+
+
+@mcp.resource("pinot://table-config/{table_name}", mime_type="application/json")
+def table_config_resource(table_name: str) -> str:
+    """The Pinot table configuration for a given table name."""
+    raw = _call(
+        "table_config_resource",
+        _HINT_READ,
+        pinot_client.get_table_config,
+        tableName=table_name,
+    )
+    return json.dumps(raw)
 
 
 def main():

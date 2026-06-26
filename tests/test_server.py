@@ -373,6 +373,24 @@ class TestFastMCPServer:
         assert "OFFLINE" in result.structured_content
 
     @pytest.mark.asyncio
+    async def test_segment_list_paginates(self, mock_pinot_client):
+        """segment_list caps output and reports pagination metadata."""
+        mock_pinot_client.get_segments.return_value = {
+            "OFFLINE": [f"seg{i}" for i in range(5)],
+            "REALTIME": [f"rt{i}" for i in range(5)],
+        }
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "segment_list", {"tableName": "t", "limit": 3}
+            )
+        sc = result.structured_content
+        assert sc["total_segments"] == 10
+        assert sc["returned_segments"] == 3
+        assert sc["has_more"] is True
+        assert sc["OFFLINE"] == ["seg0", "seg1", "seg2"]
+        assert sc["REALTIME"] == []
+
+    @pytest.mark.asyncio
     async def test_tool_index_column_details(self, mock_pinot_client):
         async with Client(mcp) as client:
             result = await client.call_tool(

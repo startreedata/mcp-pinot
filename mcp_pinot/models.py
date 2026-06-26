@@ -156,10 +156,22 @@ class SegmentList(BaseModel):
         return data
 
     OFFLINE: list[str] | None = Field(
-        default=None, description="OFFLINE segment names, when the table has them."
+        default=None, description="OFFLINE segment names in this page, when present."
     )
     REALTIME: list[str] | None = Field(
-        default=None, description="REALTIME segment names, when the table has them."
+        default=None, description="REALTIME segment names in this page, when present."
+    )
+    total_segments: int | None = Field(
+        default=None, description="Total segments across all types before paging."
+    )
+    returned_segments: int | None = Field(
+        default=None, description="Number of segment names returned in this page."
+    )
+    offset: int | None = Field(
+        default=None, description="Zero-based offset of the first segment in this page."
+    )
+    has_more: bool | None = Field(
+        default=None, description="True when more segments remain beyond this page."
     )
 
 

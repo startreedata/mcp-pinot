@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   object **or** a JSON string (back-compatible).
 - MCP **resources** (`pinot://tables`, `pinot://schema/{name}`,
   `pinot://table-config/{name}`) and an `explore_table` prompt.
+- Pagination (`limit`/`offset` + `has_more`) for `segment_list`, and richer
+  descriptions on the inspection tools clarifying when to use each.
 - Repo supportability: `SUPPORT.md`, GitHub issue templates, and README status
   badges.
 

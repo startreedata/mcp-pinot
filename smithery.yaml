@@ -1,0 +1,38 @@
+# Smithery configuration for the Apache Pinot MCP server.
+# Docs: https://smithery.ai/docs  — validate against the current schema before publishing.
+#
+# This runs the published PyPI package (mcp-pinot-server) over stdio via `uvx`,
+# so no pre-install or Docker image is required on the runner.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - pinotControllerUrl
+      - pinotBrokerUrl
+    properties:
+      pinotControllerUrl:
+        type: string
+        title: Pinot Controller URL
+        description: HTTP(S) endpoint of the Pinot Controller.
+        default: http://localhost:9000
+      pinotBrokerUrl:
+        type: string
+        title: Pinot Broker URL
+        description: HTTP(S) endpoint of the Pinot Broker.
+        default: http://localhost:8000
+      pinotToken:
+        type: string
+        title: Pinot bearer token (optional)
+        description: Bearer/raw token used to authenticate to Pinot.
+  commandFunction: |-
+    (config) => ({
+      command: "uvx",
+      args: ["--from", "mcp-pinot-server", "mcp-pinot"],
+      env: {
+        MCP_TRANSPORT: "stdio",
+        PINOT_CONTROLLER_URL: config.pinotControllerUrl,
+        PINOT_BROKER_URL: config.pinotBrokerUrl,
+        ...(config.pinotToken ? { PINOT_TOKEN: config.pinotToken } : {})
+      }
+    })

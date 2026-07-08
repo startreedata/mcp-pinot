@@ -99,7 +99,7 @@ configuration.
 |---|---|---|
 | Claude Desktop | `MCP_TRANSPORT=stdio` | Recommended for local desktop use. No HTTP listener is started unless TLS certs are configured. |
 | Local HTTP | `MCP_TRANSPORT=http`, `MCP_HOST=127.0.0.1` | Default local development profile. Accessible only from the same machine. |
-| Remote HTTP/HTTPS | `MCP_TRANSPORT=http`, `MCP_HOST=0.0.0.0`, `OAUTH_ENABLED=true` | The server refuses non-loopback HTTP/HTTPS binds unless OAuth is enabled. Use TLS directly or an authenticated reverse proxy. |
+| Remote HTTP/HTTPS | `MCP_TRANSPORT=http`, `MCP_HOST=0.0.0.0`, `AUTH_PROVIDER=oauth`\|`static` | The server refuses non-loopback HTTP/HTTPS binds unless an auth provider is active. Use TLS directly or an authenticated reverse proxy. |
 | Helm exposure | `service.enabled=true`, `mcp.host=0.0.0.0`, `mcp.oauth.enabled=true` | Helm defaults are local-only and render no Service unless exposure is explicitly enabled. |
 
 ### Pinot Connection
@@ -137,7 +137,9 @@ OAuth is required before binding HTTP or HTTPS to a non-loopback host.
 
 | Variable | Default | Description |
 |---|---|---|
-| `OAUTH_ENABLED` | `false` | Enables OAuth authentication. |
+| `AUTH_PROVIDER` | unset | Active auth provider: `none` (default), `oauth`, or `static`. Some provider is required before a non-loopback bind. |
+| `MCP_STATIC_TOKEN` | empty | Shared bearer secret for `AUTH_PROVIDER=static` — a service-to-service caller sends it as `Authorization: Bearer <token>`. Required when the static provider is active. |
+| `OAUTH_ENABLED` | `false` | Legacy flag; `true` is equivalent to `AUTH_PROVIDER=oauth`. Enables OAuth authentication. |
 | `OAUTH_CLIENT_ID` | empty | OAuth client ID. |
 | `OAUTH_CLIENT_SECRET` | empty | OAuth client secret. |
 | `OAUTH_BASE_URL` | `http://localhost:8080` | Public base URL for this MCP server. |
@@ -292,7 +294,7 @@ You should see logs indicating that the server is running.
 
 > Security notes:
 > - The HTTP transport binds to `127.0.0.1` by default. Prefer the `stdio` transport for Claude Desktop; set `MCP_HOST=0.0.0.0` only when the server is protected by OAuth and TLS or an authenticated reverse proxy.
-> - The server refuses to start when HTTP is bound to a non-loopback host and `OAUTH_ENABLED` is not `true`.
+> - The server refuses to start when HTTP is bound to a non-loopback host without an auth provider (`AUTH_PROVIDER=oauth` or `static`, or the legacy `OAUTH_ENABLED=true`).
 > - `read-query` enforces a single read-only SQL statement before execution. This is a guardrail, not a replacement for Pinot authentication and authorization.
 > - Ensure you are using `mcp[cli]` version `>=1.10.0`, which includes DNS rebinding protections for the HTTP/SSE server.
 

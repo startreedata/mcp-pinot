@@ -57,6 +57,40 @@ class TestBuildAuth:
         providers = available_providers()
         assert "oauth" in providers
         assert "none" in providers
+        assert "static" in providers
+
+
+class TestStaticAuth:
+    """Test the static shared-secret (service-to-service) auth provider."""
+
+    def test_builds_static_token_verifier(self):
+        from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
+
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, {"MCP_STATIC_TOKEN": "s3cret"}, clear=True):
+                auth = build_auth(_cfg(auth_provider="static"))
+        assert isinstance(auth, StaticTokenVerifier)
+
+    def test_missing_token_raises(self):
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(ValueError, match="MCP_STATIC_TOKEN"):
+                    build_auth(_cfg(auth_provider="static"))
+
+    def test_blank_token_raises(self):
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, {"MCP_STATIC_TOKEN": "   "}, clear=True):
+                with pytest.raises(ValueError, match="MCP_STATIC_TOKEN"):
+                    build_auth(_cfg(auth_provider="static"))
+
+    def test_configured_token_authenticates(self):
+        """The configured secret is accepted; anything else is rejected."""
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, {"MCP_STATIC_TOKEN": "s3cret"}, clear=True):
+                auth = build_auth(_cfg(auth_provider="static"))
+        # StaticTokenVerifier stores accepted tokens keyed by the secret string.
+        assert "s3cret" in auth.tokens
+        assert "wrong" not in auth.tokens
 
 
 class TestAuthProviderResolution:

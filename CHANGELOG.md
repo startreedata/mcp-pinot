@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Built-in `static` auth provider for service-to-service callers: set
+  `AUTH_PROVIDER=static` and `MCP_STATIC_TOKEN=<shared secret>`; a trusted backend
+  presents it as `Authorization: Bearer <token>`. Satisfies the non-loopback-bind
+  auth requirement without a full OIDC flow. Missing/blank `MCP_STATIC_TOKEN`
+  fails startup rather than booting unauthenticated.
+
 ## [3.2.0] - 2026-06-16
 
 ### Breaking Changes

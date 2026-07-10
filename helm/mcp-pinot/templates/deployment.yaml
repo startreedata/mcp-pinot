@@ -88,23 +88,23 @@ spec:
             {{- end }}
             
             # Auth Configuration
+            {{- $authProvider := include "mcp-pinot.authProvider" . }}
             {{- if .Values.mcp.auth.provider }}
             - name: AUTH_PROVIDER
               value: {{ .Values.mcp.auth.provider | quote }}
             {{- end }}
-            {{- if eq .Values.mcp.auth.provider "static" }}
+            {{- if and (eq $authProvider "static") .Values.mcp.auth.staticToken }}
             - name: MCP_STATIC_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ include "mcp-pinot.fullname" . }}-secrets
                   key: static-token
-                  optional: true
             {{- end }}
 
             # OAuth Configuration
             - name: OAUTH_ENABLED
               value: {{ .Values.mcp.oauth.enabled | quote }}
-            {{- if .Values.mcp.oauth.enabled }}
+            {{- if eq $authProvider "oauth" }}
             - name: OAUTH_AUTHORIZATION_ENDPOINT
               value: {{ .Values.mcp.oauth.upstreamAuthorizationEndpoint | quote }}
             - name: OAUTH_TOKEN_ENDPOINT

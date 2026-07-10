@@ -103,13 +103,14 @@ mcp:
     keyFile: "/etc/ssl/tls.key"
     certFile: "/etc/ssl/tls.crt"
   auth:
-    # Auth provider for the MCP HTTP endpoint: "" (none), "oauth", or "static".
-    # Takes precedence over the legacy mcp.oauth.enabled flag.
-    # One of this or mcp.oauth.enabled is required when binding MCP HTTP to a
-    # non-loopback host.
+    # Auth provider for the MCP HTTP endpoint: "" (unset), "none", "oauth", or
+    # "static". Takes precedence over the legacy mcp.oauth.enabled flag.
+    # "" and "none" both mean unauthenticated and do not satisfy the
+    # non-loopback exposure gate.
     provider: ""
     # Shared bearer token for provider=static (service-to-service callers).
-    # Rendered into the chart Secret, mounted as MCP_STATIC_TOKEN.
+    # Rendered into the chart Secret, mounted as MCP_STATIC_TOKEN. Leave empty
+    # to supply MCP_STATIC_TOKEN yourself via env.additional.
     staticToken: ""
   oauth:
     # Legacy alias for mcp.auth.provider=oauth.

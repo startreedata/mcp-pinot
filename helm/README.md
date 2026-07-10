@@ -34,8 +34,7 @@ helm install mcp-pinot ./helm/mcp-pinot \
   --create-namespace \
   --set service.enabled=true \
   --set mcp.host=0.0.0.0 \
-  --set mcp.auth.provider=oauth \
-  --set mcp.oauth.enabled=true
+  --set mcp.auth.provider=oauth
 
 # Headless service-to-service callers: static shared token
 helm install mcp-pinot ./helm/mcp-pinot \
@@ -50,14 +49,18 @@ helm install mcp-pinot ./helm/mcp-pinot \
 `mcp.auth.provider` renders `AUTH_PROVIDER`; `mcp.auth.staticToken` is stored in
 the chart's Secret and mounted as `MCP_STATIC_TOKEN`. The legacy
 `mcp.oauth.enabled=true` still works on its own and is equivalent to
-`mcp.auth.provider=oauth`; when both are set, `mcp.auth.provider` wins.
+`mcp.auth.provider=oauth`; when both are set, `mcp.auth.provider` wins. Either
+one renders the full `OAUTH_*` env block and the `oauth-client-secret` Secret
+key. `provider=none` (like leaving it unset) means unauthenticated and does not
+satisfy the non-loopback exposure gate.
 
 For `provider=oauth`, set the OAuth endpoint, issuer, audience, client ID, and
 client secret values for your identity provider before exposing the Service.
 For `provider=static`, callers pass the token as `Authorization: Bearer <token>`;
 the server refuses to start if the token is empty. To source the token from an
 existing Secret instead, leave `mcp.auth.staticToken` empty and supply
-`MCP_STATIC_TOKEN` through `env.additional`.
+`MCP_STATIC_TOKEN` through `env.additional` — the chart then renders no
+`MCP_STATIC_TOKEN` of its own, so the env var is not declared twice.
 
 ## Traefik Integration
 

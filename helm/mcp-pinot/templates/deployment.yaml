@@ -87,6 +87,20 @@ spec:
               value: {{ .Values.pinot.auth.tokenFilename | quote }}
             {{- end }}
             
+            # Auth Configuration
+            {{- if .Values.mcp.auth.provider }}
+            - name: AUTH_PROVIDER
+              value: {{ .Values.mcp.auth.provider | quote }}
+            {{- end }}
+            {{- if eq .Values.mcp.auth.provider "static" }}
+            - name: MCP_STATIC_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mcp-pinot.fullname" . }}-secrets
+                  key: static-token
+                  optional: true
+            {{- end }}
+
             # OAuth Configuration
             - name: OAUTH_ENABLED
               value: {{ .Values.mcp.oauth.enabled | quote }}

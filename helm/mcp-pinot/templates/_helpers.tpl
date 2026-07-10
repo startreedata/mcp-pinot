@@ -77,11 +77,12 @@ Validate MCP HTTP exposure settings.
 {{- if and $traefikEnabled (not $serviceEnabled) -}}
 {{- fail "traefik.enabled=true requires service.enabled=true" -}}
 {{- end -}}
+{{- $authEnabled := or .Values.mcp.auth.provider .Values.mcp.oauth.enabled -}}
 {{- if and (or $serviceEnabled $traefikEnabled $healthCheckEnabled) $isLoopback -}}
-{{- fail "service, Traefik, and HTTP health checks require mcp.host to be non-loopback; set mcp.host=0.0.0.0 and mcp.oauth.enabled=true" -}}
+{{- fail "service, Traefik, and HTTP health checks require mcp.host to be non-loopback; set mcp.host=0.0.0.0 and an auth provider (mcp.auth.provider=oauth|static, or mcp.oauth.enabled=true)" -}}
 {{- end -}}
-{{- if and (not $isLoopback) (not .Values.mcp.oauth.enabled) -}}
-{{- fail "mcp.host is non-loopback, so mcp.oauth.enabled must be true" -}}
+{{- if and (not $isLoopback) (not $authEnabled) -}}
+{{- fail "mcp.host is non-loopback, so an auth provider is required; set mcp.auth.provider=oauth|static (or the legacy mcp.oauth.enabled=true)" -}}
 {{- end -}}
 {{- end }}
 

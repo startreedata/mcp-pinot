@@ -2,19 +2,19 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.startreedata/mcp-pinot",
   "title": "Apache Pinot MCP Server",
-  "description": "Explore and query Apache Pinot clusters through MCP.",
+  "description": "Explore and query Apache Pinot clusters through MCP: read-only SQL plus schema, segment, and table-config inspection, with catalog resources and prompts.",
   "repository": {
     "url": "https://github.com/startreedata/mcp-pinot",
     "source": "github"
   },
   "websiteUrl": "https://startreedata.github.io/mcp-pinot/",
-  "version": "0.1.0",
+  "version": "3.2.0",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "mcp-pinot-server",
-      "version": "0.1.0",
+      "version": "3.2.0",
       "transport": {
         "type": "stdio"
       },
@@ -53,8 +53,28 @@
           "description": "Whether to enable Pinot multi-stage query engine support.",
           "format": "boolean",
           "default": "true"
+        },
+        {
+          "name": "MCP_TRANSPORT",
+          "description": "Transport mode: 'stdio' (default, for desktop clients) or 'http'.",
+          "format": "string",
+          "default": "stdio"
+        },
+        {
+          "name": "AUTH_PROVIDER",
+          "description": "Inbound auth provider for HTTP transport (e.g. 'oauth'); required to bind a non-loopback host.",
+          "format": "string"
         }
       ]
+    },
+    {
+      "registryType": "oci",
+      "registryBaseUrl": "https://ghcr.io",
+      "identifier": "ghcr.io/startreedata/mcp-pinot",
+      "version": "3.2.0",
+      "transport": {
+        "type": "stdio"
+      }
     }
   ]
 }

@@ -302,7 +302,14 @@ def table_details(
         ),
     ],
 ) -> TableSizeDetails:
-    """Get storage size details (reported and estimated bytes) for a table."""
+    """Get a table's storage footprint: reported vs. estimated size in bytes.
+
+    Use this for capacity/size questions about a whole table. It does NOT list
+    segments (use ``segment_list``) or return row counts/time boundaries (use
+    ``segment_metadata_details``). ``reportedSizeInBytes`` is what the servers
+    currently hosting the segments report; ``estimatedSizeInBytes`` assumes every
+    replica is present.
+    """
     raw = _call(
         "table_details", _HINT_READ, pinot_client.get_table_detail, tableName=tableName
     )
@@ -320,14 +327,53 @@ def table_details(
 def segment_list(
     tableName: Annotated[
         str,
-        Field(description="Pinot table name (case-sensitive).", min_length=1),
+        Field(
+            description="Pinot table name (case-sensitive), without the "
+            "_OFFLINE/_REALTIME suffix.",
+            min_length=1,
+        ),
     ],
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum segment names to return in this page.", ge=1, le=10000
+        ),
+    ] = 100,
+    offset: Annotated[
+        int,
+        Field(description="Zero-based offset for pagination.", ge=0),
+    ] = 0,
 ) -> SegmentList:
-    """List the segments for a table, grouped by table type (OFFLINE/REALTIME)."""
+    """List a table's segment names, grouped by table type (OFFLINE/REALTIME).
+
+    Use this to discover segment names — e.g. to get a ``segmentName`` for
+    ``index_column_details``, or to see how a table is partitioned. For per-segment
+    row counts / sizes / time boundaries call ``segment_metadata_details`` instead;
+    for the table's total storage size call ``table_details``.
+
+    Segment names are paginated (a busy table can have thousands) — use
+    ``limit``/``offset`` and the ``has_more`` flag to page through them.
+    """
     raw = _call(
         "segment_list", _HINT_READ, pinot_client.get_segments, tableName=tableName
     )
-    return SegmentList.model_validate(raw)
+    full = SegmentList.model_validate(raw)
+    flat = [("OFFLINE", s) for s in (full.OFFLINE or [])]
+    flat += [("REALTIME", s) for s in (full.REALTIME or [])]
+    total = len(flat)
+    page = flat[offset : offset + limit]
+    page_offline = [s for kind, s in page if kind == "OFFLINE"]
+    page_realtime = [s for kind, s in page if kind == "REALTIME"]
+    return full.model_copy(
+        update={
+            "OFFLINE": page_offline if full.OFFLINE is not None else None,
+            "REALTIME": page_realtime if full.REALTIME is not None else None,
+            "total_segments": total,
+            "returned_segments": len(page),
+            "offset": offset,
+            "has_more": offset + len(page) < total,
+        }
+    )
 
 
 @mcp.tool(
@@ -348,7 +394,13 @@ def index_column_details(
         Field(description="Segment name, as returned by segment_list.", min_length=1),
     ],
 ) -> SegmentIndexDetails:
-    """Get per-column index metadata for a specific segment."""
+    """Get per-column index metadata for ONE segment (which indexes each column has).
+
+    Use this to inspect how a specific segment is indexed (inverted, sorted, range,
+    etc.). Requires a ``segmentName`` from ``segment_list``. For a segment's row
+    count/size/time boundaries use ``segment_metadata_details``; for the table's
+    declared index *configuration* (not per-segment state) use ``get_table_config``.
+    """
     raw = _call(
         "index_column_details",
         _HINT_READ,
@@ -397,7 +449,13 @@ def tableconfig_schema_details(
         Field(description="Pinot table name (case-sensitive).", min_length=1),
     ],
 ) -> TableConfigSchema:
-    """Get the combined table configuration and schema for a table."""
+    """Get a table's configuration AND schema together, in one call.
+
+    A convenience that combines ``get_table_config`` (table settings: indexing,
+    retention, tenants) and ``get_schema`` (column definitions). Use it when you need
+    both at once; call the individual tools when you only need one. Returns the raw
+    Pinot ``/tableConfigs`` payload.
+    """
     raw = _call(
         "tableconfig_schema_details",
         _HINT_READ,

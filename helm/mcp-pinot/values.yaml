@@ -44,7 +44,8 @@ securityContext:
 service:
   # Disabled by default because the default MCP bind host is loopback-only.
   # To expose the pod through a Service, set service.enabled=true,
-  # mcp.host=0.0.0.0, and mcp.oauth.enabled=true.
+  # mcp.host=0.0.0.0, and an auth provider (mcp.auth.provider=oauth|static,
+  # or the legacy mcp.oauth.enabled=true).
   enabled: false
   type: ClusterIP
   port: 80
@@ -92,8 +93,8 @@ replicas: 1
 # MCP Server Configuration
 mcp:
   transport: "http"
-  # Set to "0.0.0.0" only with OAuth enabled; otherwise the server refuses
-  # network-reachable HTTP binds.
+  # Set to "0.0.0.0" only with an auth provider configured; otherwise the
+  # server refuses network-reachable HTTP binds.
   host: "127.0.0.1"
   port: 8000
   path: "/mcp"
@@ -101,8 +102,18 @@ mcp:
     enabled: false
     keyFile: "/etc/ssl/tls.key"
     certFile: "/etc/ssl/tls.crt"
+  auth:
+    # Auth provider for the MCP HTTP endpoint: "" (unset), "none", "oauth", or
+    # "static". Takes precedence over the legacy mcp.oauth.enabled flag.
+    # "" and "none" both mean unauthenticated and do not satisfy the
+    # non-loopback exposure gate.
+    provider: ""
+    # Shared bearer token for provider=static (service-to-service callers).
+    # Rendered into the chart Secret, mounted as MCP_STATIC_TOKEN. Leave empty
+    # to supply MCP_STATIC_TOKEN yourself via env.additional.
+    staticToken: ""
   oauth:
-    # Required when binding MCP HTTP to a non-loopback host.
+    # Legacy alias for mcp.auth.provider=oauth.
     enabled: false
     clientId: ""
     clientSecret: ""

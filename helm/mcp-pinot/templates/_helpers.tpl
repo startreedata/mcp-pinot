@@ -62,6 +62,22 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+Resolve the effective auth provider, mirroring config.py::_resolve_auth_provider:
+mcp.auth.provider wins, else the legacy mcp.oauth.enabled maps to "oauth".
+Returns "none" when no provider is selected.
+*/}}
+{{- define "mcp-pinot.authProvider" -}}
+{{- $provider := lower (trim (toString (.Values.mcp.auth.provider | default ""))) -}}
+{{- if $provider -}}
+{{- $provider -}}
+{{- else if .Values.mcp.oauth.enabled -}}
+oauth
+{{- else -}}
+none
+{{- end -}}
+{{- end }}
+
+{{/*
 Validate MCP HTTP exposure settings.
 */}}
 {{- define "mcp-pinot.isLoopbackHost" -}}
@@ -77,11 +93,12 @@ Validate MCP HTTP exposure settings.
 {{- if and $traefikEnabled (not $serviceEnabled) -}}
 {{- fail "traefik.enabled=true requires service.enabled=true" -}}
 {{- end -}}
+{{- $authEnabled := ne (include "mcp-pinot.authProvider" .) "none" -}}
 {{- if and (or $serviceEnabled $traefikEnabled $healthCheckEnabled) $isLoopback -}}
-{{- fail "service, Traefik, and HTTP health checks require mcp.host to be non-loopback; set mcp.host=0.0.0.0 and mcp.oauth.enabled=true" -}}
+{{- fail "service, Traefik, and HTTP health checks require mcp.host to be non-loopback; set mcp.host=0.0.0.0 and an auth provider (mcp.auth.provider=oauth|static, or mcp.oauth.enabled=true)" -}}
 {{- end -}}
-{{- if and (not $isLoopback) (not .Values.mcp.oauth.enabled) -}}
-{{- fail "mcp.host is non-loopback, so mcp.oauth.enabled must be true" -}}
+{{- if and (not $isLoopback) (not $authEnabled) -}}
+{{- fail "mcp.host is non-loopback, so an auth provider is required; set mcp.auth.provider=oauth|static (or the legacy mcp.oauth.enabled=true)" -}}
 {{- end -}}
 {{- end }}
 

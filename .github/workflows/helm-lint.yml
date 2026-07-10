@@ -28,3 +28,6 @@ jobs:
     - name: Lint Helm Chart
       run: |
         helm lint ./helm/mcp-pinot
+
+    - name: Template smoke checks
+      run: bash ./helm/smoke-test.sh

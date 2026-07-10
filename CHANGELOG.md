@@ -13,12 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   presents it as `Authorization: Bearer <token>`. Satisfies the non-loopback-bind
   auth requirement without a full OIDC flow. Missing/blank `MCP_STATIC_TOKEN`
   fails startup rather than booting unauthenticated.
-- Configurable streamable-HTTP Host/Origin (DNS-rebinding) protection via
-  `MCP_HOST_ORIGIN_PROTECTION`, `MCP_ALLOWED_HOSTS`, and `MCP_ALLOWED_ORIGINS`.
-  FastMCP 3.4 enables this protection by default with a localhost-only allow-list,
-  so a server reached through an ingress/Service under its real hostname returned
-  `421 Misdirected Request`; these settings let operators allow-list the hostname
-  or disable protection for a bearer-authenticated, TLS-fronted deployment.
 
 ## [3.2.0] - 2026-06-16
 

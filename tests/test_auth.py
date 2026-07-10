@@ -83,14 +83,44 @@ class TestStaticAuth:
                 with pytest.raises(ValueError, match="MCP_STATIC_TOKEN"):
                     build_auth(_cfg(auth_provider="static"))
 
-    def test_configured_token_authenticates(self):
-        """The configured secret is accepted; anything else is rejected."""
+    @pytest.mark.asyncio
+    async def test_static_token_gates_the_http_endpoint(self):
+        """End-to-end: only the configured bearer token reaches the MCP endpoint."""
+        from fastmcp import FastMCP
+        import httpx
+
         with patch("mcp_pinot.config.load_dotenv"):
             with patch.dict(os.environ, {"MCP_STATIC_TOKEN": "s3cret"}, clear=True):
                 auth = build_auth(_cfg(auth_provider="static"))
-        # StaticTokenVerifier stores accepted tokens keyed by the secret string.
-        assert "s3cret" in auth.tokens
-        assert "wrong" not in auth.tokens
+
+        app = FastMCP("test", auth=auth).http_app(path="/mcp")
+        initialize = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"},
+            },
+        }
+        headers = {"Accept": "application/json, text/event-stream"}
+
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://127.0.0.1:8080"
+            ) as client:
+
+                async def post(**extra):
+                    response = await client.post(
+                        "/mcp", json=initialize, headers={**headers, **extra}
+                    )
+                    return response.status_code
+
+                assert await post() == 401
+                assert await post(Authorization="Bearer wrong") == 401
+                assert await post(Authorization="Bearer s3cret") == 200
 
 
 class TestAuthProviderResolution:

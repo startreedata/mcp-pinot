@@ -6,7 +6,6 @@ FastMCP-based implementation for the Apache Pinot MCP Server.
 """
 
 from collections.abc import Callable
-import inspect
 from ipaddress import ip_address
 import json
 from typing import Annotated, Any, Literal
@@ -92,30 +91,6 @@ def _enforce_http_auth_safety(http_enabled: bool) -> None:
             "provider (set AUTH_PROVIDER or OAUTH_ENABLED=true) or bind "
             "local-only with MCP_HOST=127.0.0.1."
         )
-
-
-def _host_origin_kwargs(cfg) -> dict[str, object]:
-    """Streamable-HTTP DNS-rebinding (Host/Origin) protection settings.
-
-    FastMCP defaults protection on with a localhost-only allow-list, which 421s
-    requests arriving under an ingress/Service hostname. These come from config
-    (MCP_HOST_ORIGIN_PROTECTION / MCP_ALLOWED_HOSTS / MCP_ALLOWED_ORIGINS).
-    """
-    return {
-        "host_origin_protection": cfg.host_origin_protection,
-        "allowed_hosts": cfg.allowed_hosts,
-        "allowed_origins": cfg.allowed_origins,
-    }
-
-
-def _supported_kwargs(fn: Callable, kwargs: dict[str, object]) -> dict[str, object]:
-    """Keep only kwargs the callable actually accepts.
-
-    The Host/Origin params landed in FastMCP 3.4; filtering keeps this working on
-    older FastMCP (where protection isn't enforced anyway) without a hard pin.
-    """
-    accepted = inspect.signature(fn).parameters
-    return {k: v for k, v in kwargs.items() if k in accepted}
 
 
 def _fail(action: str, exc: Exception, hint: str = "") -> ToolError:
@@ -762,10 +737,7 @@ def main():
     _enforce_http_auth_safety(http_enabled)
 
     if tls_enabled:
-        app = mcp.http_app(
-            path=server_config.path,
-            **_supported_kwargs(mcp.http_app, _host_origin_kwargs(server_config)),
-        )
+        app = mcp.http_app(path=server_config.path)
         uvicorn.run(
             app,
             host=server_config.host,
@@ -783,7 +755,6 @@ def main():
             host=server_config.host,
             port=server_config.port,
             path=server_config.path,
-            **_supported_kwargs(mcp.run, _host_origin_kwargs(server_config)),
         )
 
 

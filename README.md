@@ -125,23 +125,20 @@ configuration.
 | Variable | Default | Description |
 |---|---|---|
 | `MCP_TRANSPORT` | `http` | Transport mode. Use `stdio` for Claude Desktop and `http` for HTTP/SSE clients. |
-| `MCP_HOST` | `127.0.0.1` | HTTP bind host. Set `0.0.0.0` only with OAuth enabled. |
+| `MCP_HOST` | `127.0.0.1` | HTTP bind host. Set `0.0.0.0` only with an auth provider enabled. |
 | `MCP_PORT` | `8080` | HTTP listen port. |
 | `MCP_PATH` | `/mcp` | MCP HTTP path. |
 | `MCP_SSL_KEYFILE` | unset | TLS private key path. Requires `MCP_SSL_CERTFILE`. |
 | `MCP_SSL_CERTFILE` | unset | TLS certificate path. Requires `MCP_SSL_KEYFILE`. |
 
-### OAuth
+### Authentication
 
-OAuth is required before binding HTTP or HTTPS to a non-loopback host.
+An auth provider is required before binding HTTP or HTTPS to a non-loopback host.
 
 | Variable | Default | Description |
 |---|---|---|
 | `AUTH_PROVIDER` | unset | Active auth provider: `none` (default), `oauth`, or `static`. Some provider is required before a non-loopback bind. |
 | `MCP_STATIC_TOKEN` | empty | Shared bearer secret for `AUTH_PROVIDER=static` — a service-to-service caller sends it as `Authorization: Bearer <token>`. Required when the static provider is active. |
-| `MCP_HOST_ORIGIN_PROTECTION` | `true` | Streamable-HTTP DNS-rebinding protection. On by default with a localhost-only allow-list; set `false` for a bearer-authenticated endpoint behind TLS/an authenticated proxy, or add hosts below. |
-| `MCP_ALLOWED_HOSTS` | empty | Comma/space-separated `Host` values accepted when protection is on (e.g. the ingress hostname). Without this, non-localhost hosts get `421 Misdirected Request`. |
-| `MCP_ALLOWED_ORIGINS` | empty | Comma/space-separated `Origin` values accepted when protection is on. |
 | `OAUTH_ENABLED` | `false` | Legacy flag; `true` is equivalent to `AUTH_PROVIDER=oauth`. Enables OAuth authentication. |
 | `OAUTH_CLIENT_ID` | empty | OAuth client ID. |
 | `OAUTH_CLIENT_SECRET` | empty | OAuth client secret. |

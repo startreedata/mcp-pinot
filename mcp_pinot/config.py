@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -65,15 +65,6 @@ class ServerConfig:
     path: str = "/mcp"
     # Name of the active auth provider (see mcp_pinot.auth). None disables auth.
     auth_provider: str | None = None
-    # DNS-rebinding (Host/Origin) protection for the streamable-HTTP transport.
-    # FastMCP enables this by default with an allow-list that only accepts
-    # localhost, so a server reached through an ingress or Service under its real
-    # hostname returns 421 until that host is allow-listed here (or protection is
-    # disabled). A bearer-authenticated, TLS-fronted deployment may set
-    # MCP_HOST_ORIGIN_PROTECTION=false, since the token is the real gate.
-    host_origin_protection: bool = True
-    allowed_hosts: list[str] = field(default_factory=list)
-    allowed_origins: list[str] = field(default_factory=list)
 
 
 # Default OAuth scopes advertised in the server's discovery metadata
@@ -347,13 +338,6 @@ def _resolve_auth_provider() -> str | None:
     return None
 
 
-def _parse_csv_list(raw: str | None) -> list[str]:
-    """Parse a comma/space-separated env value into a list of trimmed entries."""
-    if not raw or not raw.strip():
-        return []
-    return [item.strip() for item in raw.replace(",", " ").split() if item.strip()]
-
-
 def load_server_config() -> ServerConfig:
     """Load and return MCP server configuration from environment variables"""
     load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
@@ -367,10 +351,6 @@ def load_server_config() -> ServerConfig:
         oauth_enabled=os.getenv("OAUTH_ENABLED", "false").lower() == "true",
         path=os.getenv("MCP_PATH", "/mcp"),
         auth_provider=_resolve_auth_provider(),
-        host_origin_protection=os.getenv("MCP_HOST_ORIGIN_PROTECTION", "true").lower()
-        == "true",
-        allowed_hosts=_parse_csv_list(os.getenv("MCP_ALLOWED_HOSTS")),
-        allowed_origins=_parse_csv_list(os.getenv("MCP_ALLOWED_ORIGINS")),
     )
 
 

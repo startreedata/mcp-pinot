@@ -255,31 +255,6 @@ class TestLoadServerConfig:
                 assert config.ssl_keyfile is None
                 assert config.ssl_certfile is None
                 assert config.oauth_enabled is False
-                # Host/Origin protection defaults on, empty allow-lists.
-                assert config.host_origin_protection is True
-                assert config.allowed_hosts == []
-                assert config.allowed_origins == []
-
-    def test_host_origin_protection_can_be_disabled(self):
-        with patch("mcp_pinot.config.load_dotenv"):
-            with patch.dict(
-                os.environ, {"MCP_HOST_ORIGIN_PROTECTION": "false"}, clear=True
-            ):
-                assert load_server_config().host_origin_protection is False
-
-    def test_allowed_hosts_and_origins_parsed(self):
-        env = {
-            "MCP_ALLOWED_HOSTS": "mcp.example.com, mcp2.example.com",
-            "MCP_ALLOWED_ORIGINS": "https://a.example.com https://b.example.com",
-        }
-        with patch("mcp_pinot.config.load_dotenv"):
-            with patch.dict(os.environ, env, clear=True):
-                cfg = load_server_config()
-        assert cfg.allowed_hosts == ["mcp.example.com", "mcp2.example.com"]
-        assert cfg.allowed_origins == [
-            "https://a.example.com",
-            "https://b.example.com",
-        ]
 
     def test_load_server_config_from_env(self):
         """Test loading server config from environment variables"""

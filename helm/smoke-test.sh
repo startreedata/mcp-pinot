@@ -44,6 +44,14 @@ out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
 grep -q 'name: OAUTH_ISSUER' <<<"$out" || fail "OAUTH_* block missing for legacy flag"
 grep -q 'name: AUTH_PROVIDER' <<<"$out" && fail "legacy flag rendered AUTH_PROVIDER"
 
+# AUTH_PROVIDER renders normalized (trim + lowercase), matching the server's
+# _resolve_auth_provider; a whitespace-only value renders no env var at all.
+out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+  --set mcp.auth.provider=" OAuth ")
+grep -q 'value: "oauth"' <<<"$out" || fail "AUTH_PROVIDER not normalized"
+out=$(render --set mcp.auth.provider="   ")
+grep -q 'name: AUTH_PROVIDER' <<<"$out" && fail "whitespace-only provider rendered AUTH_PROVIDER"
+
 # Non-loopback with no auth provider (or an explicit "none") must fail to render.
 if render --set service.enabled=true --set mcp.host=0.0.0.0 >/dev/null 2>&1; then
   fail "non-loopback bind allowed without an auth provider"

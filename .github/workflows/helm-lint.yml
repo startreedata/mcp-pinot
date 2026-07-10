@@ -30,4 +30,4 @@ jobs:
         helm lint ./helm/mcp-pinot
 
     - name: Template smoke checks
-      run: ./helm/smoke-test.sh
+      run: bash ./helm/smoke-test.sh

@@ -89,9 +89,9 @@ spec:
             
             # Auth Configuration
             {{- $authProvider := include "mcp-pinot.authProvider" . }}
-            {{- if .Values.mcp.auth.provider }}
+            {{- if trim (toString (.Values.mcp.auth.provider | default "")) }}
             - name: AUTH_PROVIDER
-              value: {{ .Values.mcp.auth.provider | quote }}
+              value: {{ $authProvider | quote }}
             {{- end }}
             {{- if and (eq $authProvider "static") .Values.mcp.auth.staticToken }}
             - name: MCP_STATIC_TOKEN

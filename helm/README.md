@@ -43,7 +43,7 @@ helm install mcp-pinot ./helm/mcp-pinot \
   --set service.enabled=true \
   --set mcp.host=0.0.0.0 \
   --set mcp.auth.provider=static \
-  --set mcp.auth.staticToken=<shared-secret>
+  --set mcp.auth.staticToken='REPLACE_ME_SHARED_SECRET'
 ```
 
 `mcp.auth.provider` renders `AUTH_PROVIDER`; `mcp.auth.staticToken` is stored in

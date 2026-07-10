@@ -380,6 +380,23 @@ def _parse_optional_scopes(raw: str | None) -> list[str] | None:
     return [scope for scope in scopes if scope] or None
 
 
+def load_static_token() -> str:
+    """Return the shared bearer secret for the ``static`` auth provider.
+
+    Raises ``ValueError`` when ``MCP_STATIC_TOKEN`` is unset/empty so a
+    misconfigured ``AUTH_PROVIDER=static`` deployment fails at startup rather
+    than accepting requests it cannot authenticate.
+    """
+    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
+    token = os.getenv("MCP_STATIC_TOKEN", "").strip()
+    if not token:
+        raise ValueError(
+            "AUTH_PROVIDER=static requires MCP_STATIC_TOKEN to be set to a "
+            "non-empty shared secret."
+        )
+    return token
+
+
 def load_oauth_config() -> OAuthConfig:
     """Load and return OAuth configuration from environment variables"""
     load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)

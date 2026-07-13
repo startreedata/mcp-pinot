@@ -78,6 +78,33 @@ none
 {{- end }}
 
 {{/*
+Resolve the static shared bearer token for provider=static.
+
+Precedence: an explicit mcp.auth.staticToken wins. Otherwise the token is
+auto-generated ONCE per env and persisted in this chart's Secret: on upgrades
+`lookup` finds the existing Secret and reuses its `static-token` key, so the
+value is stable across releases; only the very first install mints a fresh
+randAlphaNum. This makes provider=static zero-touch — no operator ever has to
+pick or paste a token. (During `helm template`/dry-run `lookup` returns empty,
+so a throwaway token is rendered; that output is never applied.)
+*/}}
+{{- define "mcp-pinot.staticToken" -}}
+{{- if .Values.mcp.auth.staticToken -}}
+{{- .Values.mcp.auth.staticToken -}}
+{{- else -}}
+{{- $secretName := printf "%s-secrets" (include "mcp-pinot.fullname" .) -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName -}}
+{{- $prior := "" -}}
+{{- if $existing -}}{{- $prior = index (default dict $existing.data) "static-token" -}}{{- end -}}
+{{- if $prior -}}
+{{- $prior | b64dec -}}
+{{- else -}}
+{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Validate MCP HTTP exposure settings.
 */}}
 {{- define "mcp-pinot.isLoopbackHost" -}}

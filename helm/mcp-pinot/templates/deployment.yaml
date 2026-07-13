@@ -93,7 +93,7 @@ spec:
             - name: AUTH_PROVIDER
               value: {{ $authProvider | quote }}
             {{- end }}
-            {{- if and (eq $authProvider "static") .Values.mcp.auth.staticToken }}
+            {{- if eq $authProvider "static" }}
             - name: MCP_STATIC_TOKEN
               valueFrom:
                 secretKeyRef:

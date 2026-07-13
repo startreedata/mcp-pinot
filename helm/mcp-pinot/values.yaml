@@ -109,8 +109,11 @@ mcp:
     # non-loopback exposure gate.
     provider: ""
     # Shared bearer token for provider=static (service-to-service callers).
-    # Rendered into the chart Secret, mounted as MCP_STATIC_TOKEN. Leave empty
-    # to supply MCP_STATIC_TOKEN yourself via env.additional.
+    # Rendered into the chart Secret and mounted as MCP_STATIC_TOKEN.
+    # Leave EMPTY to auto-generate: with provider=static the chart mints a random
+    # token once on first install and persists it in the Secret (reused on every
+    # upgrade via lookup), so no operator ever picks or pastes one. Set explicitly
+    # only to pin a known value or share one supplied out-of-band.
     staticToken: ""
   oauth:
     # Legacy alias for mcp.auth.provider=oauth.

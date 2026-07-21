@@ -1,4 +1,7 @@
 {{- include "mcp-pinot.validateExposure" . }}
+{{- if ne (int .Values.replicas) 1 }}
+{{- fail "replicas must be 1: confirmation replay protection and rate limits are process-local" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -104,6 +107,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "mcp-pinot.fullname" . }}-secrets
                   key: static-token
+            {{- end }}
+            {{- if eq $authProvider "static" }}
+            - name: MCP_STATIC_SCOPES
+              value: {{ join " " .Values.mcp.auth.staticScopes | quote }}
             {{- end }}
 
             # OAuth Configuration

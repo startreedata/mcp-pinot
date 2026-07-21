@@ -18,6 +18,8 @@ from .config import PinotConfig, get_logger, reload_table_filters_from_file
 
 logger = get_logger()
 
+MAX_QUERY_ROWS = 10_501
+
 
 def get_auth_credentials(config: PinotConfig) -> tuple[str | None, str | None]:
     """Extract authentication credentials for PinotDB connection"""
@@ -65,7 +67,7 @@ def validate_pinot_path_component(value: str, component_name: str) -> str:
         raise ValueError(f"{component_name} must be a non-empty string.")
 
     candidate = value
-    for _ in range(5):
+    for decoding_round in range(6):
         if candidate in {".", ".."}:
             raise ValueError(f"{component_name} must not be a traversal segment.")
         if any(char in _FORBIDDEN_PATH_COMPONENT_CHARS for char in candidate):
@@ -74,10 +76,14 @@ def validate_pinot_path_component(value: str, component_name: str) -> str:
             raise ValueError(f"{component_name} contains a control character.")
         decoded = unquote(candidate)
         if decoded == candidate:
-            break
+            return value
+        if decoding_round == 5:
+            raise ValueError(
+                f"{component_name} contains excessive percent-encoding layers."
+            )
         candidate = decoded
 
-    return value
+    raise AssertionError("unreachable percent-decoding state")
 
 
 def encode_pinot_path_component(value: str, component_name: str) -> str:
@@ -419,7 +425,13 @@ class PinotClient:
         self._included_tables = config.included_tables
         self._config_lock = Lock()  # For thread-safe filter updates
 
-    def reload_table_filters(self, dry_run: bool = False) -> dict[str, Any]:
+    def reload_table_filters(
+        self,
+        dry_run: bool = True,
+        *,
+        expected_filters: list[str] | None = None,
+        require_expected: bool = False,
+    ) -> dict[str, Any]:
         """Preview or reload filters from the configured file without restarting.
 
         This allows dynamic updates to the table access list by:
@@ -428,6 +440,10 @@ class PinotClient:
 
         Args:
             dry_run: Validate and report the candidate filters without applying them.
+                Defaults to ``True`` so direct/library callers are preview-first too.
+            expected_filters: Exact candidate approved by the preceding preview.
+            require_expected: Reject the apply if the file no longer produces the
+                expected candidate, preventing preview/apply time-of-check races.
 
         Returns:
             dict: Preview/application status with previous and new filters and counts.
@@ -448,6 +464,11 @@ class PinotClient:
 
         # Load new filters (validates file exists and parses YAML)
         new_filters = reload_table_filters_from_file(self.config.table_filter_file)
+        if require_expected and new_filters != expected_filters:
+            raise ValueError(
+                "Table filter file changed after preview; preview the current file "
+                "again and confirm the new candidate."
+            )
 
         # Snapshot and, unless this is a preview, atomically update the filters.
         with self._config_lock:
@@ -639,7 +660,15 @@ class PinotClient:
 
         # Check for query errors in response
         if result_data.get("exceptions"):
-            raise Exception(f"Query error: {result_data['exceptions']}")
+            logger.info(
+                "Pinot rejected query syntax or semantics (query_id=%s, errors=%d)",
+                query_id,
+                len(result_data["exceptions"]),
+            )
+            raise ValueError(
+                "Pinot rejected the SQL query. Check table and column names, "
+                "function arguments, and query syntax."
+            )
 
         # Parse the result into pandas-like format
         if "resultTable" in result_data:
@@ -661,8 +690,8 @@ class PinotClient:
         max_rows: int = 501,
     ) -> list[dict[str, Any]]:
         query = self.validate_read_query(query)
-        if max_rows < 1 or max_rows > 10_501:
-            raise ValueError("max_rows must be between 1 and 10501")
+        if max_rows < 1 or max_rows > MAX_QUERY_ROWS:
+            raise ValueError(f"max_rows must be between 1 and {MAX_QUERY_ROWS}")
         query = self._bound_read_query(query, max_rows)
         query_id = hashlib.sha256(query.encode()).hexdigest()[:16]
         logger.debug(
@@ -675,6 +704,16 @@ class PinotClient:
         # Use HTTP as primary method since it works reliably with authenticated clusters
         try:
             return self.execute_query_http(query)
+        except requests.exceptions.ReadTimeout as e:
+            # A read timeout can occur after Pinot accepted and executed the query.
+            # Do not immediately duplicate that work through a second transport.
+            logger.warning(
+                "HTTP query timed out after submission (query_id=%s); not retrying "
+                "through PinotDB: %s",
+                query_id,
+                type(e).__name__,
+            )
+            raise
         except requests.exceptions.ConnectionError as e:
             logger.warning(
                 "HTTP connection failed before a response (query_id=%s); trying "

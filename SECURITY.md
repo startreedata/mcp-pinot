@@ -33,14 +33,21 @@ an authenticated reverse proxy as well; transport encryption does not replace
 the server's inbound authentication requirement.
 
 For Helm deployments, exposing the server through a Kubernetes Service or
-Traefik requires an explicit non-loopback bind host and OAuth-enabled
-configuration.
+Traefik requires an explicit non-loopback bind host and an OAuth or static-token
+provider. OAuth deployments must validate the canonical MCP resource URI as the
+token audience. Static deployments can restrict the principal with
+`MCP_STATIC_SCOPES`.
 
 ### Tool invocation and query safety
 
 The `read_query` tool accepts one read-only `SELECT` or `WITH ... SELECT`
 statement. It rejects stacked statements and write, DDL, or administrative SQL
 keywords before sending SQL to Pinot.
+
+Every mutating tool defaults to preview and requires a short-lived token bound to
+the exact operation and payload. Tokens use canonical base64url, a signed nonce,
+and process-local single-use tracking. They intentionally become invalid after a
+restart or when routed to another process.
 
 This validation is a defense-in-depth guardrail. It is not a replacement for
 Pinot authentication, Pinot authorization, network controls, or least-privilege
@@ -61,11 +68,19 @@ organization's secret manager.
 Review `.env.example` and the Helm chart values before exposing the MCP HTTP
 endpoint outside a local development environment.
 
+Run one MCP server process/Helm replica. Confirmation replay state and rate-limit
+buckets are process-local; the chart rejects other replica counts until a shared
+state-store implementation is available.
+
 ## Security checklist before exposing HTTP
 
 - Set `MCP_HOST=0.0.0.0` only when remote clients need network access.
 - Set `AUTH_PROVIDER=oauth` (or `static` with `MCP_STATIC_TOKEN`) before binding
   to a non-loopback host.
+- For OAuth, set `OAUTH_AUDIENCE` to the canonical MCP resource URI. For static
+  auth, remove write/admin from `MCP_STATIC_SCOPES` when they are unnecessary.
+- Run exactly one process/replica and keep the chart's non-overlapping rollout
+  strategy.
 - Use TLS directly or terminate TLS at an authenticated reverse proxy.
 - Configure Pinot-side authentication and authorization.
 - Use least-privilege credentials for the MCP server's Pinot connection.

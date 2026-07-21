@@ -18,6 +18,8 @@ from mcp_pinot.config import (
     load_oauth_config,
     load_pinot_config,
     load_server_config,
+    load_static_scopes,
+    setup_logging,
 )
 
 _OAUTH_SCOPES = [
@@ -865,6 +867,18 @@ class TestLoadTableFilters:
         finally:
             os.unlink(temp_file)
 
+    def test_included_tables_take_precedence_over_allow_all_with_warning(self, caplog):
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as f:
+            f.write("allow_all: true\nincluded_tables:\n  - prod_*\n")
+            temp_file = f.name
+
+        try:
+            with caplog.at_level("WARNING", logger="mcp-pinot"):
+                assert _load_table_filters(temp_file) == ["prod_*"]
+            assert "takes precedence" in caplog.text
+        finally:
+            os.unlink(temp_file)
+
     def test_valid_table_list_returns_list(self):
         """Test that valid table list is returned"""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as f:
@@ -884,6 +898,42 @@ class TestLoadTableFilters:
             FileNotFoundError, match=r"Table filter file not found.*filter.yaml"
         ):
             _load_table_filters(nonexistent_path)
+
+
+class TestApplicationLoggingAndStaticScopes:
+    def test_setup_logging_configures_application_logger(self):
+        import logging
+
+        with patch.dict(os.environ, {"MCP_LOG_LEVEL": "DEBUG"}, clear=False):
+            setup_logging()
+        app_logger = logging.getLogger("mcp-pinot")
+        assert app_logger.level == logging.DEBUG
+        assert any(
+            getattr(handler, "_mcp_pinot_handler", False)
+            for handler in app_logger.handlers
+        )
+
+    def test_setup_logging_rejects_invalid_level(self):
+        with patch.dict(os.environ, {"MCP_LOG_LEVEL": "VERBOSE"}, clear=False):
+            with pytest.raises(ValueError, match="MCP_LOG_LEVEL"):
+                setup_logging()
+
+    def test_static_scopes_default_and_read_only(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert load_static_scopes() == [
+                "pinot:read",
+                "pinot:write",
+                "pinot:admin",
+            ]
+        with patch.dict(os.environ, {"MCP_STATIC_SCOPES": "pinot:read"}, clear=True):
+            assert load_static_scopes() == ["pinot:read"]
+
+    def test_static_scopes_reject_unknown_values(self):
+        with patch.dict(
+            os.environ, {"MCP_STATIC_SCOPES": "pinot:read root"}, clear=True
+        ):
+            with pytest.raises(ValueError, match="unsupported scopes"):
+                load_static_scopes()
 
 
 class TestLoadPinotConfigWithTableFilters:

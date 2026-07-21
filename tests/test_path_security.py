@@ -46,6 +46,7 @@ def pinot_client() -> PinotClient:
         "table\nname",
         "%2e%2e",
         "%252e%252e",
+        "%25252525252E%25252525252E",
         "table%2fname",
         "table%5cname",
         "table%3fname",

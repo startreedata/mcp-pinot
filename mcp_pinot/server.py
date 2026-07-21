@@ -7,7 +7,8 @@ FastMCP-based implementation for the Apache Pinot MCP Server.
 
 import asyncio
 import base64
-from collections import defaultdict
+import binascii
+from collections import Counter, OrderedDict
 from collections.abc import Callable
 import hashlib
 import hmac
@@ -40,7 +41,12 @@ import uvicorn
 
 from mcp_pinot import __version__
 from mcp_pinot.auth import build_auth
-from mcp_pinot.config import get_logger, load_pinot_config, load_server_config
+from mcp_pinot.config import (
+    get_logger,
+    load_pinot_config,
+    load_server_config,
+    setup_logging,
+)
 from mcp_pinot.models import (
     ConnectionDiagnostics,
     FilterReloadResult,
@@ -57,7 +63,11 @@ from mcp_pinot.models import (
     TableList,
     TableSizeDetails,
 )
-from mcp_pinot.pinot_client import PinotClient, validate_pinot_path_component
+from mcp_pinot.pinot_client import (
+    MAX_QUERY_ROWS,
+    PinotClient,
+    validate_pinot_path_component,
+)
 from mcp_pinot.prompts import PROMPT_TEMPLATE
 
 logger = get_logger()
@@ -72,15 +82,25 @@ _auth = build_auth(server_config)
 
 
 def _rate_limit_client_id(context: MiddlewareContext[Any]) -> str:
-    """Group quotas by authenticated principal, falling back to MCP client ID."""
+    """Group quotas by authenticated principal or a non-spoofable local peer.
+
+    Stateless HTTP creates a fresh MCP session for every request. Using that session
+    ID (or client-supplied metadata) would therefore let an unauthenticated caller
+    create a new bucket for every invocation. Network-reachable HTTP requires auth,
+    so the direct peer fallback is used only for loopback deployments.
+    """
     token = get_access_token()
     if token and token.client_id:
-        return token.client_id
+        return f"principal:{token.client_id}"
     if context.fastmcp_context:
-        if context.fastmcp_context.client_id:
-            return context.fastmcp_context.client_id
+        request_context = context.fastmcp_context.request_context
+        request = request_context.request if request_context else None
+        peer = getattr(request, "client", None)
+        peer_host = getattr(peer, "host", None)
+        if peer_host:
+            return f"peer:{peer_host}"
         try:
-            return context.fastmcp_context.session_id
+            return f"session:{context.fastmcp_context.session_id}"
         except RuntimeError:
             pass
     return "anonymous"
@@ -89,20 +109,53 @@ def _rate_limit_client_id(context: MiddlewareContext[Any]) -> str:
 class _ToolRateLimitMiddleware(Middleware):
     """Rate-limit tool invocations per principal/session, not protocol setup."""
 
-    def __init__(self, requests_per_second: float, burst_capacity: int) -> None:
+    def __init__(
+        self,
+        requests_per_second: float,
+        burst_capacity: int,
+        *,
+        max_clients: int = 10_000,
+        idle_ttl_seconds: float = 600,
+    ) -> None:
         self._requests_per_second = requests_per_second
         self._burst_capacity = burst_capacity
-        self._limiters: dict[str, TokenBucketRateLimiter] = defaultdict(
-            lambda: TokenBucketRateLimiter(
-                self._burst_capacity, self._requests_per_second
-            )
+        self._max_clients = max_clients
+        self._idle_ttl_seconds = idle_ttl_seconds
+        self._limiters: OrderedDict[str, tuple[TokenBucketRateLimiter, float]] = (
+            OrderedDict()
         )
+
+    def _limiter_for(self, principal: str) -> TokenBucketRateLimiter:
+        """Return a bucket while bounding and expiring the per-client cache."""
+        now = time.monotonic()
+        existing = self._limiters.pop(principal, None)
+        if existing is not None:
+            limiter, _last_seen = existing
+            self._limiters[principal] = (limiter, now)
+            return limiter
+
+        while self._limiters:
+            _oldest_principal, (_limiter, last_seen) = next(
+                iter(self._limiters.items())
+            )
+            if now - last_seen <= self._idle_ttl_seconds:
+                break
+            self._limiters.popitem(last=False)
+
+        if len(self._limiters) >= self._max_clients:
+            self._limiters.popitem(last=False)
+
+        limiter = TokenBucketRateLimiter(
+            self._burst_capacity, self._requests_per_second
+        )
+        self._limiters[principal] = (limiter, now)
+        return limiter
 
     async def on_call_tool(
         self, context: MiddlewareContext[Any], call_next: CallNext[Any, Any]
     ) -> Any:
         principal = _rate_limit_client_id(context)
-        if not await self._limiters[principal].consume():
+        if not await self._limiter_for(principal).consume():
             raise RateLimitError("Tool invocation rate limit exceeded")
         return await call_next(context)
 
@@ -148,9 +201,23 @@ class _AuditMiddleware(Middleware):
 
 _RATE_LIMIT_RPS = float(os.getenv("MCP_RATE_LIMIT_RPS", "10"))
 _RATE_LIMIT_BURST = int(os.getenv("MCP_RATE_LIMIT_BURST", "20"))
+_RATE_LIMIT_MAX_CLIENTS = int(os.getenv("MCP_RATE_LIMIT_MAX_CLIENTS", "10000"))
+_RATE_LIMIT_IDLE_TTL_SECONDS = float(
+    os.getenv("MCP_RATE_LIMIT_IDLE_TTL_SECONDS", "600")
+)
 _MAX_CONCURRENCY = int(os.getenv("MCP_MAX_CONCURRENCY", "8"))
 _MAX_RESPONSE_BYTES = int(os.getenv("MCP_MAX_RESPONSE_BYTES", "1000000"))
-if min(_RATE_LIMIT_RPS, _RATE_LIMIT_BURST, _MAX_CONCURRENCY, _MAX_RESPONSE_BYTES) <= 0:
+if (
+    min(
+        _RATE_LIMIT_RPS,
+        _RATE_LIMIT_BURST,
+        _RATE_LIMIT_MAX_CLIENTS,
+        _RATE_LIMIT_IDLE_TTL_SECONDS,
+        _MAX_CONCURRENCY,
+        _MAX_RESPONSE_BYTES,
+    )
+    <= 0
+):
     raise ValueError("MCP rate, concurrency, and response limits must be positive.")
 
 mcp = FastMCP(
@@ -167,7 +234,12 @@ mcp = FastMCP(
     ),
     auth=_auth,
     middleware=[
-        _ToolRateLimitMiddleware(_RATE_LIMIT_RPS, _RATE_LIMIT_BURST),
+        _ToolRateLimitMiddleware(
+            _RATE_LIMIT_RPS,
+            _RATE_LIMIT_BURST,
+            max_clients=_RATE_LIMIT_MAX_CLIENTS,
+            idle_ttl_seconds=_RATE_LIMIT_IDLE_TTL_SECONDS,
+        ),
         _ConcurrencyMiddleware(_MAX_CONCURRENCY),
         ResponseLimitingMiddleware(max_size=_MAX_RESPONSE_BYTES),
         _AuditMiddleware(),
@@ -208,6 +280,10 @@ _SCHEMA_NAME_DESCRIPTION = (
     "_OFFLINE/_REALTIME suffix; use letters, digits, hyphens, or underscores, "
     "optionally prefixed by one 'database.' qualifier."
 )
+
+_MAX_QUERY_PAGE_SIZE = 500
+# Keep the public offset bound derived from the client's single upstream fetch cap.
+_MAX_QUERY_OFFSET = MAX_QUERY_ROWS - _MAX_QUERY_PAGE_SIZE - 1
 _NAME_PATTERN = r"^(?:[A-Za-z0-9_-]+\.)?[A-Za-z0-9_-]+$"
 
 
@@ -330,11 +406,19 @@ _WRITE_AUTH = require_scopes("pinot:write") if _auth is not None else None
 _ADMIN_AUTH = require_scopes("pinot:admin") if _auth is not None else None
 
 _confirmation_secret_env = os.getenv("MCP_CONFIRMATION_SECRET")
-_CONFIRMATION_SECRET = (
+_CONFIRMATION_MASTER_SECRET = (
     _confirmation_secret_env.encode()
     if _confirmation_secret_env
     else secrets.token_bytes(32)
 )
+# Even with an operator-supplied master secret, bind tokens to this process. This
+# makes restarts and accidental multi-process routing fail closed instead of
+# allowing a consumed nonce to be replayed against another in-memory nonce store.
+_CONFIRMATION_SECRET = hmac.new(
+    _CONFIRMATION_MASTER_SECRET,
+    b"mcp-pinot-process:" + secrets.token_bytes(32),
+    hashlib.sha256,
+).digest()
 _CONFIRMATION_TTL_SECONDS = int(os.getenv("MCP_CONFIRMATION_TTL_SECONDS", "300"))
 if not 30 <= _CONFIRMATION_TTL_SECONDS <= 3600:
     raise ValueError("MCP_CONFIRMATION_TTL_SECONDS must be between 30 and 3600.")
@@ -487,15 +571,21 @@ def _schema_payload(
         raise ToolError(
             f"schema.schemaName must exactly match schema_name ({expected_name!r})."
         )
+    payload = json.dumps(
+        schema.model_dump(by_alias=True, exclude_none=True),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    if len(payload.encode()) > 256_000:
+        raise ToolError("Schema payload exceeds the 256000-byte safety limit.")
+
     fields = [
         *schema.dimension_field_specs,
         *schema.metric_field_specs,
         *schema.date_time_field_specs,
     ]
     names = [field.name for field in fields]
-    duplicates = sorted(
-        {field_name for field_name in names if names.count(field_name) > 1}
-    )
+    duplicates = sorted(name for name, count in Counter(names).items() if count > 1)
     if duplicates:
         raise ToolError(f"Schema column names must be unique: {', '.join(duplicates)}")
     if schema.primary_key_columns:
@@ -504,13 +594,6 @@ def _schema_payload(
             raise ToolError(
                 "primaryKeyColumns reference undefined fields: " + ", ".join(missing)
             )
-    payload = json.dumps(
-        schema.model_dump(by_alias=True, exclude_none=True),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    if len(payload.encode()) > 256_000:
-        raise ToolError("Schema payload exceeds the 256000-byte safety limit.")
     return name, payload
 
 
@@ -562,6 +645,24 @@ def _issue_confirmation_token(
     )
 
 
+def _decode_base64url_unpadded(value: str) -> bytes:
+    """Decode the canonical unpadded base64url form used by confirmation tokens."""
+    if not value or "=" in value:
+        raise ValueError("base64url value must be non-empty and unpadded")
+    try:
+        decoded = base64.b64decode(
+            value + ("=" * (-len(value) % 4)),
+            altchars=b"-_",
+            validate=True,
+        )
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("invalid base64url value") from exc
+    canonical = base64.urlsafe_b64encode(decoded).rstrip(b"=").decode()
+    if not hmac.compare_digest(canonical, value):
+        raise ValueError("non-canonical base64url value")
+    return decoded
+
+
 def _consume_confirmation_token(
     token: str | None,
     operation: str,
@@ -579,32 +680,44 @@ def _consume_confirmation_token(
     encoded_text, signature_text = token.split(".", 1)
     encoded = encoded_text.encode()
     try:
-        signature = base64.urlsafe_b64decode(signature_text + "==")
+        signature = _decode_base64url_unpadded(signature_text)
         expected_signature = hmac.new(
             _CONFIRMATION_SECRET, encoded, hashlib.sha256
         ).digest()
-        claims = json.loads(base64.urlsafe_b64decode(encoded_text + "=="))
-    except (ValueError, json.JSONDecodeError) as exc:
+        claims = json.loads(_decode_base64url_unpadded(encoded_text))
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
         raise ToolError("Invalid confirmation_token.") from exc
     if not hmac.compare_digest(signature, expected_signature):
         raise ToolError("Invalid confirmation_token signature.")
+    if not isinstance(claims, dict):
+        raise ToolError("Invalid confirmation_token claims.")
     expected = _token_subject(operation, resource_name, payload, options)
     if any(claims.get(key) != value for key, value in expected.items()):
         raise ToolError("confirmation_token does not match this exact operation.")
     expires_at = claims.get("expires_at")
-    if not isinstance(expires_at, int) or expires_at < int(time.time()):
+    if not isinstance(expires_at, int) or expires_at <= int(time.time()):
         raise ToolError("confirmation_token expired; preview the operation again.")
-    fingerprint = hashlib.sha256(token.encode()).hexdigest()
+    nonce = claims.get("nonce")
+    if (
+        not isinstance(nonce, str)
+        or not 12 <= len(nonce) <= 64
+        or any(
+            char
+            not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+            for char in nonce
+        )
+    ):
+        raise ToolError("Invalid confirmation_token nonce.")
     with _confirmation_lock:
         now = int(time.time())
         expired = [
-            key for key, expiry in _used_confirmation_tokens.items() if expiry < now
+            key for key, expiry in _used_confirmation_tokens.items() if expiry <= now
         ]
         for key in expired:
             del _used_confirmation_tokens[key]
-        if fingerprint in _used_confirmation_tokens:
+        if nonce in _used_confirmation_tokens:
             raise ToolError("confirmation_token has already been used.")
-        _used_confirmation_tokens[fingerprint] = expires_at
+        _used_confirmation_tokens[nonce] = expires_at
 
 
 def _controller_summary(result: Any) -> str:
@@ -686,27 +799,65 @@ def reload_table_filters(
             )
         ),
     ] = True,
+    confirmation_token: Annotated[
+        str | None,
+        Field(
+            description=(
+                "One-time token returned by a dry-run preview of the exact current "
+                "filter-file contents. Required when dry_run is false."
+            ),
+            max_length=4096,
+        ),
+    ] = None,
 ) -> FilterReloadResult:
     """Preview or apply the configured table-filter YAML without restarting.
 
     Reads only the path configured by ``PINOT_TABLE_FILTER_FILE``. The YAML must be
     an object whose ``included_tables`` value is a non-empty list of glob strings.
     Allowing every table requires an explicit ``allow_all: true``. The default
-    ``dry_run=true`` validates and reports the before/after patterns; pass ``false``
-    to apply them atomically.
+    ``dry_run=true`` validates and reports the before/after patterns and returns a
+    short-lived confirmation token. Pass ``dry_run=false`` with that token to apply
+    the exact candidate atomically. Editing the file after preview invalidates the
+    confirmation and requires another preview.
 
     Returns:
-        Preview/application status, whether it was applied, and old/new patterns.
+        Preview/application status, whether it was applied, old/new patterns, and
+        a confirmation token on previews.
 
     Failure recovery:
         A missing setting/file or malformed YAML is non-retryable until corrected;
         fix ``PINOT_TABLE_FILTER_FILE`` or its ``included_tables`` list, then retry.
     """
-    results = _call(
+    preview = _call(
         "reload_table_filters",
         "Verify PINOT_TABLE_FILTER_FILE points to YAML with an included_tables list.",
         pinot_client.reload_table_filters,
-        dry_run=dry_run,
+        dry_run=True,
+    )
+    candidate_filters = preview.get("new_filters")
+    payload = json.dumps(
+        {"new_filters": candidate_filters}, sort_keys=True, separators=(",", ":")
+    )
+    if dry_run:
+        preview["confirmation_token"] = _issue_confirmation_token(
+            "reload_table_filters", "table_filters", payload, {}
+        )
+        return FilterReloadResult.model_validate(preview)
+
+    _consume_confirmation_token(
+        confirmation_token,
+        "reload_table_filters",
+        "table_filters",
+        payload,
+        {},
+    )
+    results = _call(
+        "reload_table_filters",
+        "Preview the current filter file again and confirm the unchanged candidate.",
+        pinot_client.reload_table_filters,
+        dry_run=False,
+        expected_filters=candidate_filters,
+        require_expected=True,
     )
     return FilterReloadResult.model_validate(results)
 
@@ -735,11 +886,19 @@ def read_query(
     ],
     limit: Annotated[
         int,
-        Field(description="Maximum rows to return in this page.", ge=1, le=500),
+        Field(
+            description="Maximum rows to return in this page.",
+            ge=1,
+            le=_MAX_QUERY_PAGE_SIZE,
+        ),
     ] = 100,
     offset: Annotated[
         int,
-        Field(description="Zero-based row offset for pagination.", ge=0, le=10000),
+        Field(
+            description="Zero-based row offset for pagination.",
+            ge=0,
+            le=_MAX_QUERY_OFFSET,
+        ),
     ] = 0,
 ) -> QueryResult:
     """Run a read-only SQL query against Pinot and return a page of rows.
@@ -1682,6 +1841,7 @@ def _create_http_app() -> ASGIApp:
 
 def main():
     """Main entry point for FastMCP Pinot Server"""
+    setup_logging()
     key_configured = bool(server_config.ssl_keyfile)
     cert_configured = bool(server_config.ssl_certfile)
     if key_configured != cert_configured:

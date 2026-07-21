@@ -42,8 +42,8 @@ Schema and table-configuration create/update tools change Pinot metadata. Always
 call them with dry_run=true first and show the preview to the user. A preview does
 not guarantee that Pinot will accept the later write. After the user confirms the
 exact target and payload, apply with dry_run=false and the preview's one-time
-confirmation_token. reload_table_filters also
-previews by default; apply its candidate filters only after user confirmation.
+confirmation_token. reload_table_filters follows the same token flow; if its file
+changes after preview, preview and confirm the new candidate instead.
 
 When a user provides a query, follow these steps:
 

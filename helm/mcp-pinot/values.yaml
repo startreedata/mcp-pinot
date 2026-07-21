@@ -110,7 +110,9 @@ tolerations: []
 affinity: {}
 
 
-# Deployment configuration
+# Deployment configuration. Confirmation replay protection and rate-limit buckets
+# are process-local, so this chart intentionally supports exactly one replica.
+# Deployments needing horizontal scale require a shared state-store implementation.
 replicas: 1
 revisionHistoryLimit: 3
 terminationGracePeriodSeconds: 30
@@ -118,8 +120,9 @@ preStopDelaySeconds: 5
 strategy:
   type: RollingUpdate
   rollingUpdate:
-    maxUnavailable: 0
-    maxSurge: 1
+    # Never run two independently stateful server processes during an update.
+    maxUnavailable: 1
+    maxSurge: 0
 
 # MCP Server Configuration
 mcp:
@@ -143,6 +146,12 @@ mcp:
     # Rendered into the chart Secret, mounted as MCP_STATIC_TOKEN. Leave empty
     # to supply MCP_STATIC_TOKEN yourself via env.additional.
     staticToken: ""
+    # Scopes granted to the shared service principal. Remove write/admin for a
+    # read-only deployment.
+    staticScopes:
+      - pinot:read
+      - pinot:write
+      - pinot:admin
   oauth:
     # Legacy alias for mcp.auth.provider=oauth.
     enabled: false
@@ -224,8 +233,8 @@ networkPolicy:
 # that better matches the replica topology, but do not set both.
 podDisruptionBudget:
   enabled: false
-  minAvailable: 1
-  maxUnavailable: null
+  minAvailable: null
+  maxUnavailable: 1
 
 # Pod annotations
 podAnnotations: {}

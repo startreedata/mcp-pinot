@@ -3,7 +3,9 @@ from importlib.metadata import PackageNotFoundError, version
 try:
     __version__ = version("mcp-pinot-server")
 except PackageNotFoundError:  # pragma: no cover - source tree without installation
-    __version__ = "4.0.0"
+    # Source-only checkouts have no distribution metadata. Avoid duplicating the
+    # release version here; installed wheels and MCP bundles always use metadata.
+    __version__ = "0+unknown"
 
 
 def main():

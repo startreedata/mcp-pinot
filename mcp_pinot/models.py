@@ -9,7 +9,7 @@ while the meaningful keys stay documented.
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 _NAME_PATTERN = r"^(?:[A-Za-z0-9_-]+\.)?[A-Za-z0-9_-]+$"
 
@@ -18,6 +18,7 @@ class SchemaFieldSpec(BaseModel):
     """Typed Pinot column definition used by schema write tools."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
+    __pydantic_extra__: dict[str, JsonValue] = Field(init=False)
 
     name: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     data_type: Literal[
@@ -35,7 +36,7 @@ class SchemaFieldSpec(BaseModel):
     single_value_field: bool = Field(
         default=True, alias="singleValueField", serialization_alias="singleValueField"
     )
-    default_null_value: Any = Field(
+    default_null_value: JsonValue = Field(
         default=None,
         alias="defaultNullValue",
         serialization_alias="defaultNullValue",
@@ -46,6 +47,7 @@ class SchemaInput(BaseModel):
     """Structured Pinot schema accepted by create/update operations."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
+    __pydantic_extra__: dict[str, JsonValue] = Field(init=False)
 
     schema_name: str = Field(
         alias="schemaName",
@@ -84,6 +86,7 @@ class TableConfigInput(BaseModel):
     """Structured Pinot table configuration accepted by write tools."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
+    __pydantic_extra__: dict[str, JsonValue] = Field(init=False)
 
     table_name: str = Field(
         alias="tableName",
@@ -95,14 +98,14 @@ class TableConfigInput(BaseModel):
     table_type: Literal["OFFLINE", "REALTIME"] = Field(
         alias="tableType", serialization_alias="tableType"
     )
-    segments_config: dict[str, Any] = Field(
+    segments_config: dict[str, JsonValue] = Field(
         alias="segmentsConfig", serialization_alias="segmentsConfig"
     )
-    table_index_config: dict[str, Any] = Field(
+    table_index_config: dict[str, JsonValue] = Field(
         alias="tableIndexConfig", serialization_alias="tableIndexConfig"
     )
-    tenants: dict[str, Any] = Field(default_factory=dict)
-    ingestion_config: dict[str, Any] | None = Field(
+    tenants: dict[str, JsonValue] = Field(default_factory=dict)
+    ingestion_config: dict[str, JsonValue] | None = Field(
         default=None,
         alias="ingestionConfig",
         serialization_alias="ingestionConfig",
@@ -202,6 +205,12 @@ class FilterReloadResult(BaseModel):
     new_filters: list[str] | None = Field(
         default=None,
         description="Validated candidate patterns; null means all tables.",
+    )
+    confirmation_token: str | None = Field(
+        default=None,
+        description=(
+            "Short-lived token bound to this exact filter preview; required to apply."
+        ),
     )
 
 

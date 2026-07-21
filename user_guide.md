@@ -71,6 +71,11 @@ The server refuses an unauthenticated non-loopback HTTP bind. Configure
 `AUTH_PROVIDER=static` with `MCP_STATIC_TOKEN`, or configure the OAuth provider,
 before exposing it to a network. See [SECURITY.md](SECURITY.md).
 
+Run exactly one server process or Helm replica. Confirmation nonces and rate-limit
+buckets are intentionally process-local; tokens are process-bound and fail closed
+after a restart or if routed to another process. The Helm chart rejects replica
+counts other than one until a shared state-store implementation is available.
+
 ## Available tools
 
 Tool names are case-sensitive and use underscores.
@@ -94,6 +99,9 @@ Tool names are case-sensitive and use underscores.
 
 MCP clients discover the authoritative input and output JSON Schemas through
 `tools/list`. Prefer those schemas over copying argument shapes from old examples.
+Pinot configuration objects are extensible: stable envelope fields are typed and
+extension values must be valid JSON. Pinot's controller validation endpoint remains
+authoritative for the full evolving table-config vocabulary.
 
 ## Explore and query data
 
@@ -122,7 +130,7 @@ authorization, resource limits, or native table-level ACLs.
 
 ## Preview writes before applying
 
-Schema and table-config tools can change live Pinot metadata. Use this sequence:
+Schema, table-config, and table-filter tools can change live state. Use this sequence:
 
 1. Call the intended `create_*` or `update_*` tool with `dry_run=true`.
 2. Show the exact target, options, and preview to the user.
@@ -135,8 +143,9 @@ A successful preview confirms that the MCP server could parse the proposed
 payload; it does not guarantee that Pinot will accept the apply call. Do not tell
 the user a change was applied until the apply result succeeds.
 
-`reload_table_filters` previews by default. Pass `dry_run=false` only after
-reviewing the candidate filters. These filters improve tool discovery and reduce
+`reload_table_filters` previews by default and returns a token bound to the exact
+candidate filters. Pass `dry_run=false` with that token only after review. If the
+file changes, preview it again. These filters improve tool discovery and reduce
 cognitive load; they are not an authorization boundary. Use Pinot ACLs for access
 control.
 
@@ -169,6 +178,8 @@ remain the authoritative execution interface.
 - Inspect `get_schema` before referencing columns.
 - Send one read-only statement only.
 - Check Pinot permissions, broker availability, and query limits.
+- A response read timeout is not retried through PinotDB because Pinot may already
+  be executing the query; retry deliberately after checking cluster health.
 
 ### HTTP clients cannot connect
 
@@ -182,3 +193,6 @@ remain the authoritative execution interface.
 The preview is intentionally non-mutating and is not an authoritative Pinot
 validation response. Read the apply error, correct the payload or permissions,
 preview again, and request confirmation for the revised change.
+
+An update preview requires the target schema/table to exist. Use the corresponding
+create tool when the read-before-update lookup returns not found.

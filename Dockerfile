@@ -21,6 +21,8 @@ RUN uv sync --frozen --no-dev --no-editable
 
 FROM ${PYTHON_IMAGE} AS runtime
 
+LABEL io.modelcontextprotocol.server.name="io.github.startreedata/mcp-pinot"
+
 ENV HOME=/tmp \
     PATH=/app/.venv/bin:${PATH} \
     PYTHONDONTWRITEBYTECODE=1 \

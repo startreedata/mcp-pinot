@@ -807,18 +807,19 @@
           </tr>
           <tr>
             <td><code>reload_table_filters</code></td>
-            <td>Preview by default, then explicitly apply table access filters</td>
+            <td>Preview by default, then apply the unchanged candidate with its confirmation token</td>
             <td><span class="tool-category cat-config">Config</span></td>
           </tr>
         </tbody>
       </table>
     </div>
     <div class="config-note" style="margin-top: 1.5rem;">
-      Schema and table-config tools can change live Pinot metadata. Call the
+      Schema, table-config, and table-filter tools can change live state. Call the
       intended tool with <code>dry_run=true</code>, show the exact preview to the
       user, and apply with <code>dry_run=false</code> plus the preview's one-time
       <code>confirmation_token</code> only after confirmation. A preview is
       non-mutating but does not guarantee that Pinot will accept the later write.
+      Editing a table-filter file after preview invalidates its token.
     </div>
   </section>
 
@@ -1127,7 +1128,7 @@ helm upgrade mcp-pinot ./helm/mcp-pinot \
 
       <div class="config-subsection">
         <h3>MCP Server</h3>
-        <p>STDIO is the default. Explicit HTTP binds to loopback; non-loopback binds fail closed unless OAuth or static-token authentication is enabled.</p>
+        <p>STDIO is the default. Explicit HTTP binds to loopback; non-loopback binds fail closed unless OAuth or static-token authentication is enabled. Run one process or Helm replica while confirmation and rate-limit state are process-local.</p>
       </div>
       <div class="tools-table-wrapper" style="margin-bottom: 2rem;">
         <table class="tools-table">
@@ -1169,13 +1170,28 @@ helm upgrade mcp-pinot ./helm/mcp-pinot \
               <td>Path to SSL private key</td>
               <td>&mdash;</td>
             </tr>
+            <tr>
+              <td><code>MCP_LOG_LEVEL</code></td>
+              <td>Application logging level written to stderr</td>
+              <td><code>INFO</code></td>
+            </tr>
+            <tr>
+              <td><code>MCP_RATE_LIMIT_RPS</code> / <code>MCP_RATE_LIMIT_BURST</code></td>
+              <td>Per-principal or loopback-peer tool-call limits</td>
+              <td><code>10</code> / <code>20</code></td>
+            </tr>
+            <tr>
+              <td><code>MCP_CONFIRMATION_TTL_SECONDS</code></td>
+              <td>Lifetime of process-bound one-time confirmation tokens</td>
+              <td><code>300</code></td>
+            </tr>
           </tbody>
         </table>
       </div>
 
       <div class="config-subsection">
         <h3>OAuth and Access Controls</h3>
-        <p>OAuth is required for HTTP or HTTPS exposure outside loopback. Table filtering improves UX, but Pinot ACLs remain the production security boundary.</p>
+        <p>OAuth or static-token authentication is required for HTTP or HTTPS exposure outside loopback. Component scopes enforce read/write/admin access. Table filtering improves UX, but Pinot ACLs remain the production security boundary.</p>
       </div>
       <div class="tools-table-wrapper" style="margin-bottom: 2rem;">
         <table class="tools-table">
@@ -1187,6 +1203,21 @@ helm upgrade mcp-pinot ./helm/mcp-pinot \
             </tr>
           </thead>
           <tbody>
+            <tr>
+              <td><code>AUTH_PROVIDER</code></td>
+              <td>Inbound authentication provider: <code>oauth</code> or <code>static</code></td>
+              <td>Required for non-loopback HTTP</td>
+            </tr>
+            <tr>
+              <td><code>MCP_STATIC_TOKEN</code></td>
+              <td>Shared bearer secret for a service principal</td>
+              <td>Required for the static provider</td>
+            </tr>
+            <tr>
+              <td><code>MCP_STATIC_SCOPES</code></td>
+              <td>Space- or comma-separated Pinot component scopes</td>
+              <td><code>pinot:read pinot:write pinot:admin</code></td>
+            </tr>
             <tr>
               <td><code>PINOT_TABLE_FILTER_FILE</code></td>
               <td>YAML file for table filtering</td>
@@ -1234,8 +1265,8 @@ helm upgrade mcp-pinot ./helm/mcp-pinot \
             </tr>
             <tr>
               <td><code>OAUTH_AUDIENCE</code></td>
-              <td>Optional expected audience claim</td>
-              <td>&mdash;</td>
+              <td>Canonical MCP resource URI expected in the token audience</td>
+              <td>Required when OAuth is enabled</td>
             </tr>
             <tr>
               <td><code>OAUTH_EXTRA_AUTH_PARAMS</code></td>

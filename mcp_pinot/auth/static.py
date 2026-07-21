@@ -16,13 +16,12 @@ with ``AUTH_PROVIDER=static`` and set ``MCP_STATIC_TOKEN`` to the shared secret.
 
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
-from mcp_pinot.config import ServerConfig, load_static_token
+from mcp_pinot.config import ServerConfig, load_static_scopes, load_static_token
 
 # Identity attributed to any request bearing the shared token. The MCP server
 # has no per-user notion under this provider — every authenticated call is this
 # single service principal.
 _STATIC_CLIENT_ID = "mcp-static-client"
-_STATIC_SCOPES = ["pinot:read", "pinot:write", "pinot:admin"]
 
 
 def build_static_auth(server_config: ServerConfig) -> StaticTokenVerifier:
@@ -32,9 +31,10 @@ def build_static_auth(server_config: ServerConfig) -> StaticTokenVerifier:
     deployment fails loudly at startup rather than booting unauthenticated.
     """
     token = load_static_token()
+    scopes = load_static_scopes()
     return StaticTokenVerifier(
         # Static authentication is intended for a trusted service principal. Give
         # that principal explicit scopes so the same component-level authorization
         # checks used for OAuth remain active instead of being silently bypassed.
-        tokens={token: {"client_id": _STATIC_CLIENT_ID, "scopes": _STATIC_SCOPES}},
+        tokens={token: {"client_id": _STATIC_CLIENT_ID, "scopes": scopes}},
     )

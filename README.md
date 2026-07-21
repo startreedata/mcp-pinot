@@ -37,10 +37,10 @@ It allows you to
   pages with continuation metadata instead of returning unbounded agent context.
 - Read-only SQL is parsed and enforced before execution; validation, permission,
   and transient connectivity errors are surfaced as actionable MCP errors.
-- Schema and table-config writes support `dry_run`; always preview the exact target
-  and payload before applying. A preview is not a guarantee that Pinot will accept
-  the later write. Table-filter reloads preview by default and require an explicit
-  apply after user confirmation.
+- Every mutating tool supports `dry_run`; always preview the exact target and
+  payload before applying. Applying requires the preview's short-lived, one-time
+  `confirmation_token`, including for table-filter reloads. A preview is not a
+  guarantee that Pinot will accept the later write.
 - Single-purpose schema and table-config inspection tools avoid ambiguous combined
   operations: use `get_schema` and `get_table_config` independently.
 
@@ -65,11 +65,12 @@ update their calls.
 | `create_table_config` / `update_table_config` | Preview or apply table-config changes. |
 | `reload_table_filters` | Preview or apply the configured table-filter YAML. |
 
-For every schema or table-config change, first call the same tool with
-`dry_run=true`, present the preview to the user, and call it with `dry_run=false`
-and the preview's one-time `confirmation_token` only after confirmation. Pinot
-performs authoritative validation during the apply call, so the write can still
-fail after a successful preview.
+For every schema, table-config, or table-filter change, first call the same tool
+with `dry_run=true`, present the preview to the user, and call it with
+`dry_run=false` and the preview's one-time `confirmation_token` only after
+confirmation. Editing a table-filter file after preview invalidates its token.
+Pinot performs authoritative validation during table/schema apply calls, so a
+write can still fail after a successful preview.
 
 <a href="https://glama.ai/mcp/servers/@startreedata/mcp-pinot">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@startreedata/mcp-pinot/badge" alt="StarTree Server for Apache Pinot MCP server" />
@@ -171,6 +172,11 @@ by a checked-out file.
 | `MCP_PATH` | `/mcp` | MCP HTTP path. |
 | `MCP_SSL_KEYFILE` | unset | TLS private key path. Requires `MCP_SSL_CERTFILE`. |
 | `MCP_SSL_CERTFILE` | unset | TLS certificate path. Requires `MCP_SSL_KEYFILE`. |
+| `MCP_LOG_LEVEL` | `INFO` | Application log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Logs go to stderr so STDIO protocol output remains valid. |
+| `MCP_RATE_LIMIT_RPS` / `MCP_RATE_LIMIT_BURST` | `10` / `20` | Per-principal (authenticated) or per-peer (loopback HTTP) tool-call rate and burst limits. |
+| `MCP_RATE_LIMIT_MAX_CLIENTS` | `10000` | Maximum in-memory client buckets; least-recently-used buckets are evicted. |
+| `MCP_RATE_LIMIT_IDLE_TTL_SECONDS` | `600` | Idle time before a rate-limit bucket can be evicted. |
+| `MCP_CONFIRMATION_TTL_SECONDS` | `300` | Confirmation-token lifetime, constrained to 30–3600 seconds. Tokens are process-bound and intentionally fail after restart. |
 
 ### Authentication
 
@@ -180,6 +186,7 @@ An auth provider is required before binding HTTP or HTTPS to a non-loopback host
 |---|---|---|
 | `AUTH_PROVIDER` | unset | Active auth provider: `none` (default), `oauth`, or `static`. Some provider is required before a non-loopback bind. |
 | `MCP_STATIC_TOKEN` | empty | Shared bearer secret for `AUTH_PROVIDER=static` — a service-to-service caller sends it as `Authorization: Bearer <token>`. Required when the static provider is active. |
+| `MCP_STATIC_SCOPES` | `pinot:read pinot:write pinot:admin` | Space- or comma-separated scopes granted to the static principal. Use `pinot:read` for a read-only service. |
 | `OAUTH_ENABLED` | `false` | Legacy flag; `true` is equivalent to `AUTH_PROVIDER=oauth`. Enables OAuth authentication. |
 | `OAUTH_CLIENT_ID` | empty | OAuth client ID. |
 | `OAUTH_CLIENT_SECRET` | empty | OAuth client secret. |
@@ -188,7 +195,7 @@ An auth provider is required before binding HTTP or HTTPS to a non-loopback host
 | `OAUTH_TOKEN_ENDPOINT` | empty | Upstream token endpoint. |
 | `OAUTH_JWKS_URI` | empty | JWKS URI used for token verification. |
 | `OAUTH_ISSUER` | empty | Expected token issuer. |
-| `OAUTH_AUDIENCE` | unset | Optional expected audience claim. |
+| `OAUTH_AUDIENCE` | unset | Required with OAuth. Must equal the canonical MCP resource URI (`OAUTH_BASE_URL` without a trailing slash plus `MCP_PATH`). |
 | `OAUTH_EXTRA_AUTH_PARAMS` | unset | Optional JSON object with additional authorization parameters. |
 
 ### Table Filtering
@@ -289,6 +296,10 @@ To disable table filtering, either:
 
 When not configured, all tables in the Pinot cluster are visible.
 
+When a filter file supplies both `allow_all: true` and a non-empty
+`included_tables`, the explicit allow-list takes precedence and the server logs a
+warning. Applying a reload requires the token from an unchanged dry-run candidate.
+
 ### Read-only Query Enforcement
 
 The `read_query` tool always validates SQL before forwarding it to Pinot. It
@@ -308,8 +319,10 @@ To enable OAuth authentication, set the following environment variables in your 
 - `OAUTH_JWKS_URI`: JSON Web Key Set URI for token verification
 - `OAUTH_ISSUER`: Token issuer identifier
 
+**Additional required variable:**
+- `OAUTH_AUDIENCE`: canonical MCP resource URI used for audience validation
+
 **Optional variables:**
-- `OAUTH_AUDIENCE`: Expected audience claim for token validation
 - `OAUTH_EXTRA_AUTH_PARAMS`: Additional authorization parameters as JSON object (e.g., `{"scope": "openid profile"}`)
 
 Example configuration:
@@ -322,7 +335,7 @@ OAUTH_AUTHORIZATION_ENDPOINT=https://example.com/oauth/authorize
 OAUTH_TOKEN_ENDPOINT=https://example.com/oauth/token
 OAUTH_JWKS_URI=https://example.com/.well-known/jwks.json
 OAUTH_ISSUER=https://example.com
-OAUTH_AUDIENCE=client-id
+OAUTH_AUDIENCE=http://localhost:8000/mcp
 OAUTH_EXTRA_AUTH_PARAMS={"scope": "openid profile"}
 ```
 
@@ -338,6 +351,8 @@ You should see logs indicating that the server is running.
 > - The server refuses to start when HTTP is bound to a non-loopback host without an auth provider (`AUTH_PROVIDER=oauth` or `static`, or the legacy `OAUTH_ENABLED=true`).
 > - `read_query` enforces a single read-only SQL statement before execution. This is a guardrail, not a replacement for Pinot authentication and authorization.
 > - The supported `mcp[cli]` dependency includes DNS rebinding protections for the Streamable HTTP server.
+> - Confirmation replay state and rate-limit buckets are process-local. Run exactly one server process/Helm replica. The chart rejects `replicas != 1`; horizontal scaling requires a shared state-store implementation.
+> - `/readyz` reports MCP process readiness, not Pinot cluster health. Use `test_connection` to diagnose Pinot dependencies.
 
 ### Launch Pinot Quickstart (Optional)
 

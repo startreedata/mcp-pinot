@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Made confirmation tokens canonical and replay-safe by keying consumption on the
+  signed nonce; malformed base64url, expiry, signature tampering, cross-operation
+  reuse, and string-malleated replays are rejected.
+- Added the same exact-candidate confirmation-token flow to
+  `reload_table_filters`, including protection against file changes between preview
+  and apply.
+- Bound unauthenticated loopback HTTP rate limits to the direct peer instead of a
+  fresh stateless session ID, and bounded/expired the limiter cache.
+- Restored application logging initialization, added the MCP Registry OCI ownership
+  label, and corrected v-stripped Docker release references.
+- Rejected excessive nested percent encoding, classified Pinot SQL errors as safe
+  invalid input, made direct filter reloads preview-first, and replaced quadratic
+  duplicate-field detection.
+
+### Changed
+- Helm intentionally supports one replica while confirmation and rate-limit state
+  are process-local; rolling updates no longer overlap two server processes and the
+  optional PDB defaults to `maxUnavailable: 1`.
+- Static-token principals can be restricted with `MCP_STATIC_SCOPES`.
+- PinotDB is bounded to the supported 9.x line and MCPB schema metadata is pinned to
+  an immutable commit.
+
 ## [4.0.0] - 2026-07-22
 
 ### Breaking Changes
@@ -28,7 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Explicit failure classification and recovery guidance in every MCP tool
   description, plus advertised Pinot identifier constraints.
 - A safe preview mode for `reload_table_filters`; it now defaults to
-  `dry_run=true` and requires an explicit `dry_run=false` to apply validated YAML.
+  `dry_run=true` and requires `dry_run=false` plus the preview's confirmation token
+  to apply unchanged, validated YAML.
 - STDIO is now the safe default transport; HTTP must be selected explicitly.
 
 ### Removed

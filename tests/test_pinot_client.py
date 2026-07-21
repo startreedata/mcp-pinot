@@ -224,7 +224,7 @@ class TestPinotClient:
         }
         mock_requests.post.return_value = mock_response
 
-        with pytest.raises(Exception, match="Query error"):
+        with pytest.raises(ValueError, match="Pinot rejected the SQL query"):
             pinot.execute_query_http("SELECT * FROM nonexistent_table")
 
     def test_execute_query_http_no_result_table(self, mock_pinot_config, mock_requests):
@@ -277,11 +277,13 @@ class TestPinotClient:
         pinot = PinotClient(mock_pinot_config)
         with (
             patch.object(
-                pinot, "execute_query_http", side_effect=requests.Timeout("timed out")
+                pinot,
+                "execute_query_http",
+                side_effect=requests.ReadTimeout("timed out"),
             ),
             patch.object(pinot, "execute_query_pinotdb") as mock_pinotdb,
         ):
-            with pytest.raises(requests.Timeout):
+            with pytest.raises(requests.ReadTimeout):
                 pinot.execute_query("SELECT * FROM test_table")
         mock_pinotdb.assert_not_called()
 
@@ -1192,7 +1194,7 @@ class TestPinotClient:
         pinot = PinotClient(mock_pinot_config)
 
         # Reload with new filters
-        result = pinot.reload_table_filters()
+        result = pinot.reload_table_filters(dry_run=False)
 
         assert result["status"] == "success"
         assert result["applied"] is True
@@ -1219,6 +1221,24 @@ class TestPinotClient:
         assert result["applied"] is False
         assert result["previous_filters"] == ["active_*"]
         assert result["new_filters"] == ["candidate_*"]
+        assert pinot._included_tables == ["active_*"]
+
+    def test_reload_table_filters_rejects_candidate_changed_after_preview(
+        self, mock_pinot_config, tmp_path
+    ):
+        filter_file = tmp_path / "filters.yaml"
+        filter_file.write_text("included_tables:\n  - changed_*\n")
+        mock_pinot_config.table_filter_file = str(filter_file)
+        mock_pinot_config.included_tables = ["active_*"]
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(ValueError, match="changed after preview"):
+            pinot.reload_table_filters(
+                dry_run=False,
+                expected_filters=["previewed_*"],
+                require_expected=True,
+            )
+
         assert pinot._included_tables == ["active_*"]
 
     def test_reload_table_filters_no_file_configured(self, mock_pinot_config):
@@ -1264,7 +1284,7 @@ class TestPinotClient:
         mock_pinot_config.included_tables = None
         pinot = PinotClient(mock_pinot_config)
 
-        result = pinot.reload_table_filters()
+        result = pinot.reload_table_filters(dry_run=False)
 
         assert result["status"] == "success"
         assert result["previous_filter_count"] == 0

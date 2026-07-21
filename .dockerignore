@@ -28,7 +28,6 @@ dist
 # Secrets and machine-local configuration
 .env
 .env.*
-!.env.example
 **/.env
 **/.env.*
 **/*.key

@@ -1,11 +1,14 @@
 import json
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import call, patch
 
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import MiddlewareContext
+from fastmcp.server.middleware.rate_limiting import RateLimitError
 import pytest
 
-from mcp_pinot.server import _is_loopback_host, main, mcp
+from mcp_pinot.server import _is_loopback_host, _ToolRateLimitMiddleware, main, mcp
 
 SCHEMA_INPUT = {"schemaName": "test", "dimensionFieldSpecs": []}
 TABLE_CONFIG_INPUT = {
@@ -30,7 +33,7 @@ def mock_pinot_client():
         }
         # execute_query returns a list of row dicts (matches the real client).
         mock_client.execute_query.return_value = [{"col1": "test", "col2": "data"}]
-        mock_client.reload_table_filters.side_effect = lambda dry_run=False: {
+        mock_client.reload_table_filters.side_effect = lambda dry_run=True, **_kwargs: {
             "status": "preview" if dry_run else "success",
             "message": (
                 "Table filters validated; no change applied"
@@ -88,27 +91,11 @@ class TestFastMCPServer:
         tools = await mcp.list_tools()
         tool_names = [t.name for t in tools]
 
-        expected_tools = [
-            "test_connection",
-            "reload_table_filters",
-            "read_query",
-            "list_tables",
-            "get_table_size",
-            "list_segments",
-            "get_segment_index_metadata",
-            "list_segment_metadata",
-            "create_schema",
-            "update_schema",
-            "get_schema",
-            "create_table_config",
-            "update_table_config",
-            "get_table_config",
-        ]
-
-        for tool_name in expected_tools:
-            assert tool_name in tool_names, (
-                f"Tool {tool_name} not found in registered tools"
-            )
+        # Exact names are maintained once in test_release_metadata, which also
+        # checks the manifest and static decorators. This runtime test only needs
+        # to prove that registration produced the expected count without duplicates.
+        assert len(tool_names) == 14
+        assert len(set(tool_names)) == len(tool_names)
 
     @pytest.mark.asyncio
     async def test_every_tool_has_output_schema_and_annotations(self):
@@ -419,7 +406,7 @@ class TestFastMCPServer:
     async def test_tool_reload_table_filters_previews_by_default(
         self, mock_pinot_client
     ):
-        """reload_table_filters requires an explicit dry_run=false to mutate."""
+        """reload_table_filters previews and returns a confirmation token by default."""
         async with Client(mcp) as client:
             result = await client.call_tool("reload_table_filters", {})
 
@@ -433,11 +420,60 @@ class TestFastMCPServer:
         self, mock_pinot_client
     ):
         async with Client(mcp) as client:
-            result = await client.call_tool("reload_table_filters", {"dry_run": False})
+            preview = await client.call_tool("reload_table_filters", {})
+            result = await client.call_tool(
+                "reload_table_filters",
+                {
+                    "dry_run": False,
+                    "confirmation_token": preview.structured_content[
+                        "confirmation_token"
+                    ],
+                },
+            )
 
         assert result.structured_content["status"] == "success"
         assert result.structured_content["applied"] is True
-        mock_pinot_client.reload_table_filters.assert_called_once_with(dry_run=False)
+        assert mock_pinot_client.reload_table_filters.call_args_list == [
+            call(dry_run=True),
+            call(dry_run=True),
+            call(
+                dry_run=False,
+                expected_filters=["prod_*", "analytics"],
+                require_expected=True,
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_tool_reload_table_filters_rejects_changed_candidate(
+        self, mock_pinot_client
+    ):
+        base = {
+            "status": "preview",
+            "message": "preview",
+            "applied": False,
+            "previous_filter_count": 0,
+            "new_filter_count": 1,
+            "previous_filters": None,
+        }
+        mock_pinot_client.reload_table_filters.side_effect = [
+            {**base, "new_filters": ["first_*"]},
+            {**base, "new_filters": ["changed_*"]},
+        ]
+        async with Client(mcp) as client:
+            preview = await client.call_tool("reload_table_filters", {})
+            result = await client.call_tool(
+                "reload_table_filters",
+                {
+                    "dry_run": False,
+                    "confirmation_token": preview.structured_content[
+                        "confirmation_token"
+                    ],
+                },
+                raise_on_error=False,
+            )
+
+        assert result.is_error is True
+        assert mock_pinot_client.reload_table_filters.call_count == 2
 
     @pytest.mark.asyncio
     async def test_tool_get_table_size(self, mock_pinot_client):
@@ -624,10 +660,115 @@ class TestFastMCPServer:
                 },
                 raise_on_error=False,
             )
+            malleated_replay = await client.call_tool(
+                "create_schema",
+                {
+                    "schema": SCHEMA_INPUT,
+                    "dry_run": False,
+                    "confirmation_token": token + "!",
+                },
+                raise_on_error=False,
+            )
 
         assert applied.structured_content["applied"] is True
         assert replay.is_error is True
+        assert malleated_replay.is_error is True
         mock_pinot_client.create_schema.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_confirmation_rejects_tampered_signature_and_expired_token(
+        self, mock_pinot_client
+    ):
+        import mcp_pinot.server as server
+
+        async with Client(mcp) as client:
+            with patch("mcp_pinot.server.time.time", return_value=1_000):
+                preview = await client.call_tool(
+                    "create_schema", {"schema": SCHEMA_INPUT}
+                )
+            token = preview.structured_content["confirmation_token"]
+            encoded, signature = token.split(".")
+            replacement = "A" if signature[-1] != "A" else "B"
+            tampered = f"{encoded}.{signature[:-1]}{replacement}"
+            bad_signature = await client.call_tool(
+                "create_schema",
+                {
+                    "schema": SCHEMA_INPUT,
+                    "dry_run": False,
+                    "confirmation_token": tampered,
+                },
+                raise_on_error=False,
+            )
+            with patch(
+                "mcp_pinot.server.time.time",
+                return_value=1_000 + server._CONFIRMATION_TTL_SECONDS,
+            ):
+                expired = await client.call_tool(
+                    "create_schema",
+                    {
+                        "schema": SCHEMA_INPUT,
+                        "dry_run": False,
+                        "confirmation_token": token,
+                    },
+                    raise_on_error=False,
+                )
+
+        assert bad_signature.is_error is True
+        assert expired.is_error is True
+        mock_pinot_client.create_schema.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_confirmation_token_cannot_cross_operations(self, mock_pinot_client):
+        async with Client(mcp) as client:
+            preview = await client.call_tool("create_schema", {"schema": SCHEMA_INPUT})
+            result = await client.call_tool(
+                "update_schema",
+                {
+                    "schema_name": "test",
+                    "schema": SCHEMA_INPUT,
+                    "dry_run": False,
+                    "confirmation_token": preview.structured_content[
+                        "confirmation_token"
+                    ],
+                },
+                raise_on_error=False,
+            )
+
+        assert result.is_error is True
+        mock_pinot_client.update_schema.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rate_limiter_uses_stable_http_peer_and_bounds_cache(self):
+        middleware = _ToolRateLimitMiddleware(
+            0.001, 1, max_clients=2, idle_ttl_seconds=600
+        )
+
+        def context(session_id: str, peer: str) -> MiddlewareContext:
+            request = SimpleNamespace(client=SimpleNamespace(host=peer))
+            request_context = SimpleNamespace(request=request)
+            fastmcp_context = SimpleNamespace(
+                request_context=request_context, session_id=session_id
+            )
+            return MiddlewareContext(
+                message=SimpleNamespace(name="test_connection"),
+                fastmcp_context=fastmcp_context,
+                method="tools/call",
+            )
+
+        async def call_next(_context):
+            return "ok"
+
+        assert (
+            await middleware.on_call_tool(context("session-a", "127.0.0.1"), call_next)
+            == "ok"
+        )
+        with pytest.raises(RateLimitError):
+            await middleware.on_call_tool(context("session-b", "127.0.0.1"), call_next)
+
+        middleware._limiter_for("peer:one")
+        middleware._limiter_for("peer:two")
+        middleware._limiter_for("peer:three")
+        assert list(middleware._limiters) == ["peer:two", "peer:three"]
 
     @pytest.mark.asyncio
     async def test_tool_update_schema(self, mock_pinot_client):

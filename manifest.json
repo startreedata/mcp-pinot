@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/70fe3b34cd6dff1b3bba046638edc72a6467a4fb/schemas/mcpb-manifest-v0.4.schema.json",
   "manifest_version": "0.4",
   "name": "mcp-pinot",
   "display_name": "Apache Pinot MCP Server",
@@ -55,7 +55,7 @@
     { "name": "list_segments",                "description": "List exact segment names for one table." },
     { "name": "get_segment_index_metadata",   "description": "Get per-column index metadata for one exact segment." },
     { "name": "list_segment_metadata",        "description": "Page through row, size, and time metadata for a table's segments." },
-    { "name": "reload_table_filters",         "description": "Preview table-filter YAML by default; explicitly apply only after confirmation." },
+    { "name": "reload_table_filters",         "description": "Preview table-filter YAML and apply the unchanged candidate with its confirmation token." },
     { "name": "create_schema",                "description": "Preview or create a Pinot schema from a JSON object." },
     { "name": "update_schema",                "description": "Preview or update an existing Pinot schema." },
     { "name": "get_schema",                   "description": "Get one Pinot schema and its column definitions." },

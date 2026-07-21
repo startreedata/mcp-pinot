@@ -29,6 +29,8 @@ matches 'http://127.0.0.1:8000/livez' || fail "liveness probe missing"
 matches 'http://127.0.0.1:8000/readyz' || fail "readiness probe missing"
 matches 'mountPath: /tmp' || fail "writable /tmp mount missing"
 matches 'terminationGracePeriodSeconds: 30' || fail "termination grace period missing"
+matches 'maxUnavailable: 1' || fail "single-process rolling strategy missing"
+matches 'maxSurge: 0' || fail "rolling strategy permits overlapping processes"
 matches 'requests:' || fail "resource requests missing"
 matches 'limits:' || fail "resource limits missing"
 
@@ -38,6 +40,8 @@ out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
 matches 'name: AUTH_PROVIDER' || fail "AUTH_PROVIDER not rendered"
 matches 'value: "static"' || fail "AUTH_PROVIDER value wrong"
 matches 'name: MCP_STATIC_TOKEN' || fail "MCP_STATIC_TOKEN not rendered"
+matches 'name: MCP_STATIC_SCOPES' || fail "MCP_STATIC_SCOPES not rendered"
+matches 'value: "pinot:read pinot:write pinot:admin"' || fail "static scopes value wrong"
 matches 'key: static-token' || fail "static-token secretKeyRef missing"
 matches "static-token: \"$(printf s3cret | base64)\"" || fail "static-token not in Secret"
 
@@ -103,8 +107,12 @@ matches 'kind: NetworkPolicy' || fail "NetworkPolicy missing"
 matches 'kind: PodDisruptionBudget' || fail "PodDisruptionBudget missing"
 
 if render --set podDisruptionBudget.enabled=true \
-  --set podDisruptionBudget.maxUnavailable=1 >/dev/null 2>&1; then
+  --set podDisruptionBudget.minAvailable=1 >/dev/null 2>&1; then
   fail "PDB rendered with both minAvailable and maxUnavailable"
+fi
+
+if render --set replicas=2 >/dev/null 2>&1; then
+  fail "multi-replica deployment rendered despite process-local security state"
 fi
 
 echo "OK"

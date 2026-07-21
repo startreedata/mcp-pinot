@@ -9,15 +9,37 @@ from dotenv import find_dotenv, load_dotenv
 import yaml
 
 
-def setup_logging():
-    """Set up basic logging configuration."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        stream=sys.stderr,
-        force=True,
+def setup_logging() -> None:
+    """Configure the application logger without replacing host/framework handlers."""
+    level_name = os.getenv("MCP_LOG_LEVEL", "INFO").strip().upper()
+    level = logging.getLevelNamesMapping().get(level_name)
+    if not isinstance(level, int):
+        raise ValueError(
+            "MCP_LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR, or CRITICAL."
+        )
+
+    app_logger = logging.getLogger("mcp-pinot")
+    handler = next(
+        (
+            existing
+            for existing in app_logger.handlers
+            if getattr(existing, "_mcp_pinot_handler", False)
+        ),
+        None,
     )
+    if handler is None:
+        handler = logging.StreamHandler(sys.stderr)
+        handler._mcp_pinot_handler = True  # type: ignore[attr-defined]
+        app_logger.addHandler(handler)
+    handler.setLevel(level)
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    app_logger.setLevel(level)
+    app_logger.propagate = False
 
 
 def get_logger(name: str = "mcp-pinot") -> logging.Logger:
@@ -85,6 +107,7 @@ DEFAULT_OAUTH_SCOPES = [
     "pinot:write",
     "pinot:admin",
 ]
+PINOT_AUTHORIZATION_SCOPES = frozenset({"pinot:read", "pinot:write", "pinot:admin"})
 
 
 @dataclass
@@ -240,6 +263,11 @@ def _load_table_filters(filter_file_path: str | None) -> list[str] | None:
         isinstance(pattern, str) for pattern in included_tables
     ):
         raise ValueError("'included_tables' must be a list of strings.")
+    if allow_all:
+        logger.warning(
+            "Both allow_all=true and included_tables are configured; the explicit "
+            "included_tables allow-list takes precedence."
+        )
     if len(included_tables) > 1000:
         raise ValueError("'included_tables' may contain at most 1000 patterns.")
     for pattern in included_tables:
@@ -461,6 +489,22 @@ def load_static_token() -> str:
             "non-empty shared secret."
         )
     return token
+
+
+def load_static_scopes() -> list[str]:
+    """Return explicit scopes granted to the shared static service principal."""
+    raw = os.getenv("MCP_STATIC_SCOPES")
+    if not raw or not raw.strip():
+        return ["pinot:read", "pinot:write", "pinot:admin"]
+    scopes = list(dict.fromkeys(raw.replace(",", " ").split()))
+    invalid = sorted(set(scopes) - PINOT_AUTHORIZATION_SCOPES)
+    if invalid:
+        raise ValueError(
+            "MCP_STATIC_SCOPES contains unsupported scopes: " + ", ".join(invalid)
+        )
+    if not scopes:
+        raise ValueError("MCP_STATIC_SCOPES must grant at least one Pinot scope.")
+    return scopes
 
 
 def load_oauth_config() -> OAuthConfig:

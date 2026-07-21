@@ -7,12 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Made confirmation tokens canonical and replay-safe by keying consumption on the
+  signed nonce; malformed base64url, expiry, signature tampering, cross-operation
+  reuse, and string-malleated replays are rejected.
+- Added the same exact-candidate confirmation-token flow to
+  `reload_table_filters`, including protection against file changes between preview
+  and apply.
+- Bound unauthenticated loopback HTTP rate limits to the direct peer instead of a
+  fresh stateless session ID, and bounded/expired the limiter cache.
+- Restored application logging initialization, added the MCP Registry OCI ownership
+  label, and corrected v-stripped Docker release references.
+- Rejected excessive nested percent encoding, classified Pinot SQL errors as safe
+  invalid input, made direct filter reloads preview-first, and replaced quadratic
+  duplicate-field detection.
+
+### Changed
+- Helm intentionally supports one replica while confirmation and rate-limit state
+  are process-local; rolling updates no longer overlap two server processes and the
+  optional PDB defaults to `maxUnavailable: 1`.
+- Static-token principals can be restricted with `MCP_STATIC_SCOPES`.
+- PinotDB is bounded to the supported 9.x line and MCPB schema metadata is pinned to
+  an immutable commit.
+
+## [4.0.0] - 2026-07-22
+
+### Breaking Changes
+- Renamed four noun-first tools for unambiguous, verb-first agent discovery:
+  `table_details` to `get_table_size`, `segment_list` to `list_segments`,
+  `index_column_details` to `get_segment_index_metadata`, and
+  `segment_metadata_details` to `list_segment_metadata`.
+- Aligned package, MCP Registry, MCPB, and Helm metadata on version `4.0.0` for
+  the breaking tool contract.
+
 ### Added
 - Built-in `static` auth provider for service-to-service callers: set
   `AUTH_PROVIDER=static` and `MCP_STATIC_TOKEN=<shared secret>`; a trusted backend
   presents it as `Authorization: Bearer <token>`. Satisfies the non-loopback-bind
   auth requirement without a full OIDC flow. Missing/blank `MCP_STATIC_TOKEN`
   fails startup rather than booting unauthenticated.
+- Bounded, deterministic pagination for `list_segment_metadata`, with a typed
+  `{segments, returned_segments, total_segments, offset, has_more}` result.
+- Explicit failure classification and recovery guidance in every MCP tool
+  description, plus advertised Pinot identifier constraints.
+- A safe preview mode for `reload_table_filters`; it now defaults to
+  `dry_run=true` and requires `dry_run=false` plus the preview's confirmation token
+  to apply unchanged, validated YAML.
+- STDIO is now the safe default transport; HTTP must be selected explicitly.
+
+### Removed
+- The ambiguous `tableconfig_schema_details` MCP tool. Use the single-purpose
+  `get_schema` and `get_table_config` tools instead.
 
 ## [3.2.0] - 2026-06-16
 

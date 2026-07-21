@@ -1,4 +1,7 @@
 {{- include "mcp-pinot.validateExposure" . }}
+{{- if ne (int .Values.replicas) 1 }}
+{{- fail "replicas must be 1: confirmation replay protection and rate limits are process-local" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +10,9 @@ metadata:
     {{- include "mcp-pinot.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "mcp-pinot.selectorLabels" . | nindent 6 }}
@@ -22,6 +28,8 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -100,6 +108,10 @@ spec:
                   name: {{ include "mcp-pinot.fullname" . }}-secrets
                   key: static-token
             {{- end }}
+            {{- if eq $authProvider "static" }}
+            - name: MCP_STATIC_SCOPES
+              value: {{ join " " .Values.mcp.auth.staticScopes | quote }}
+            {{- end }}
 
             # OAuth Configuration
             - name: OAUTH_ENABLED
@@ -146,9 +158,13 @@ spec:
           
           {{- if .Values.healthCheck.liveness.enabled }}
           livenessProbe:
-            httpGet:
-              path: {{ .Values.healthCheck.liveness.path }}
-              port: {{ .Values.healthCheck.liveness.port }}
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2])).status == 200 else 1)"
+                - {{ printf "http://127.0.0.1:%v%s" .Values.healthCheck.liveness.port .Values.healthCheck.liveness.path | quote }}
+                - {{ .Values.healthCheck.liveness.timeoutSeconds | quote }}
             initialDelaySeconds: {{ .Values.healthCheck.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthCheck.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.liveness.timeoutSeconds }}
@@ -157,9 +173,13 @@ spec:
           
           {{- if .Values.healthCheck.readiness.enabled }}
           readinessProbe:
-            httpGet:
-              path: {{ .Values.healthCheck.readiness.path }}
-              port: {{ .Values.healthCheck.readiness.port }}
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2])).status == 200 else 1)"
+                - {{ printf "http://127.0.0.1:%v%s" .Values.healthCheck.readiness.port .Values.healthCheck.readiness.path | quote }}
+                - {{ .Values.healthCheck.readiness.timeoutSeconds | quote }}
             initialDelaySeconds: {{ .Values.healthCheck.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthCheck.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.readiness.timeoutSeconds }}
@@ -170,12 +190,28 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+
+          {{- if gt (int .Values.preStopDelaySeconds) 0 }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - python
+                  - -c
+                  - {{ printf "import time; time.sleep(%v)" .Values.preStopDelaySeconds | quote }}
+          {{- end }}
           
-          {{- if .Values.certificate.enabled }}
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.certificate.enabled }}
             - name: tls
               mountPath: /etc/ssl
-          {{- end }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.volumeMounts.additional }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       
       {{- with .Values.nodeSelector }}
       nodeSelector:
@@ -190,9 +226,15 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       
-      {{- if .Values.certificate.enabled }}
       volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpVolume.sizeLimit | quote }}
+        {{- if .Values.certificate.enabled }}
         - name: tls
           secret:
-            secretName: {{ .Values.certificate.secretName }}
-      {{- end }}
+            secretName: {{ .Values.certificate.secretName | default (printf "%s-tls" (include "mcp-pinot.fullname" .)) | quote }}
+        {{- end }}
+        {{- with .Values.volumes.additional }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

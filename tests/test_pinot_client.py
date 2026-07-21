@@ -1,6 +1,8 @@
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from mcp_pinot.config import PinotConfig
 from mcp_pinot.pinot_client import PinotClient
@@ -34,6 +36,7 @@ def mock_connection():
         mock_cursor = MagicMock()
         mock_cursor.description = [("id",), ("name",)]
         mock_cursor.fetchall.return_value = [(1, "Test 1"), (2, "Test 2")]
+        mock_cursor.fetchmany.return_value = [(1, "Test 1"), (2, "Test 2")]
         mock_conn.cursor.return_value = mock_cursor
         mock_connect.return_value = mock_conn
         yield mock_conn
@@ -185,7 +188,8 @@ class TestPinotClient:
             assert result["connection_test"] is False
             assert result["query_test"] is False
             assert result["tables_test"] is False
-            assert result["error"] == "Connection failed"
+            assert "connectivity check failed" in result["error"]
+            assert "Connection failed" not in result["error"]
 
     def test_execute_query_http_success(self, mock_pinot_config, mock_requests):
         """Test successful HTTP query execution."""
@@ -220,7 +224,7 @@ class TestPinotClient:
         }
         mock_requests.post.return_value = mock_response
 
-        with pytest.raises(Exception, match="Query error"):
+        with pytest.raises(ValueError, match="Pinot rejected the SQL query"):
             pinot.execute_query_http("SELECT * FROM nonexistent_table")
 
     def test_execute_query_http_no_result_table(self, mock_pinot_config, mock_requests):
@@ -243,7 +247,7 @@ class TestPinotClient:
 
         # Mock HTTP request to fail
         with patch.object(pinot, "http_request") as mock_http_request:
-            mock_http_request.side_effect = Exception("HTTP failed")
+            mock_http_request.side_effect = requests.ConnectionError("HTTP failed")
 
             # Mock PinotDB execution
             with patch.object(pinot, "execute_query_pinotdb") as mock_pinotdb:
@@ -259,7 +263,7 @@ class TestPinotClient:
         pinot = PinotClient(mock_pinot_config)
 
         with patch.object(pinot, "http_request") as mock_http_request:
-            mock_http_request.side_effect = Exception("HTTP failed")
+            mock_http_request.side_effect = requests.ConnectionError("HTTP failed")
 
             with patch.object(pinot, "execute_query_pinotdb") as mock_pinotdb:
                 mock_pinotdb.side_effect = Exception("PinotDB failed")
@@ -267,6 +271,39 @@ class TestPinotClient:
                 # The actual exception raised is the last one (PinotDB failed)
                 with pytest.raises(Exception, match="PinotDB failed"):
                     pinot.execute_query("SELECT * FROM test_table")
+
+    def test_execute_query_does_not_duplicate_after_timeout(self, mock_pinot_config):
+        """Ambiguous timeouts must not launch the same query on a fallback transport."""
+        pinot = PinotClient(mock_pinot_config)
+        with (
+            patch.object(
+                pinot,
+                "execute_query_http",
+                side_effect=requests.ReadTimeout("timed out"),
+            ),
+            patch.object(pinot, "execute_query_pinotdb") as mock_pinotdb,
+        ):
+            with pytest.raises(requests.ReadTimeout):
+                pinot.execute_query("SELECT * FROM test_table")
+        mock_pinotdb.assert_not_called()
+
+    def test_execute_query_applies_upstream_row_bound(
+        self, mock_pinot_config, mock_requests
+    ):
+        """The MCP fetch bound is part of SQL sent to Pinot, not a local slice."""
+        pinot = PinotClient(mock_pinot_config)
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "resultTable": {
+                "dataSchema": {"columnNames": ["id"]},
+                "rows": [[1]],
+            }
+        }
+        mock_requests.post.return_value = mock_response
+
+        pinot.execute_query("SELECT id FROM test_table", max_rows=23)
+
+        assert mock_requests.post.call_args.kwargs["json"]["sql"].endswith("LIMIT 23")
 
     def test_preprocess_query_removes_database_prefix(self, mock_pinot_config):
         """Test query preprocessing removes database prefix."""
@@ -278,6 +315,18 @@ class TestPinotClient:
 
         assert "test_db." not in processed
         assert "my_table" in processed
+
+    def test_preprocess_query_does_not_log_sql(self, mock_pinot_config, caplog):
+        """Query text may contain sensitive literals and must stay out of logs."""
+        mock_pinot_config.database = "test_db"
+        pinot = PinotClient(mock_pinot_config)
+        query = "SELECT * FROM test_db.my_table WHERE secret = 'do-not-log'"
+
+        with caplog.at_level(logging.DEBUG, logger="mcp_pinot.pinot_client"):
+            pinot.preprocess_query(query)
+
+        assert "do-not-log" not in caplog.text
+        assert query not in caplog.text
 
     def test_preprocess_query_adds_timeout(self, mock_pinot_config):
         """Test query preprocessing adds timeout option."""
@@ -748,7 +797,7 @@ class TestPinotClient:
 
         assert result == [{"literal": "; DROP TABLE test_table"}]
         assert mock_requests.post.call_args.kwargs["json"]["sql"] == (
-            "SELECT '; DROP TABLE test_table' AS literal FROM test_table"
+            "SELECT '; DROP TABLE test_table' AS literal FROM test_table LIMIT 501"
         )
 
     def test_execute_query_allows_with_select(self, mock_pinot_config, mock_requests):
@@ -792,10 +841,10 @@ class TestPinotClient:
             "SELECT * FROM test_table ORDER BY created_at DESC LIMIT 10"
         )
 
-    def test_execute_query_allows_trailing_pinot_option(
+    def test_execute_query_rejects_trailing_pinot_option(
         self, mock_pinot_config, mock_requests
     ):
-        """Test Pinot OPTION clauses are accepted after parser validation."""
+        """Callers cannot override server-controlled Pinot execution options."""
         pinot = PinotClient(mock_pinot_config)
 
         mock_response = MagicMock()
@@ -807,12 +856,9 @@ class TestPinotClient:
         }
         mock_requests.post.return_value = mock_response
 
-        result = pinot.execute_query("SELECT * FROM test_table OPTION(timeoutMs=30000)")
-
-        assert result == [{"col1": "data"}]
-        assert mock_requests.post.call_args.kwargs["json"]["sql"] == (
-            "SELECT * FROM test_table OPTION(timeoutMs=30000)"
-        )
+        with pytest.raises(ValueError, match="server-controlled"):
+            pinot.execute_query("SELECT * FROM test_table OPTION(timeoutMs=30000)")
+        mock_requests.post.assert_not_called()
 
     def test_execute_query_rejects_invalid_select_syntax(
         self, mock_pinot_config, mock_requests
@@ -1148,14 +1194,52 @@ class TestPinotClient:
         pinot = PinotClient(mock_pinot_config)
 
         # Reload with new filters
-        result = pinot.reload_table_filters()
+        result = pinot.reload_table_filters(dry_run=False)
 
         assert result["status"] == "success"
+        assert result["applied"] is True
         assert result["previous_filter_count"] == 1
         assert result["new_filter_count"] == 2
         assert result["previous_filters"] == ["old_table"]
         assert set(result["new_filters"]) == {"table1", "table2"}
         assert pinot._included_tables == ["table1", "table2"]
+
+    def test_reload_table_filters_dry_run_does_not_mutate(
+        self, mock_pinot_config, tmp_path
+    ):
+        """A dry run validates the candidate file but preserves active filters."""
+        filter_file = tmp_path / "filters.yaml"
+        filter_file.write_text("included_tables:\n  - candidate_*\n")
+
+        mock_pinot_config.table_filter_file = str(filter_file)
+        mock_pinot_config.included_tables = ["active_*"]
+        pinot = PinotClient(mock_pinot_config)
+
+        result = pinot.reload_table_filters(dry_run=True)
+
+        assert result["status"] == "preview"
+        assert result["applied"] is False
+        assert result["previous_filters"] == ["active_*"]
+        assert result["new_filters"] == ["candidate_*"]
+        assert pinot._included_tables == ["active_*"]
+
+    def test_reload_table_filters_rejects_candidate_changed_after_preview(
+        self, mock_pinot_config, tmp_path
+    ):
+        filter_file = tmp_path / "filters.yaml"
+        filter_file.write_text("included_tables:\n  - changed_*\n")
+        mock_pinot_config.table_filter_file = str(filter_file)
+        mock_pinot_config.included_tables = ["active_*"]
+        pinot = PinotClient(mock_pinot_config)
+
+        with pytest.raises(ValueError, match="changed after preview"):
+            pinot.reload_table_filters(
+                dry_run=False,
+                expected_filters=["previewed_*"],
+                require_expected=True,
+            )
+
+        assert pinot._included_tables == ["active_*"]
 
     def test_reload_table_filters_no_file_configured(self, mock_pinot_config):
         """Test reload fails when no filter file is configured."""
@@ -1173,8 +1257,10 @@ class TestPinotClient:
         with pytest.raises(FileNotFoundError):
             pinot.reload_table_filters()
 
-    def test_reload_table_filters_empty_list(self, mock_pinot_config, tmp_path):
-        """Test reload with empty filter list returns None."""
+    def test_reload_table_filters_empty_list_fails_closed(
+        self, mock_pinot_config, tmp_path
+    ):
+        """An accidental empty list fails without changing the old policy."""
         # Create filter file with empty list
         filter_file = tmp_path / "filters.yaml"
         filter_file.write_text("included_tables: []\n")
@@ -1183,13 +1269,9 @@ class TestPinotClient:
         mock_pinot_config.included_tables = ["table1", "table2"]
         pinot = PinotClient(mock_pinot_config)
 
-        result = pinot.reload_table_filters()
-
-        assert result["status"] == "success"
-        assert result["previous_filter_count"] == 2
-        assert result["new_filter_count"] == 0
-        assert result["new_filters"] is None
-        assert pinot._included_tables is None
+        with pytest.raises(ValueError, match="allow_all: true"):
+            pinot.reload_table_filters()
+        assert pinot._included_tables == ["table1", "table2"]
 
     def test_reload_table_filters_from_none_to_filters(
         self, mock_pinot_config, tmp_path
@@ -1202,7 +1284,7 @@ class TestPinotClient:
         mock_pinot_config.included_tables = None
         pinot = PinotClient(mock_pinot_config)
 
-        result = pinot.reload_table_filters()
+        result = pinot.reload_table_filters(dry_run=False)
 
         assert result["status"] == "success"
         assert result["previous_filter_count"] == 0

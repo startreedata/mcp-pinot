@@ -1,38 +1,45 @@
-# Use Python 3.12 as the base image
-FROM python:3.12-slim
+# syntax=docker/dockerfile:1.7
 
-# Set working directory
+ARG PYTHON_IMAGE=python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
+
+FROM ${PYTHON_IMAGE} AS builder
+
+ARG UV_VERSION=0.8.22
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 
-# Copy project files
-COPY . /app/
+# Copy only the files required to build the application. Dependencies are
+# resolved from the committed lockfile; --frozen prevents implicit lock updates.
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY mcp_pinot ./mcp_pinot
+RUN uv sync --frozen --no-dev --no-editable
 
-# Install Python dependencies
-RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir .
+FROM ${PYTHON_IMAGE} AS runtime
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
+LABEL io.modelcontextprotocol.server.name="io.github.startreedata/mcp-pinot"
 
-# Create a non-root user with UID 1000
-RUN groupadd -r -g 1000 appuser && useradd -r -g appuser -u 1000 -m appuser
+ENV HOME=/tmp \
+    PATH=/app/.venv/bin:${PATH} \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    XDG_CACHE_HOME=/tmp/.cache \
+    XDG_DATA_HOME=/tmp/.local/share
 
-# Set the HOME environment variable for the appuser
-ENV HOME=/home/appuser
+WORKDIR /app
 
-# Make the run script executable
-RUN chmod +x /app/run.sh
+RUN groupadd --gid 1000 appuser \
+    && useradd --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin appuser \
+    && mkdir -p /app/config \
+    && chown -R 1000:1000 /app
 
-# Change ownership of the entire app directory to the appuser
-RUN chown -R appuser:appuser /app
+COPY --from=builder /app/.venv /app/.venv
+COPY --chmod=0555 run.sh /app/run.sh
 
-# Switch to the non-root user
-USER appuser
+USER 1000:1000
 
-# Set the entry point to use the wrapper script
 ENTRYPOINT ["/app/run.sh"]

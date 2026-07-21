@@ -1,11 +1,13 @@
 import base64
 from fnmatch import fnmatch
+import hashlib
 import json
 import re
 from threading import Lock
 from typing import Any
+import unicodedata
+from urllib.parse import quote, unquote
 
-import pandas as pd
 from pinotdb import connect
 import requests
 import sqlglot
@@ -15,6 +17,8 @@ from sqlglot.errors import ParseError
 from .config import PinotConfig, get_logger, reload_table_filters_from_file
 
 logger = get_logger()
+
+MAX_QUERY_ROWS = 10_501
 
 
 def get_auth_credentials(config: PinotConfig) -> tuple[str | None, str | None]:
@@ -45,8 +49,47 @@ class PinotEndpoints:
     TABLE_SIZE = "tables/{}/size"
     SEGMENTS = "segments/{}"
     SEGMENT_METADATA = "segments/{}/metadata"
-    SEGMENT_DETAIL = "segments/{}_{}/{}/metadata?columns=*"
+    SEGMENT_DETAIL = "segments/{}/{}/metadata?columns=*"
     TABLE_CONFIG = "tableConfigs/{}"
+
+
+_FORBIDDEN_PATH_COMPONENT_CHARS = frozenset("/\\?#")
+
+
+def validate_pinot_path_component(value: str, component_name: str) -> str:
+    """Validate one untrusted value before it is used as a Pinot URL segment.
+
+    Validation also examines repeatedly percent-decoded forms so encoded traversal
+    and delimiter payloads cannot become dangerous in an upstream proxy or client.
+    The original, validated value is returned for callers that do not build URLs.
+    """
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{component_name} must be a non-empty string.")
+
+    candidate = value
+    for decoding_round in range(6):
+        if candidate in {".", ".."}:
+            raise ValueError(f"{component_name} must not be a traversal segment.")
+        if any(char in _FORBIDDEN_PATH_COMPONENT_CHARS for char in candidate):
+            raise ValueError(f"{component_name} contains a URL path delimiter.")
+        if any(unicodedata.category(char) == "Cc" for char in candidate):
+            raise ValueError(f"{component_name} contains a control character.")
+        decoded = unquote(candidate)
+        if decoded == candidate:
+            return value
+        if decoding_round == 5:
+            raise ValueError(
+                f"{component_name} contains excessive percent-encoding layers."
+            )
+        candidate = decoded
+
+    raise AssertionError("unreachable percent-decoding state")
+
+
+def encode_pinot_path_component(value: str, component_name: str) -> str:
+    """Validate and percent-encode a value as exactly one Pinot URL segment."""
+    validate_pinot_path_component(value, component_name)
+    return quote(value, safe="")
 
 
 _READ_QUERY_START_KEYWORDS = {"SELECT", "WITH"}
@@ -382,15 +425,28 @@ class PinotClient:
         self._included_tables = config.included_tables
         self._config_lock = Lock()  # For thread-safe filter updates
 
-    def reload_table_filters(self) -> dict[str, Any]:
-        """Reload table filters from the configured filter file without restarting.
+    def reload_table_filters(
+        self,
+        dry_run: bool = True,
+        *,
+        expected_filters: list[str] | None = None,
+        require_expected: bool = False,
+    ) -> dict[str, Any]:
+        """Preview or reload filters from the configured file without restarting.
 
         This allows dynamic updates to the table access list by:
         1. Editing the YAML filter file
         2. Calling this method to reload the configuration
 
+        Args:
+            dry_run: Validate and report the candidate filters without applying them.
+                Defaults to ``True`` so direct/library callers are preview-first too.
+            expected_filters: Exact candidate approved by the preceding preview.
+            require_expected: Reject the apply if the file no longer produces the
+                expected candidate, preventing preview/apply time-of-check races.
+
         Returns:
-            dict: Status information with previous and new filter counts
+            dict: Preview/application status with previous and new filters and counts.
 
         Raises:
             ValueError: If no table filter file is configured
@@ -403,37 +459,72 @@ class PinotClient:
                 "Set PINOT_TABLE_FILTER_FILE to enable hot-reload."
             )
 
-        logger.info(f"Reloading table filters from {self.config.table_filter_file}")
+        action = "Previewing" if dry_run else "Reloading"
+        logger.info(f"{action} table filters from {self.config.table_filter_file}")
 
         # Load new filters (validates file exists and parses YAML)
         new_filters = reload_table_filters_from_file(self.config.table_filter_file)
+        if require_expected and new_filters != expected_filters:
+            raise ValueError(
+                "Table filter file changed after preview; preview the current file "
+                "again and confirm the new candidate."
+            )
 
-        # Atomically update the filters with lock
+        # Snapshot and, unless this is a preview, atomically update the filters.
         with self._config_lock:
-            old_filters = self._included_tables
+            old_filters = (
+                list(self._included_tables)
+                if self._included_tables is not None
+                else None
+            )
             old_count = len(old_filters) if old_filters else 0
-            self._included_tables = new_filters
+            if not dry_run:
+                self._included_tables = new_filters
             new_count = len(new_filters) if new_filters else 0
 
-        logger.info(f"Table filters reloaded: {old_count} -> {new_count} tables")
+        if dry_run:
+            logger.info(f"Table filter preview: {old_count} -> {new_count} patterns")
+        else:
+            logger.info(f"Table filters reloaded: {old_count} -> {new_count} patterns")
 
         return {
-            "status": "success",
-            "message": "Table filters reloaded successfully",
+            "status": "preview" if dry_run else "success",
+            "message": (
+                "Table filters validated; no change applied"
+                if dry_run
+                else "Table filters reloaded successfully"
+            ),
+            "applied": not dry_run,
             "previous_filter_count": old_count,
             "new_filter_count": new_count,
             "previous_filters": old_filters,
             "new_filters": new_filters,
         }
 
-    def _create_auth_headers(self) -> dict[str, str]:
+    def _create_auth_headers(self, *, controller: bool = False) -> dict[str, str]:
         """Create HTTP headers with authentication based on configuration"""
         headers = {"accept": "application/json", "Content-Type": "application/json"}
 
-        if self.config.token:
-            headers["Authorization"] = self.config.token
-        elif self.config.username and self.config.password:
-            creds_str = f"{self.config.username}:{self.config.password}"
+        token = (
+            self.config.controller_token or self.config.token
+            if controller
+            else self.config.token
+        )
+        username = (
+            self.config.controller_username or self.config.username
+            if controller
+            else self.config.username
+        )
+        password = (
+            self.config.controller_password or self.config.password
+            if controller
+            else self.config.password
+        )
+
+        if token:
+            headers["Authorization"] = token
+        elif username and password:
+            creds_str = f"{username}:{password}"
             credentials = base64.b64encode(creds_str.encode()).decode()
             headers["Authorization"] = f"Basic {credentials}"
 
@@ -449,7 +540,10 @@ class PinotClient:
         json_data: dict[str, Any] | None = None,
     ) -> requests.Response:
         """Make HTTP request with authentication headers and timeout handling"""
-        headers = self._create_auth_headers()
+        is_controller = url.rstrip("/").startswith(
+            self.config.controller_url.rstrip("/") + "/"
+        )
+        headers = self._create_auth_headers(controller=is_controller)
 
         try:
             if method.upper() == "POST":
@@ -539,15 +633,19 @@ class PinotClient:
             result["sample_tables"] = tables[:5] if tables else []
 
         except Exception as e:
-            result["error"] = str(e)
-            logger.error(f"Connection test failed: {e}")
+            result["error"] = (
+                "Pinot connectivity check failed. Verify endpoints, credentials, "
+                "and network access; consult server logs for the correlation detail."
+            )
+            logger.error("Connection test failed: %s", e, exc_info=True)
 
         return result
 
     def execute_query_http(self, query: str) -> list[dict[str, Any]]:
         """Alternative query execution using HTTP requests directly to broker"""
         broker_url = f"{self.config.broker_scheme}://{self.config.broker_host}:{self.config.broker_port}/{PinotEndpoints.QUERY_SQL}"
-        logger.debug(f"Executing query via HTTP: {query[:100]}...")
+        query_id = hashlib.sha256(query.encode()).hexdigest()[:16]
+        logger.debug("Executing query via HTTP (query_id=%s)", query_id)
 
         query_options = f"timeoutMs={self.config.query_timeout * 1000}"
         if self.config.use_msqe:
@@ -562,7 +660,15 @@ class PinotClient:
 
         # Check for query errors in response
         if result_data.get("exceptions"):
-            raise Exception(f"Query error: {result_data['exceptions']}")
+            logger.info(
+                "Pinot rejected query syntax or semantics (query_id=%s, errors=%d)",
+                query_id,
+                len(result_data["exceptions"]),
+            )
+            raise ValueError(
+                "Pinot rejected the SQL query. Check table and column names, "
+                "function arguments, and query syntax."
+            )
 
         # Parse the result into pandas-like format
         if "resultTable" in result_data:
@@ -581,9 +687,16 @@ class PinotClient:
         self,
         query: str,
         params: dict[str, Any] | None = None,
+        max_rows: int = 501,
     ) -> list[dict[str, Any]]:
         query = self.validate_read_query(query)
-        logger.debug(f"Executing query: {query[:100]}...")  # Log first 100 chars
+        if max_rows < 1 or max_rows > MAX_QUERY_ROWS:
+            raise ValueError(f"max_rows must be between 1 and {MAX_QUERY_ROWS}")
+        query = self._bound_read_query(query, max_rows)
+        query_id = hashlib.sha256(query.encode()).hexdigest()[:16]
+        logger.debug(
+            "Executing bounded query (query_id=%s, max_rows=%d)", query_id, max_rows
+        )
 
         # Validate table access authorization
         self._validate_table_access(query)
@@ -591,17 +704,46 @@ class PinotClient:
         # Use HTTP as primary method since it works reliably with authenticated clusters
         try:
             return self.execute_query_http(query)
-        except Exception as e:
-            logger.warning(f"HTTP query failed: {e}, trying PinotDB fallback")
+        except requests.exceptions.ReadTimeout as e:
+            # A read timeout can occur after Pinot accepted and executed the query.
+            # Do not immediately duplicate that work through a second transport.
+            logger.warning(
+                "HTTP query timed out after submission (query_id=%s); not retrying "
+                "through PinotDB: %s",
+                query_id,
+                type(e).__name__,
+            )
+            raise
+        except requests.exceptions.ConnectionError as e:
+            logger.warning(
+                "HTTP connection failed before a response (query_id=%s); trying "
+                "PinotDB fallback: %s",
+                query_id,
+                e,
+            )
             try:
-                return self.execute_query_pinotdb(query, params)
+                return self.execute_query_pinotdb(query, params, max_rows=max_rows)
             except Exception as pinotdb_error:
-                error_msg = (
-                    f"Both HTTP and PinotDB queries failed. "
-                    f"HTTP: {e}, PinotDB: {pinotdb_error}"
+                logger.error(
+                    "Both query transports failed (query_id=%s): http=%s pinotdb=%s",
+                    query_id,
+                    type(e).__name__,
+                    type(pinotdb_error).__name__,
                 )
-                logger.error(error_msg)
                 raise
+
+    def _bound_read_query(self, query: str, max_rows: int) -> str:
+        """Apply a hard upper row bound at Pinot rather than after materialization."""
+        expression = sqlglot.parse_one(query, read="trino")
+        if not isinstance(expression, exp.Select):
+            raise ValueError("Only read-only SELECT queries are allowed for read-query")
+        existing = expression.args.get("limit")
+        if existing is not None:
+            literal = existing.expression
+            if not isinstance(literal, exp.Literal) or not literal.is_int:
+                raise ValueError("LIMIT must be a literal integer.")
+            max_rows = min(max_rows, int(literal.this))
+        return expression.limit(max_rows).sql(dialect="trino")
 
     def validate_read_query(self, query: str) -> str:
         """Validate and normalize SQL accepted by the read-query tool."""
@@ -637,6 +779,11 @@ class PinotClient:
             raise ValueError("WITH queries must resolve to a SELECT statement")
 
         parse_statement = _strip_trailing_pinot_option(statement)
+        if parse_statement != statement:
+            raise ValueError(
+                "Pinot OPTION clauses are server-controlled; remove OPTION(...) "
+                "from the query."
+            )
         try:
             expression = sqlglot.parse_one(parse_statement, read="trino")
         except ParseError as e:
@@ -654,7 +801,7 @@ class PinotClient:
         # Remove database prefix if present
         if self.config.database and f"{self.config.database}." in query:
             query = query.replace(f"{self.config.database}.", "")
-            logger.debug(f"Removed database prefix, query now: {query[:100]}...")
+            logger.debug("Removed configured database prefix from query")
 
         # Add query timeout hint if not present
         if "SET timeoutMs" not in query.upper() and "OPTION" not in query.upper():
@@ -670,29 +817,34 @@ class PinotClient:
         self,
         query: str,
         params: dict[str, Any] | None = None,
+        max_rows: int = 501,
     ) -> list[dict[str, Any]]:
         """Original pinotdb-based query execution"""
-        logger.debug(f"Executing query via PinotDB: {query[:100]}...")
+        query_id = hashlib.sha256(query.encode()).hexdigest()[:16]
+        logger.debug("Executing query via PinotDB (query_id=%s)", query_id)
         try:
             current_conn = self.get_connection()
             curs = current_conn.cursor()
 
             query = self.preprocess_query(query)
-            logger.debug(f"Final query: {query}")
-
             curs.execute(query)
 
-            # Get column names and fetch results
+            # Get only the bounded page. Avoid pandas/fetchall, which materialized
+            # arbitrarily large query results in the MCP process.
             columns = [item[0] for item in curs.description] if curs.description else []
-            df = pd.DataFrame(curs.fetchall(), columns=columns)
-
-            result = df.to_dict(orient="records")
-            logger.debug(f"Query executed successfully, returned {len(result)} rows")
+            rows = curs.fetchmany(max_rows)
+            result = [dict(zip(columns, row, strict=False)) for row in rows]
+            logger.debug(
+                "Query executed successfully (query_id=%s, rows=%d)",
+                query_id,
+                len(result),
+            )
             return result
 
         except Exception as e:
-            logger.error(f"Query execution failed: {e}")
-            logger.error(f"Query was: {query}")
+            logger.error(
+                "Query execution failed (query_id=%s): %s", query_id, e, exc_info=True
+            )
             # Reset connection on error
             self._conn = None
             raise
@@ -752,7 +904,9 @@ class PinotClient:
 
         return list(set(matches))
 
-    def _validate_table_name_access(self, table_name: str) -> None:
+    def _validate_table_name_access(
+        self, table_name: str, component_name: str = "table name"
+    ) -> None:
         """Validate that a table name is allowed by filtering rules.
 
         Args:
@@ -761,6 +915,7 @@ class PinotClient:
         Raises:
             ValueError: If table is not in included_tables filter
         """
+        validate_pinot_path_component(table_name, component_name)
         included = self._included_tables
         if not included:
             return
@@ -770,6 +925,13 @@ class PinotClient:
             raise ValueError(
                 f"Access denied to table '{table_name}'. Allowed tables: {allowed}"
             )
+
+    def _encode_authorized_path_component(
+        self, value: str, component_name: str = "table name"
+    ) -> str:
+        """Apply table filtering and encode a name as one controller URL segment."""
+        self._validate_table_name_access(value, component_name)
+        return encode_pinot_path_component(value, component_name)
 
     def _extract_and_validate_name_from_json(self, json_str: str, key: str) -> None:
         """Extract and validate table/schema name from JSON.
@@ -786,7 +948,8 @@ class PinotClient:
             name = data.get(key)
             if not name:
                 raise ValueError(f"Missing required field '{key}' in JSON")
-            self._validate_table_name_access(name)
+            component_name = "schema name" if key == "schemaName" else "table name"
+            self._validate_table_name_access(name, component_name)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON: {e}") from e
 
@@ -843,8 +1006,8 @@ class PinotClient:
         tableName: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        self._validate_table_name_access(tableName)
-        endpoint = PinotEndpoints.TABLE_SIZE.format(tableName)
+        table_path = self._encode_authorized_path_component(tableName)
+        endpoint = PinotEndpoints.TABLE_SIZE.format(table_path)
         url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching table details for {tableName} from: {url}")
         response = self.http_request(url)
@@ -855,8 +1018,8 @@ class PinotClient:
         tableName: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        self._validate_table_name_access(tableName)
-        endpoint = PinotEndpoints.SEGMENT_METADATA.format(tableName)
+        table_path = self._encode_authorized_path_component(tableName)
+        endpoint = PinotEndpoints.SEGMENT_METADATA.format(table_path)
         url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching segment metadata for {tableName} from: {url}")
         response = self.http_request(url)
@@ -867,8 +1030,8 @@ class PinotClient:
         tableName: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        self._validate_table_name_access(tableName)
-        endpoint = PinotEndpoints.SEGMENTS.format(tableName)
+        table_path = self._encode_authorized_path_component(tableName)
+        endpoint = PinotEndpoints.SEGMENTS.format(table_path)
         url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching segments for {tableName} from: {url}")
         response = self.http_request(url)
@@ -881,10 +1044,12 @@ class PinotClient:
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self._validate_table_name_access(tableName)
+        segment_path = encode_pinot_path_component(segmentName, "segment name")
         for type_suffix in ["REALTIME", "OFFLINE"]:
-            endpoint = PinotEndpoints.SEGMENT_DETAIL.format(
-                tableName, type_suffix, segmentName
+            table_path = encode_pinot_path_component(
+                f"{tableName}_{type_suffix}", "physical table name"
             )
+            endpoint = PinotEndpoints.SEGMENT_DETAIL.format(table_path, segment_path)
             url = f"{self.config.controller_url}/{endpoint}"
             logger.debug(f"Trying to fetch index column details from: {url}")
             try:
@@ -904,8 +1069,8 @@ class PinotClient:
         tableName: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        self._validate_table_name_access(tableName)
-        endpoint = PinotEndpoints.TABLE_CONFIG.format(tableName)
+        table_path = self._encode_authorized_path_component(tableName)
+        endpoint = PinotEndpoints.TABLE_CONFIG.format(table_path)
         url = f"{self.config.controller_url}/{endpoint}"
         logger.debug(f"Fetching table config for {tableName} from: {url}")
         response = self.http_request(url)
@@ -914,13 +1079,13 @@ class PinotClient:
     def create_schema(
         self,
         schemaJson: str,
-        override: bool = True,
+        override: bool = False,
         force: bool = False,
     ) -> dict[str, Any]:
         self._extract_and_validate_name_from_json(schemaJson, "schemaName")
         url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}"
         params = {"override": str(override).lower(), "force": str(force).lower()}
-        headers = self._create_auth_headers()
+        headers = self._create_auth_headers(controller=True)
         headers["Content-Type"] = "application/json"
         response = requests.post(
             url,
@@ -947,10 +1112,10 @@ class PinotClient:
         reload: bool = False,
         force: bool = False,
     ) -> dict[str, Any]:
-        self._validate_table_name_access(schemaName)
-        url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}/{schemaName}"
+        schema_path = self._encode_authorized_path_component(schemaName, "schema name")
+        url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}/{schema_path}"
         params = {"reload": str(reload).lower(), "force": str(force).lower()}
-        headers = self._create_auth_headers()
+        headers = self._create_auth_headers(controller=True)
         headers["Content-Type"] = "application/json"
         response = requests.put(
             url,
@@ -971,9 +1136,9 @@ class PinotClient:
             }
 
     def get_schema(self, schemaName: str) -> dict[str, Any]:
-        self._validate_table_name_access(schemaName)
-        url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}/{schemaName}"
-        headers = self._create_auth_headers()
+        schema_path = self._encode_authorized_path_component(schemaName, "schema name")
+        url = f"{self.config.controller_url}/{PinotEndpoints.SCHEMAS}/{schema_path}"
+        headers = self._create_auth_headers(controller=True)
         response = requests.get(
             url,
             headers=headers,
@@ -993,7 +1158,7 @@ class PinotClient:
         params: dict[str, str] = {}
         if validationTypesToSkip:
             params["validationTypesToSkip"] = validationTypesToSkip
-        headers = self._create_auth_headers()
+        headers = self._create_auth_headers(controller=True)
         headers["Content-Type"] = "application/json"
         response = requests.post(
             url,
@@ -1013,18 +1178,41 @@ class PinotClient:
                 "response_body": response.text,
             }
 
+    def validate_table_config(
+        self,
+        table_config_json: str,
+        validation_types_to_skip: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Ask Pinot to validate a table config without mutating cluster state."""
+        self._extract_and_validate_name_from_json(table_config_json, "tableName")
+        url = f"{self.config.controller_url}/tableConfigs/validate"
+        params: dict[str, str] = {}
+        if validation_types_to_skip:
+            params["validationTypesToSkip"] = ",".join(validation_types_to_skip)
+        headers = self._create_auth_headers(controller=True)
+        response = requests.post(
+            url,
+            headers=headers,
+            params=params,
+            data=table_config_json,
+            timeout=(self.config.connection_timeout, self.config.request_timeout),
+            verify=True,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def update_table_config(
         self,
         tableName: str,
         tableConfigJson: str,
         validationTypesToSkip: str | None = None,
     ) -> dict[str, Any]:
-        self._validate_table_name_access(tableName)
-        url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}/{tableName}"
+        table_path = self._encode_authorized_path_component(tableName)
+        url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}/{table_path}"
         params: dict[str, str] = {}
         if validationTypesToSkip:
             params["validationTypesToSkip"] = validationTypesToSkip
-        headers = self._create_auth_headers()
+        headers = self._create_auth_headers(controller=True)
         headers["Content-Type"] = "application/json"
         response = requests.put(
             url,
@@ -1049,12 +1237,12 @@ class PinotClient:
         tableName: str,
         tableType: str | None = None,
     ) -> dict[str, Any]:
-        self._validate_table_name_access(tableName)
-        url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}/{tableName}"
+        table_path = self._encode_authorized_path_component(tableName)
+        url = f"{self.config.controller_url}/{PinotEndpoints.TABLES}/{table_path}"
         params: dict[str, str] = {}
         if tableType:
             params["type"] = tableType
-        headers = self._create_auth_headers()
+        headers = self._create_auth_headers(controller=True)
         response = requests.get(
             url,
             headers=headers,

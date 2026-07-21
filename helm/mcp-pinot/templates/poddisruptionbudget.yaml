@@ -1,0 +1,20 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- if and (ne .Values.podDisruptionBudget.minAvailable nil) (ne .Values.podDisruptionBudget.maxUnavailable nil) }}
+{{- fail "podDisruptionBudget.minAvailable and podDisruptionBudget.maxUnavailable are mutually exclusive" }}
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcp-pinot.fullname" . }}
+  labels:
+    {{- include "mcp-pinot.labels" . | nindent 4 }}
+spec:
+  {{- if ne .Values.podDisruptionBudget.minAvailable nil }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "mcp-pinot.selectorLabels" . | nindent 6 }}
+{{- end }}

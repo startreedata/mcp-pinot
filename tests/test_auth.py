@@ -18,6 +18,7 @@ _OAUTH_ENV = {
     "OAUTH_CLIENT_ID": "id",
     "OAUTH_CLIENT_SECRET": "secret",
     "OAUTH_BASE_URL": "http://localhost:8080",
+    "OAUTH_AUDIENCE": "http://localhost:8080/mcp",
 }
 
 
@@ -121,6 +122,81 @@ class TestStaticAuth:
                 assert await post() == 401
                 assert await post(Authorization="Bearer wrong") == 401
                 assert await post(Authorization="Bearer s3cret") == 200
+
+    @pytest.mark.asyncio
+    async def test_static_read_scope_is_enforced_at_runtime(self):
+        """A real auth provider permits read tools and denies write tools."""
+        from fastmcp import FastMCP
+        from fastmcp.server.auth import require_scopes
+        import httpx
+
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(
+                os.environ,
+                {
+                    "MCP_STATIC_TOKEN": "read-only-token",
+                    "MCP_STATIC_SCOPES": "pinot:read",
+                },
+                clear=True,
+            ):
+                auth = build_auth(_cfg(auth_provider="static"))
+
+        server = FastMCP("scope-test", auth=auth)
+
+        @server.tool(auth=require_scopes("pinot:read"))
+        def read_tool() -> str:
+            return "read-ok"
+
+        @server.tool(auth=require_scopes("pinot:write"))
+        def write_tool() -> str:
+            return "write-should-not-run"
+
+        app = server.http_app(path="/mcp", stateless_http=True, json_response=True)
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Authorization": "Bearer read-only-token",
+            "MCP-Protocol-Version": "2025-06-18",
+        }
+        initialize = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"},
+            },
+        }
+
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://127.0.0.1:8080"
+            ) as client:
+                assert (
+                    await client.post("/mcp", json=initialize, headers=headers)
+                ).status_code == 200
+
+                async def call_tool(name: str) -> httpx.Response:
+                    return await client.post(
+                        "/mcp",
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 2,
+                            "method": "tools/call",
+                            "params": {"name": name, "arguments": {}},
+                        },
+                        headers=headers,
+                    )
+
+                read_response = await call_tool("read_tool")
+                write_response = await call_tool("write_tool")
+
+        assert read_response.status_code == 200
+        assert "read-ok" in read_response.text
+        assert "write-should-not-run" not in write_response.text
+        # FastMCP hides components the principal lacks scope to invoke.
+        assert "unknown tool" in write_response.text.lower()
 
 
 class TestAuthProviderResolution:

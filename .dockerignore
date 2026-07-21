@@ -1,0 +1,48 @@
+# Version-control and editor metadata
+.git
+.github
+.gitignore
+.dockerignore
+.DS_Store
+.idea
+.vscode
+*.swp
+*~
+
+# Local environments, caches, and build output
+.venv
+venv
+env
+**/__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+coverage.xml
+htmlcov
+build
+dist
+
+# Secrets and machine-local configuration
+.env
+.env.*
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*credentials*.json
+.npmrc
+.pypirc
+
+# Files that are not part of the production image
+tests
+docs
+examples
+assets
+helm
+*.log
+*.sqlite*

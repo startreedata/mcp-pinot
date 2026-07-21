@@ -29,6 +29,19 @@ It allows you to
 - Designed to assist business users via Claude integration
 - and much more.
 
+## Features
+
+- Every tool advertises typed input and output JSON Schemas, MCP risk annotations,
+  and failure-recovery guidance for agent planning.
+- Large query, table, segment-name, and segment-metadata results use bounded
+  `limit`/`offset` pages with `has_more` instead of unbounded context payloads.
+- Read-only SQL is parsed and enforced before execution; validation, permission,
+  and transient connectivity errors are surfaced as actionable MCP errors.
+- Schema and table-config writes support `dry_run`. Table-filter reloads are even
+  safer: they preview by default and require explicit `dry_run=false` to apply.
+- Single-purpose schema and table-config inspection tools avoid ambiguous combined
+  operations: use `get_schema` and `get_table_config` independently.
+
 <a href="https://glama.ai/mcp/servers/@startreedata/mcp-pinot">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@startreedata/mcp-pinot/badge" alt="StarTree Server for Apache Pinot MCP server" />
 </a>

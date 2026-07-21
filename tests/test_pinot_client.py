@@ -1151,11 +1151,31 @@ class TestPinotClient:
         result = pinot.reload_table_filters()
 
         assert result["status"] == "success"
+        assert result["applied"] is True
         assert result["previous_filter_count"] == 1
         assert result["new_filter_count"] == 2
         assert result["previous_filters"] == ["old_table"]
         assert set(result["new_filters"]) == {"table1", "table2"}
         assert pinot._included_tables == ["table1", "table2"]
+
+    def test_reload_table_filters_dry_run_does_not_mutate(
+        self, mock_pinot_config, tmp_path
+    ):
+        """A dry run validates the candidate file but preserves active filters."""
+        filter_file = tmp_path / "filters.yaml"
+        filter_file.write_text("included_tables:\n  - candidate_*\n")
+
+        mock_pinot_config.table_filter_file = str(filter_file)
+        mock_pinot_config.included_tables = ["active_*"]
+        pinot = PinotClient(mock_pinot_config)
+
+        result = pinot.reload_table_filters(dry_run=True)
+
+        assert result["status"] == "preview"
+        assert result["applied"] is False
+        assert result["previous_filters"] == ["active_*"]
+        assert result["new_filters"] == ["candidate_*"]
+        assert pinot._included_tables == ["active_*"]
 
     def test_reload_table_filters_no_file_configured(self, mock_pinot_config):
         """Test reload fails when no filter file is configured."""

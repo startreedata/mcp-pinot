@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   presents it as `Authorization: Bearer <token>`. Satisfies the non-loopback-bind
   auth requirement without a full OIDC flow. Missing/blank `MCP_STATIC_TOKEN`
   fails startup rather than booting unauthenticated.
+- Bounded, deterministic pagination for `segment_metadata_details`, with a typed
+  `{segments, returned_segments, total_segments, offset, has_more}` result.
+- Explicit failure classification and recovery guidance in every MCP tool
+  description, plus advertised Pinot identifier constraints.
+- A safe preview mode for `reload_table_filters`; it now defaults to
+  `dry_run=true` and requires an explicit `dry_run=false` to apply validated YAML.
+
+### Removed
+- The ambiguous `tableconfig_schema_details` MCP tool. Use the single-purpose
+  `get_schema` and `get_table_config` tools instead.
 
 ## [3.2.0] - 2026-06-16
 

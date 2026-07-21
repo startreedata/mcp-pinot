@@ -22,11 +22,18 @@ def mock_pinot_client():
         }
         # execute_query returns a list of row dicts (matches the real client).
         mock_client.execute_query.return_value = [{"col1": "test", "col2": "data"}]
-        mock_client.reload_table_filters.return_value = {
-            "status": "success",
-            "message": "Table filters reloaded successfully",
+        mock_client.reload_table_filters.side_effect = lambda dry_run=False: {
+            "status": "preview" if dry_run else "success",
+            "message": (
+                "Table filters validated; no change applied"
+                if dry_run
+                else "Table filters reloaded successfully"
+            ),
+            "applied": not dry_run,
             "previous_filter_count": 0,
             "new_filter_count": 2,
+            "previous_filters": None,
+            "new_filters": ["prod_*", "analytics"],
         }
         # get_tables returns a list of names (matches the real client).
         mock_client.get_tables.return_value = ["test_table"]
@@ -36,7 +43,9 @@ def mock_pinot_client():
         }
         mock_client.get_segments.return_value = {"OFFLINE": ["segment1"]}
         mock_client.get_index_column_detail.return_value = {"indexes": ["index1"]}
-        mock_client.get_segment_metadata_detail.return_value = {"metadata": "test"}
+        mock_client.get_segment_metadata_detail.return_value = {
+            "segment1": {"segmentName": "segment1", "totalDocs": 10}
+        }
         mock_client.get_tableconfig_schema_detail.return_value = {"config": "test"}
         mock_client.create_schema.return_value = {"status": "created"}
         mock_client.update_schema.return_value = {"status": "updated"}
@@ -70,7 +79,6 @@ class TestFastMCPServer:
             "segment_list",
             "index_column_details",
             "segment_metadata_details",
-            "tableconfig_schema_details",
             "create_schema",
             "update_schema",
             "get_schema",
@@ -124,6 +132,34 @@ class TestFastMCPServer:
         assert "reportedSizeInBytes" in schema_text("table_details")
         assert "tableType" in schema_text("get_table_config")
         assert "OFFLINE" in schema_text("segment_list")
+        assert "segments" in schema_text("segment_metadata_details")
+        assert "has_more" in schema_text("segment_metadata_details")
+
+    @pytest.mark.asyncio
+    async def test_every_tool_documents_failure_recovery(self):
+        """Every tool tells an agent how to recover instead of retrying blindly."""
+        async with Client(mcp) as client:
+            tools = await client.list_tools()
+
+        for tool in tools:
+            assert "Failure recovery:" in (tool.description or ""), (
+                f"{tool.name} missing recovery guidance"
+            )
+
+    @pytest.mark.asyncio
+    async def test_identifier_constraints_are_advertised(self):
+        """Pinot identifiers expose accepted characters in their input schemas."""
+        async with Client(mcp) as client:
+            tools = {t.name: t for t in await client.list_tools()}
+
+        table_prop = tools["table_details"].inputSchema["properties"]["tableName"]
+        segment_prop = tools["index_column_details"].inputSchema["properties"][
+            "segmentName"
+        ]
+        assert table_prop["pattern"] == ("^(?:[A-Za-z0-9_-]+\\.)?[A-Za-z0-9_-]+$")
+        assert table_prop["minLength"] == 1
+        assert segment_prop["minLength"] == 1
+        assert "opaque" in segment_prop["description"]
 
     @pytest.mark.asyncio
     async def test_write_tools_accept_object_or_string_payload(self):
@@ -350,13 +386,28 @@ class TestFastMCPServer:
         assert sc["has_more"] is False
 
     @pytest.mark.asyncio
-    async def test_tool_reload_table_filters(self, mock_pinot_client):
-        """reload_table_filters returns a typed FilterReloadResult."""
+    async def test_tool_reload_table_filters_previews_by_default(
+        self, mock_pinot_client
+    ):
+        """reload_table_filters requires an explicit dry_run=false to mutate."""
         async with Client(mcp) as client:
             result = await client.call_tool("reload_table_filters", {})
 
-        assert result.structured_content["status"] == "success"
+        assert result.structured_content["status"] == "preview"
+        assert result.structured_content["applied"] is False
         assert result.structured_content["new_filter_count"] == 2
+        mock_pinot_client.reload_table_filters.assert_called_once_with(dry_run=True)
+
+    @pytest.mark.asyncio
+    async def test_tool_reload_table_filters_applies_after_explicit_confirmation(
+        self, mock_pinot_client
+    ):
+        async with Client(mcp) as client:
+            result = await client.call_tool("reload_table_filters", {"dry_run": False})
+
+        assert result.structured_content["status"] == "success"
+        assert result.structured_content["applied"] is True
+        mock_pinot_client.reload_table_filters.assert_called_once_with(dry_run=False)
 
     @pytest.mark.asyncio
     async def test_tool_table_details(self, mock_pinot_client):
@@ -405,15 +456,29 @@ class TestFastMCPServer:
             result = await client.call_tool(
                 "segment_metadata_details", {"tableName": "test_table"}
             )
-        assert "metadata" in result.structured_content
+        sc = result.structured_content
+        assert sc["segments"]["segment1"]["totalDocs"] == 10
+        assert sc["returned_segments"] == 1
+        assert sc["has_more"] is False
 
     @pytest.mark.asyncio
-    async def test_tool_tableconfig_schema_details(self, mock_pinot_client):
+    async def test_segment_metadata_details_paginates_deterministically(
+        self, mock_pinot_client
+    ):
+        mock_pinot_client.get_segment_metadata_detail.return_value = {
+            f"segment{i}": {"totalDocs": i} for i in range(5)
+        }
         async with Client(mcp) as client:
             result = await client.call_tool(
-                "tableconfig_schema_details", {"tableName": "test_table"}
+                "segment_metadata_details",
+                {"tableName": "test_table", "limit": 2, "offset": 1},
             )
-        assert "config" in result.structured_content
+        sc = result.structured_content
+        assert list(sc["segments"]) == ["segment1", "segment2"]
+        assert sc["returned_segments"] == 2
+        assert sc["total_segments"] == 5
+        assert sc["offset"] == 1
+        assert sc["has_more"] is True
 
     @pytest.mark.asyncio
     async def test_tool_create_schema(self, mock_pinot_client):

@@ -7,7 +7,7 @@ pass-through Pinot REST payloads allow extra fields so no information is dropped
 while the meaningful keys stay documented.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -76,17 +76,31 @@ class ConnectionDiagnostics(BaseModel):
 
 
 class FilterReloadResult(BaseModel):
-    """Outcome of hot-reloading the table access filter file."""
+    """Preview or outcome of hot-reloading the table access filter file."""
 
     model_config = ConfigDict(extra="allow")
 
-    status: str = Field(description="'success' or 'error'.")
+    status: Literal["preview", "success", "error"] = Field(
+        description="Whether the candidate filters were previewed, applied, or failed."
+    )
     message: str = Field(description="Human-readable summary of the reload.")
+    applied: bool = Field(
+        default=False,
+        description="True only when the in-memory allow-list was changed.",
+    )
     previous_filter_count: int = Field(
         default=0, description="Number of allowed tables before the reload."
     )
     new_filter_count: int = Field(
         default=0, description="Number of allowed tables after the reload."
+    )
+    previous_filters: list[str] | None = Field(
+        default=None,
+        description="Allow-list patterns active before the operation; null means all.",
+    )
+    new_filters: list[str] | None = Field(
+        default=None,
+        description="Validated candidate patterns; null means all tables.",
     )
 
 
@@ -189,14 +203,26 @@ class SegmentIndexDetails(BaseModel):
     )
 
 
-class SegmentMetadata(BaseModel):
-    """Metadata for a table's segments (rows, sizes, time boundaries).
+class SegmentMetadataPage(BaseModel):
+    """A deterministic page of segment metadata for one Pinot table."""
 
-    Pinot returns a mapping keyed by segment name whose values vary per segment,
-    so the contents are preserved as-is rather than enumerated here.
-    """
-
-    model_config = ConfigDict(extra="allow")
+    segments: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Metadata keyed by exact segment name. Values can include row counts, "
+            "sizes, time boundaries, and column/index details returned by Pinot."
+        ),
+    )
+    returned_segments: int = Field(
+        description="Number of segment metadata objects in this page."
+    )
+    total_segments: int = Field(
+        description="Total segment metadata objects fetched before paging."
+    )
+    offset: int = Field(description="Zero-based index of the first returned segment.")
+    has_more: bool = Field(
+        description="True when more fetched segment metadata remains after this page."
+    )
 
 
 class PinotSchema(BaseModel):
@@ -246,8 +272,8 @@ class TableConfig(BaseModel):
 class TableConfigSchema(BaseModel):
     """Combined table configuration and schema (``GET /tableConfigs/{name}``).
 
-    The Pinot ``schema`` key is preserved as an extra field (rather than declared)
-    to avoid shadowing Pydantic's reserved ``schema`` attribute.
+    ``schema_data`` uses the JSON alias ``schema`` so the wire format and advertised
+    output schema match Pinot without shadowing Pydantic's ``schema`` attribute.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -258,4 +284,10 @@ class TableConfigSchema(BaseModel):
     )
     realtime: dict[str, Any] | None = Field(
         default=None, description="REALTIME table configuration, when present."
+    )
+    schema_data: dict[str, Any] | None = Field(
+        default=None,
+        alias="schema",
+        serialization_alias="schema",
+        description="Pinot schema definition associated with the table.",
     )

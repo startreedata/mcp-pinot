@@ -26,9 +26,8 @@ from mcp_pinot.models import (
     QueryResult,
     SegmentIndexDetails,
     SegmentList,
-    SegmentMetadata,
+    SegmentMetadataPage,
     TableConfig,
-    TableConfigSchema,
     TableList,
     TableSizeDetails,
 )
@@ -69,6 +68,19 @@ _HINT_READ = (
     "cluster is reachable."
 )
 _HINT_WRITE = "Verify the JSON payload is valid and the Pinot controller is reachable."
+
+_TABLE_NAME_DESCRIPTION = (
+    "Exact Pinot table name, without _OFFLINE/_REALTIME. Use letters, digits, "
+    "hyphens, or underscores, optionally prefixed by one 'database.' qualifier; "
+    "whitespace is invalid and '__' is reserved by Pinot. Quote hyphenated names "
+    "in SQL. Names are case-sensitive when that cluster option is enabled."
+)
+_SCHEMA_NAME_DESCRIPTION = (
+    "Exact Pinot schema name. It normally matches the table name without an "
+    "_OFFLINE/_REALTIME suffix; use letters, digits, hyphens, or underscores, "
+    "optionally prefixed by one 'database.' qualifier."
+)
+_NAME_PATTERN = r"^(?:[A-Za-z0-9_-]+\.)?[A-Za-z0-9_-]+$"
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -159,6 +171,10 @@ def test_connection() -> ConnectionDiagnostics:
     Runs three checks — broker connection, a trivial ``SELECT 1`` query, and a
     controller table listing — and reports which succeeded plus a small sample of
     tables. Useful for troubleshooting configuration before using other tools.
+
+    Failure recovery:
+        Individual check failures are returned in ``error``. Verify the broker and
+        controller URLs, credentials, and network, then retry only failed checks.
     """
     results = _call("test_connection", _HINT_READ, pinot_client.test_connection)
     return ConnectionDiagnostics.model_validate(results)
@@ -173,19 +189,36 @@ def test_connection() -> ConnectionDiagnostics:
         openWorldHint=False,
     )
 )
-def reload_table_filters() -> FilterReloadResult:
-    """Reload the table access filter file without restarting the server.
+def reload_table_filters(
+    dry_run: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true (default), validate and preview the candidate allow-list "
+                "without changing server state. Pass false explicitly to apply it."
+            )
+        ),
+    ] = True,
+) -> FilterReloadResult:
+    """Preview or apply the configured table-filter YAML without restarting.
 
-    Re-reads the YAML file configured via ``PINOT_TABLE_FILTER_FILE`` and applies
-    the new allow-list immediately to all subsequent operations.
+    Reads only the path configured by ``PINOT_TABLE_FILTER_FILE``. The YAML must be
+    an object whose optional ``included_tables`` value is a list of glob strings.
+    An absent or empty list means all tables. The default ``dry_run=true`` validates
+    and reports the before/after patterns; pass ``false`` to apply them atomically.
 
     Returns:
-        FilterReloadResult with the reload status and the previous/new filter counts.
+        Preview/application status, whether it was applied, and old/new patterns.
+
+    Failure recovery:
+        A missing setting/file or malformed YAML is non-retryable until corrected;
+        fix ``PINOT_TABLE_FILTER_FILE`` or its ``included_tables`` list, then retry.
     """
     results = _call(
         "reload_table_filters",
-        "Verify PINOT_TABLE_FILTER_FILE points to a valid YAML file.",
+        "Verify PINOT_TABLE_FILTER_FILE points to YAML with an included_tables list.",
         pinot_client.reload_table_filters,
+        dry_run=dry_run,
     )
     return FilterReloadResult.model_validate(results)
 
@@ -234,6 +267,11 @@ def read_query(
     Returns:
         QueryResult with the page of rows, the column list, total row count, and a
         ``has_more`` flag.
+
+    Failure recovery:
+        SQL/allow-list/permission failures require correcting the query or access;
+        do not retry unchanged. A timeout or connection failure can be retried after
+        ``test_connection`` succeeds. Zero rows is a successful result.
     """
     rows = _call("read_query", _HINT_READ, pinot_client.execute_query, query=query)
     total = len(rows)
@@ -271,6 +309,10 @@ def list_tables(
 
     Returns a paginated list of table names. Use ``limit``/``offset`` and the
     ``has_more`` flag to page through clusters with many tables.
+
+    Failure recovery:
+        An empty page is success. For authentication/connectivity errors, verify the
+        controller with ``test_connection`` and retry after access is restored.
     """
     tables = _call("list_tables", _HINT_READ, pinot_client.get_tables)
     total = len(tables)
@@ -296,9 +338,9 @@ def table_details(
     tableName: Annotated[
         str,
         Field(
-            description="Pinot table name (case-sensitive), without the "
-            "_OFFLINE/_REALTIME suffix.",
+            description=_TABLE_NAME_DESCRIPTION,
             min_length=1,
+            pattern=_NAME_PATTERN,
         ),
     ],
 ) -> TableSizeDetails:
@@ -309,6 +351,11 @@ def table_details(
     ``segment_metadata_details``). ``reportedSizeInBytes`` is what the servers
     currently hosting the segments report; ``estimatedSizeInBytes`` assumes every
     replica is present.
+
+    Failure recovery:
+        For not-found errors, copy an exact name from ``list_tables``. Fix permission
+        errors before retrying; retry transient controller failures after a health
+        check.
     """
     raw = _call(
         "table_details", _HINT_READ, pinot_client.get_table_detail, tableName=tableName
@@ -328,9 +375,9 @@ def segment_list(
     tableName: Annotated[
         str,
         Field(
-            description="Pinot table name (case-sensitive), without the "
-            "_OFFLINE/_REALTIME suffix.",
+            description=_TABLE_NAME_DESCRIPTION,
             min_length=1,
+            pattern=_NAME_PATTERN,
         ),
     ],
     limit: Annotated[
@@ -353,6 +400,10 @@ def segment_list(
 
     Segment names are paginated (a busy table can have thousands) — use
     ``limit``/``offset`` and the ``has_more`` flag to page through them.
+
+    Failure recovery:
+        An empty page is success. For not-found errors, use an exact name from
+        ``list_tables``; correct access errors, or retry transient controller errors.
     """
     raw = _call(
         "segment_list", _HINT_READ, pinot_client.get_segments, tableName=tableName
@@ -387,11 +438,22 @@ def segment_list(
 def index_column_details(
     tableName: Annotated[
         str,
-        Field(description="Pinot table name (case-sensitive).", min_length=1),
+        Field(
+            description=_TABLE_NAME_DESCRIPTION,
+            min_length=1,
+            pattern=_NAME_PATTERN,
+        ),
     ],
     segmentName: Annotated[
         str,
-        Field(description="Segment name, as returned by segment_list.", min_length=1),
+        Field(
+            description=(
+                "Exact, case-sensitive opaque segment name returned by segment_list; "
+                "do not construct, trim, or add a table-type suffix. Pinot defines "
+                "the length and characters, so this client only requires non-empty."
+            ),
+            min_length=1,
+        ),
     ],
 ) -> SegmentIndexDetails:
     """Get per-column index metadata for ONE segment (which indexes each column has).
@@ -400,6 +462,11 @@ def index_column_details(
     etc.). Requires a ``segmentName`` from ``segment_list``. For a segment's row
     count/size/time boundaries use ``segment_metadata_details``; for the table's
     declared index *configuration* (not per-segment state) use ``get_table_config``.
+
+    Failure recovery:
+        A missing segment is non-retryable with the same value; refresh
+        ``segment_list`` and use an exact returned name. Retry transient controller
+        errors after ``test_connection`` succeeds.
     """
     raw = _call(
         "index_column_details",
@@ -422,47 +489,52 @@ def index_column_details(
 def segment_metadata_details(
     tableName: Annotated[
         str,
-        Field(description="Pinot table name (case-sensitive).", min_length=1),
+        Field(
+            description=_TABLE_NAME_DESCRIPTION,
+            min_length=1,
+            pattern=_NAME_PATTERN,
+        ),
     ],
-) -> SegmentMetadata:
-    """Get metadata for all segments of a table (rows, sizes, time boundaries)."""
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum segment metadata objects in this page.",
+            ge=1,
+            le=1000,
+        ),
+    ] = 100,
+    offset: Annotated[
+        int,
+        Field(description="Zero-based segment offset for pagination.", ge=0),
+    ] = 0,
+) -> SegmentMetadataPage:
+    """Get a deterministic page of segment rows, sizes, and time boundaries.
+
+    Pinot can return thousands of segment objects. Results are sorted by exact
+    segment name, then sliced with ``limit``/``offset``; follow ``has_more`` until
+    false. Use ``segment_list`` when only names are needed.
+
+    Failure recovery:
+        An empty page is success. For not-found errors, use ``list_tables``;
+        correct permissions before retrying, and retry transient server failures
+        only after ``test_connection`` succeeds.
+    """
     raw = _call(
         "segment_metadata_details",
         _HINT_READ,
         pinot_client.get_segment_metadata_detail,
         tableName=tableName,
     )
-    return SegmentMetadata.model_validate(raw)
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="Table config and schema",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+    items = sorted(raw.items())
+    total = len(items)
+    page = items[offset : offset + limit]
+    return SegmentMetadataPage(
+        segments=dict(page),
+        returned_segments=len(page),
+        total_segments=total,
+        offset=offset,
+        has_more=offset + len(page) < total,
     )
-)
-def tableconfig_schema_details(
-    tableName: Annotated[
-        str,
-        Field(description="Pinot table name (case-sensitive).", min_length=1),
-    ],
-) -> TableConfigSchema:
-    """Get a table's configuration AND schema together, in one call.
-
-    A convenience that combines ``get_table_config`` (table settings: indexing,
-    retention, tenants) and ``get_schema`` (column definitions). Use it when you need
-    both at once; call the individual tools when you only need one. Returns the raw
-    Pinot ``/tableConfigs`` payload.
-    """
-    raw = _call(
-        "tableconfig_schema_details",
-        _HINT_READ,
-        pinot_client.get_tableconfig_schema_detail,
-        tableName=tableName,
-    )
-    return TableConfigSchema.model_validate(raw)
 
 
 @mcp.tool(
@@ -500,6 +572,11 @@ def create_schema(
     Accepts the schema as a JSON object (preferred) or a JSON string. Set
     ``dry_run=true`` to validate the payload and preview the effect without
     applying it.
+
+    Failure recovery:
+        Invalid JSON, missing ``schemaName``, and controller validation failures are
+        non-retryable until corrected. Permission failures require access changes;
+        retry transient controller failures only after connectivity is restored.
     """
     schemaJson = _as_json_str(schemaJson)
     if dry_run:
@@ -532,7 +609,11 @@ def create_schema(
 def update_schema(
     schemaName: Annotated[
         str,
-        Field(description="Name of the existing schema to update.", min_length=1),
+        Field(
+            description=_SCHEMA_NAME_DESCRIPTION,
+            min_length=1,
+            pattern=_NAME_PATTERN,
+        ),
     ],
     schemaJson: Annotated[
         dict[str, Any] | str,
@@ -559,6 +640,11 @@ def update_schema(
     Accepts the schema as a JSON object (preferred) or a JSON string. This can
     change column definitions on a live table; set ``dry_run=true`` to preview
     without applying.
+
+    Failure recovery:
+        Invalid JSON/name or schema validation failures require a corrected payload;
+        do not retry unchanged. Fix permission errors first, and retry transient
+        controller failures only after connectivity is restored.
     """
     schemaJson = _as_json_str(schemaJson)
     if dry_run:
@@ -590,10 +676,23 @@ def update_schema(
 def get_schema(
     schemaName: Annotated[
         str,
-        Field(description="Schema name (case-sensitive).", min_length=1),
+        Field(
+            description=_SCHEMA_NAME_DESCRIPTION,
+            min_length=1,
+            pattern=_NAME_PATTERN,
+        ),
     ],
 ) -> PinotSchema:
-    """Fetch a Pinot schema definition by name."""
+    """Get one Pinot schema, including dimensions, metrics, time, and primary keys.
+
+    This is a single-object lookup, not a list, so pagination does not apply. The
+    output preserves additional fields introduced by the connected Pinot version.
+
+    Failure recovery:
+        For not-found errors, pass the table's exact schema name (normally the table
+        name without a type suffix). Fix permissions before retrying; retry transient
+        controller failures after ``test_connection`` succeeds.
+    """
     raw = _call(
         "get_schema", _HINT_READ, pinot_client.get_schema, schemaName=schemaName
     )
@@ -632,6 +731,11 @@ def create_table_config(
 
     Accepts the config as a JSON object (preferred) or a JSON string. Set
     ``dry_run=true`` to validate the payload and preview without applying.
+
+    Failure recovery:
+        Invalid JSON, missing ``tableName``, and controller validation failures need
+        a corrected payload; do not retry unchanged. Fix access failures first, and
+        retry transient controller errors after connectivity is restored.
     """
     tableConfigJson = _as_json_str(tableConfigJson)
     if dry_run:
@@ -662,7 +766,11 @@ def create_table_config(
 def update_table_config(
     tableName: Annotated[
         str,
-        Field(description="Name of the existing table to update.", min_length=1),
+        Field(
+            description=_TABLE_NAME_DESCRIPTION,
+            min_length=1,
+            pattern=_NAME_PATTERN,
+        ),
     ],
     tableConfigJson: Annotated[
         dict[str, Any] | str,
@@ -687,6 +795,11 @@ def update_table_config(
     Accepts the config as a JSON object (preferred) or a JSON string. This changes
     the configuration of a live table; set ``dry_run=true`` to preview without
     applying.
+
+    Failure recovery:
+        Invalid JSON/name or controller validation failures require a corrected
+        payload; do not retry unchanged. Fix access errors first, and retry transient
+        controller failures only after connectivity is restored.
     """
     tableConfigJson = _as_json_str(tableConfigJson)
     if dry_run:
@@ -716,7 +829,11 @@ def update_table_config(
 def get_table_config(
     tableName: Annotated[
         str,
-        Field(description="Pinot table name (case-sensitive).", min_length=1),
+        Field(
+            description=_TABLE_NAME_DESCRIPTION,
+            min_length=1,
+            pattern=_NAME_PATTERN,
+        ),
     ],
     tableType: Annotated[
         Literal["OFFLINE", "REALTIME"] | None,
@@ -725,7 +842,16 @@ def get_table_config(
         ),
     ] = None,
 ) -> TableConfig:
-    """Get the configuration for a table, optionally restricted to a table type."""
+    """Get one table's indexing, retention, tenant, and ingestion configuration.
+
+    This is a single-object lookup, not a list, so pagination does not apply. Set
+    ``tableType`` only when one side of a hybrid table is needed.
+
+    Failure recovery:
+        For not-found errors, use an exact name from ``list_tables`` and a valid
+        table type. Fix permissions before retrying; retry transient controller
+        failures after ``test_connection`` succeeds.
+    """
     raw = _call(
         "get_table_config",
         _HINT_READ,

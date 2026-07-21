@@ -382,15 +382,18 @@ class PinotClient:
         self._included_tables = config.included_tables
         self._config_lock = Lock()  # For thread-safe filter updates
 
-    def reload_table_filters(self) -> dict[str, Any]:
-        """Reload table filters from the configured filter file without restarting.
+    def reload_table_filters(self, dry_run: bool = False) -> dict[str, Any]:
+        """Preview or reload filters from the configured file without restarting.
 
         This allows dynamic updates to the table access list by:
         1. Editing the YAML filter file
         2. Calling this method to reload the configuration
 
+        Args:
+            dry_run: Validate and report the candidate filters without applying them.
+
         Returns:
-            dict: Status information with previous and new filter counts
+            dict: Preview/application status with previous and new filters and counts.
 
         Raises:
             ValueError: If no table filter file is configured
@@ -403,23 +406,37 @@ class PinotClient:
                 "Set PINOT_TABLE_FILTER_FILE to enable hot-reload."
             )
 
-        logger.info(f"Reloading table filters from {self.config.table_filter_file}")
+        action = "Previewing" if dry_run else "Reloading"
+        logger.info(f"{action} table filters from {self.config.table_filter_file}")
 
         # Load new filters (validates file exists and parses YAML)
         new_filters = reload_table_filters_from_file(self.config.table_filter_file)
 
-        # Atomically update the filters with lock
+        # Snapshot and, unless this is a preview, atomically update the filters.
         with self._config_lock:
-            old_filters = self._included_tables
+            old_filters = (
+                list(self._included_tables)
+                if self._included_tables is not None
+                else None
+            )
             old_count = len(old_filters) if old_filters else 0
-            self._included_tables = new_filters
+            if not dry_run:
+                self._included_tables = new_filters
             new_count = len(new_filters) if new_filters else 0
 
-        logger.info(f"Table filters reloaded: {old_count} -> {new_count} tables")
+        if dry_run:
+            logger.info(f"Table filter preview: {old_count} -> {new_count} patterns")
+        else:
+            logger.info(f"Table filters reloaded: {old_count} -> {new_count} patterns")
 
         return {
-            "status": "success",
-            "message": "Table filters reloaded successfully",
+            "status": "preview" if dry_run else "success",
+            "message": (
+                "Table filters validated; no change applied"
+                if dry_run
+                else "Table filters reloaded successfully"
+            ),
+            "applied": not dry_run,
             "previous_filter_count": old_count,
             "new_filter_count": new_count,
             "previous_filters": old_filters,

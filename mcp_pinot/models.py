@@ -11,6 +11,103 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+_NAME_PATTERN = r"^(?:[A-Za-z0-9_-]+\.)?[A-Za-z0-9_-]+$"
+
+
+class SchemaFieldSpec(BaseModel):
+    """Typed Pinot column definition used by schema write tools."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    name: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    data_type: Literal[
+        "INT",
+        "LONG",
+        "FLOAT",
+        "DOUBLE",
+        "BIG_DECIMAL",
+        "BOOLEAN",
+        "TIMESTAMP",
+        "STRING",
+        "BYTES",
+        "JSON",
+    ] = Field(alias="dataType", serialization_alias="dataType")
+    single_value_field: bool = Field(
+        default=True, alias="singleValueField", serialization_alias="singleValueField"
+    )
+    default_null_value: Any = Field(
+        default=None,
+        alias="defaultNullValue",
+        serialization_alias="defaultNullValue",
+    )
+
+
+class SchemaInput(BaseModel):
+    """Structured Pinot schema accepted by create/update operations."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    schema_name: str = Field(
+        alias="schemaName",
+        serialization_alias="schemaName",
+        min_length=1,
+        max_length=128,
+        pattern=_NAME_PATTERN,
+    )
+    dimension_field_specs: list[SchemaFieldSpec] = Field(
+        default_factory=list,
+        alias="dimensionFieldSpecs",
+        serialization_alias="dimensionFieldSpecs",
+        max_length=10000,
+    )
+    metric_field_specs: list[SchemaFieldSpec] = Field(
+        default_factory=list,
+        alias="metricFieldSpecs",
+        serialization_alias="metricFieldSpecs",
+        max_length=10000,
+    )
+    date_time_field_specs: list[SchemaFieldSpec] = Field(
+        default_factory=list,
+        alias="dateTimeFieldSpecs",
+        serialization_alias="dateTimeFieldSpecs",
+        max_length=100,
+    )
+    primary_key_columns: list[str] | None = Field(
+        default=None,
+        alias="primaryKeyColumns",
+        serialization_alias="primaryKeyColumns",
+        max_length=100,
+    )
+
+
+class TableConfigInput(BaseModel):
+    """Structured Pinot table configuration accepted by write tools."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    table_name: str = Field(
+        alias="tableName",
+        serialization_alias="tableName",
+        min_length=1,
+        max_length=128,
+        pattern=_NAME_PATTERN,
+    )
+    table_type: Literal["OFFLINE", "REALTIME"] = Field(
+        alias="tableType", serialization_alias="tableType"
+    )
+    segments_config: dict[str, Any] = Field(
+        alias="segmentsConfig", serialization_alias="segmentsConfig"
+    )
+    table_index_config: dict[str, Any] = Field(
+        alias="tableIndexConfig", serialization_alias="tableIndexConfig"
+    )
+    tenants: dict[str, Any] = Field(default_factory=dict)
+    ingestion_config: dict[str, Any] | None = Field(
+        default=None,
+        alias="ingestionConfig",
+        serialization_alias="ingestionConfig",
+    )
+
 
 class QueryResult(BaseModel):
     """A page of rows produced by a read-only SQL query."""
@@ -32,6 +129,10 @@ class QueryResult(BaseModel):
     has_more: bool = Field(
         description="True when more fetched rows remain beyond this page (not "
         "necessarily more rows in the underlying table)."
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True when the server-enforced fetch bound truncated the result.",
     )
 
 
@@ -107,25 +208,43 @@ class FilterReloadResult(BaseModel):
 class OperationResult(BaseModel):
     """Result of a schema or table-config create/update operation."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_non_dict(cls, data: Any) -> Any:
-        # Pinot controllers can return a bare JSON string/scalar on success
-        # (e.g. "schema successfully added"). Wrap it so validation never fails
-        # and never surfaces a raw ValidationError to the client.
-        if not isinstance(data, dict):
-            return {"status": "success", "message": str(data)}
-        return data
-
-    status: str = Field(
+    operation: Literal[
+        "create_schema", "update_schema", "create_table", "update_table"
+    ] = Field(description="Stable operation identifier.")
+    resource_type: Literal["schema", "table"] = Field(
+        description="Kind of Pinot resource targeted by the operation."
+    )
+    resource_name: str = Field(description="Exact schema or table name targeted.")
+    status: Literal["preview", "success", "rejected"] = Field(
         default="success",
-        description="Operation status, e.g. 'success', 'created', 'updated', "
-        "or 'dry_run'.",
+        description="Whether the operation was previewed, applied, or rejected.",
+    )
+    applied: bool = Field(
+        default=False, description="True only when Pinot accepted a mutating request."
+    )
+    dry_run: bool = Field(
+        default=False, description="True when no mutation was sent to Pinot."
     )
     message: str | None = Field(
         default=None, description="Human-readable detail, when provided."
+    )
+    warnings: list[str] = Field(
+        default_factory=list, description="Safety or validation warnings."
+    )
+    verification_tool: Literal["get_schema", "get_table_config"] = Field(
+        description="Read tool to call after a successful mutation."
+    )
+    confirmation_token: str | None = Field(
+        default=None,
+        description=(
+            "Short-lived token bound to this exact preview; required to apply it."
+        ),
+    )
+    response_summary: str | None = Field(
+        default=None,
+        description="Sanitized summary returned by the Pinot controller.",
     )
 
 
@@ -266,6 +385,18 @@ class TableConfig(BaseModel):
     )
     ingestionConfig: dict[str, Any] | None = Field(
         default=None, description="Ingestion / transform configuration, when present."
+    )
+
+
+class TableConfigResult(BaseModel):
+    """Canonical shape for one-sided and hybrid Pinot table configurations."""
+
+    table_name: str = Field(description="Base table name requested by the caller.")
+    offline: TableConfig | None = Field(
+        default=None, description="OFFLINE configuration, when present/requested."
+    )
+    realtime: TableConfig | None = Field(
+        default=None, description="REALTIME configuration, when present/requested."
     )
 
 

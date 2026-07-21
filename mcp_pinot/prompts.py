@@ -28,19 +28,22 @@ and ask clarifying questions when needed.
 
 You have access to the following tools to assist in your analysis:
 
-1. test-connection: Diagnose broker, controller, and query connectivity
-2. list-tables: Page through the tables visible to this server
-3. get-schema: Get one table's column schema
-4. get-table-config: Get one table's indexing and ingestion configuration
-5. table-details: Get a table's reported and estimated storage size
-6. segment-list: Page through exact segment names for a table
-7. segment-metadata-details: Page through per-segment metadata
-8. index-column-details: Get per-column indexes for one exact segment
-9. read-query: Execute one read-only SELECT and page through fetched rows
+1. test_connection: Diagnose broker, controller, and query connectivity
+2. list_tables: Page through the tables visible to this server
+3. get_schema: Get one table's column schema
+4. get_table_config: Get one table's indexing and ingestion configuration
+5. get_table_size: Get a table's reported and estimated storage size
+6. list_segments: Page through exact segment names for a table
+7. list_segment_metadata: Page through per-segment metadata
+8. get_segment_index_metadata: Get per-column indexes for one exact segment
+9. read_query: Execute one read-only SELECT and page through fetched rows
 
 Schema and table-configuration create/update tools change Pinot metadata. Always
-call them with dry_run=true first. reload-table-filters also previews by default;
-pass dry_run=false only after the user confirms the validated candidate filters.
+call them with dry_run=true first and show the preview to the user. A preview does
+not guarantee that Pinot will accept the later write. After the user confirms the
+exact target and payload, apply with dry_run=false and the preview's one-time
+confirmation_token. reload_table_filters also
+previews by default; apply its candidate filters only after user confirmation.
 
 When a user provides a query, follow these steps:
 
@@ -64,8 +67,8 @@ When a user provides a query, follow these steps:
 
 6. If additional information about the schema, table configuration, or
    indexes is needed to optimize the query or provide better recommendations,
-   use the appropriate tools (e.g., get-schema, table-details,
-   index-column-details) to gather this information.
+   use the appropriate tools (e.g., get_schema, get_table_size,
+   get_segment_index_metadata) to gather this information.
 
 7. Present your findings in the following format:
 

@@ -8,7 +8,9 @@ imagePullSecrets: []
 # Image configuration
 image:
   repository: ghcr.io/startreedata/mcp-pinot
-  tag: "latest"
+  # Defaults to Chart.appVersion, which release automation sets to an immutable
+  # release version. Avoid mutable tags such as "latest" in production.
+  tag: ""
   pullPolicy: IfNotPresent
 
 
@@ -26,9 +28,18 @@ serviceAccount:
   # If not set and create is true, a name is generated using the fullname template
   name: ""
 
+# Pods do not need Kubernetes API credentials.
+automountServiceAccountToken: false
+
 # Pod security context
 podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
   fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
 
 # Container security context
 securityContext:
@@ -36,9 +47,10 @@ securityContext:
   capabilities:
     drop:
     - ALL
-  readOnlyRootFilesystem: false
+  readOnlyRootFilesystem: true
   runAsNonRoot: true
   runAsUser: 1000
+  runAsGroup: 1000
 
 # Service configuration
 service:
@@ -74,7 +86,18 @@ traefik:
     secretName: ""  # Set to your TLS secret name for HTTPS, leave empty for HTTP
 
 # Resource configuration
-resources: {}
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# Writable scratch space for libraries that need temporary storage while the
+# container root filesystem remains read-only.
+tmpVolume:
+  sizeLimit: 256Mi
 
 
 # Node selector
@@ -89,6 +112,14 @@ affinity: {}
 
 # Deployment configuration
 replicas: 1
+revisionHistoryLimit: 3
+terminationGracePeriodSeconds: 30
+preStopDelaySeconds: 5
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
 
 # MCP Server Configuration
 mcp:
@@ -143,16 +174,16 @@ pinot:
 # Health check configuration
 healthCheck:
   liveness:
-    enabled: false
-    path: "/"
+    enabled: true
+    path: "/livez"
     port: 8000
     initialDelaySeconds: 30
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 3
   readiness:
-    enabled: false
-    path: "/"
+    enabled: true
+    path: "/readyz"
     port: 8000
     initialDelaySeconds: 5
     periodSeconds: 5
@@ -177,6 +208,24 @@ volumeMounts:
 volumes:
   # Additional volumes
   additional: []
+
+# Optional NetworkPolicy. Enabling this with empty rule lists creates a
+# default-deny policy; add the ingress and egress rules required by your
+# ingress controller, DNS resolver, Pinot controller, broker, and OAuth IdP.
+networkPolicy:
+  enabled: false
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress: []
+
+# Optional disruption budget. Use maxUnavailable instead of minAvailable when
+# that better matches the replica topology, but do not set both.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: null
 
 # Pod annotations
 podAnnotations: {}

@@ -89,13 +89,12 @@ Validate MCP HTTP exposure settings.
 {{- $isLoopback := eq (include "mcp-pinot.isLoopbackHost" .) "true" -}}
 {{- $serviceEnabled := .Values.service.enabled -}}
 {{- $traefikEnabled := .Values.traefik.enabled -}}
-{{- $healthCheckEnabled := or .Values.healthCheck.liveness.enabled .Values.healthCheck.readiness.enabled -}}
 {{- if and $traefikEnabled (not $serviceEnabled) -}}
 {{- fail "traefik.enabled=true requires service.enabled=true" -}}
 {{- end -}}
 {{- $authEnabled := ne (include "mcp-pinot.authProvider" .) "none" -}}
-{{- if and (or $serviceEnabled $traefikEnabled $healthCheckEnabled) $isLoopback -}}
-{{- fail "service, Traefik, and HTTP health checks require mcp.host to be non-loopback; set mcp.host=0.0.0.0 and an auth provider (mcp.auth.provider=oauth|static, or mcp.oauth.enabled=true)" -}}
+{{- if and (or $serviceEnabled $traefikEnabled) $isLoopback -}}
+{{- fail "service and Traefik exposure require mcp.host to be non-loopback; set mcp.host=0.0.0.0 and an auth provider (mcp.auth.provider=oauth|static, or mcp.oauth.enabled=true)" -}}
 {{- end -}}
 {{- if and (not $isLoopback) (not $authEnabled) -}}
 {{- fail "mcp.host is non-loopback, so an auth provider is required; set mcp.auth.provider=oauth|static (or the legacy mcp.oauth.enabled=true)" -}}

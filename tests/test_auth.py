@@ -18,6 +18,7 @@ _OAUTH_ENV = {
     "OAUTH_CLIENT_ID": "id",
     "OAUTH_CLIENT_SECRET": "secret",
     "OAUTH_BASE_URL": "http://localhost:8080",
+    "OAUTH_AUDIENCE": "http://localhost:8080/mcp",
 }
 
 

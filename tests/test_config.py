@@ -20,6 +20,15 @@ from mcp_pinot.config import (
     load_server_config,
 )
 
+_OAUTH_SCOPES = [
+    "openid",
+    "profile",
+    "email",
+    "pinot:read",
+    "pinot:write",
+    "pinot:admin",
+]
+
 
 class TestParseBrokerUrl:
     """Test the _parse_broker_url function"""
@@ -216,7 +225,7 @@ class TestServerConfig:
     def test_server_config_defaults(self):
         """Test ServerConfig default values"""
         config = ServerConfig()
-        assert config.transport == "http"
+        assert config.transport == "stdio"
         assert config.host == "127.0.0.1"
         assert config.port == 8080
         assert config.ssl_keyfile is None
@@ -249,7 +258,7 @@ class TestLoadServerConfig:
         with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
             with patch.dict(os.environ, {}, clear=True):
                 config = load_server_config()
-                assert config.transport == "http"
+                assert config.transport == "stdio"
                 assert config.host == "127.0.0.1"
                 assert config.port == 8080
                 assert config.ssl_keyfile is None
@@ -342,6 +351,7 @@ class TestOAuthConfig:
             upstream_token_endpoint="http://auth.example.com/token",
             jwks_uri="http://auth.example.com/.well-known/jwks.json",
             issuer="http://auth.example.com",
+            audience="http://localhost:8000/mcp",
         )
         assert config.client_id == "test_client"
         assert config.client_secret == "test_secret"
@@ -353,7 +363,7 @@ class TestOAuthConfig:
         assert config.upstream_token_endpoint == "http://auth.example.com/token"
         assert config.jwks_uri == "http://auth.example.com/.well-known/jwks.json"
         assert config.issuer == "http://auth.example.com"
-        assert config.audience is None
+        assert config.audience == "http://localhost:8000/mcp"
         assert config.extra_authorize_params is None
 
     def test_oauth_config_with_audience(self):
@@ -382,6 +392,7 @@ class TestOAuthConfig:
             jwks_uri="http://auth.example.com/.well-known/jwks.json",
             issuer="http://auth.example.com",
             extra_authorize_params=extra_params,
+            audience="http://localhost:8000/mcp",
         )
         assert config.extra_authorize_params == extra_params
 
@@ -395,10 +406,11 @@ class TestLoadOAuthConfig:
             "OAUTH_CLIENT_ID": "test_client",
             "OAUTH_CLIENT_SECRET": "test_secret",
             "OAUTH_BASE_URL": "http://localhost:8000",
-            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
-            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
-            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
-            "OAUTH_ISSUER": "http://auth.example.com",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "https://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "https://auth.example.com/token",
+            "OAUTH_JWKS_URI": "https://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "https://auth.example.com",
+            "OAUTH_AUDIENCE": "http://localhost:8000/mcp",
         }
 
         with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
@@ -409,14 +421,16 @@ class TestLoadOAuthConfig:
                 assert config.base_url == "http://localhost:8000"
                 assert (
                     config.upstream_authorization_endpoint
-                    == "http://auth.example.com/authorize"
+                    == "https://auth.example.com/authorize"
                 )
-                assert config.upstream_token_endpoint == "http://auth.example.com/token"
                 assert (
-                    config.jwks_uri == "http://auth.example.com/.well-known/jwks.json"
+                    config.upstream_token_endpoint == "https://auth.example.com/token"
                 )
-                assert config.issuer == "http://auth.example.com"
-                assert config.audience is None
+                assert (
+                    config.jwks_uri == "https://auth.example.com/.well-known/jwks.json"
+                )
+                assert config.issuer == "https://auth.example.com"
+                assert config.audience == "http://localhost:8000/mcp"
                 assert config.extra_authorize_params is None
 
     def test_load_oauth_config_with_audience(self):
@@ -425,17 +439,17 @@ class TestLoadOAuthConfig:
             "OAUTH_CLIENT_ID": "test_client",
             "OAUTH_CLIENT_SECRET": "test_secret",
             "OAUTH_BASE_URL": "http://localhost:8000",
-            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
-            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
-            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
-            "OAUTH_ISSUER": "http://auth.example.com",
-            "OAUTH_AUDIENCE": "test_audience",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "https://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "https://auth.example.com/token",
+            "OAUTH_JWKS_URI": "https://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "https://auth.example.com",
+            "OAUTH_AUDIENCE": "http://localhost:8000/mcp",
         }
 
         with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_oauth_config()
-                assert config.audience == "test_audience"
+                assert config.audience == "http://localhost:8000/mcp"
 
     def test_load_oauth_config_with_extra_params(self):
         """Test loading OAuth config with extra authorization parameters"""
@@ -443,10 +457,11 @@ class TestLoadOAuthConfig:
             "OAUTH_CLIENT_ID": "test_client",
             "OAUTH_CLIENT_SECRET": "test_secret",
             "OAUTH_BASE_URL": "http://localhost:8000",
-            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
-            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
-            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
-            "OAUTH_ISSUER": "http://auth.example.com",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "https://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "https://auth.example.com/token",
+            "OAUTH_JWKS_URI": "https://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "https://auth.example.com",
+            "OAUTH_AUDIENCE": "http://localhost:8000/mcp",
             "OAUTH_EXTRA_AUTH_PARAMS": (
                 '{"scope": "read write", "response_type": "code"}'
             ),
@@ -466,10 +481,11 @@ class TestLoadOAuthConfig:
             "OAUTH_CLIENT_ID": "test_client",
             "OAUTH_CLIENT_SECRET": "test_secret",
             "OAUTH_BASE_URL": "http://localhost:8000",
-            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
-            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
-            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
-            "OAUTH_ISSUER": "http://auth.example.com",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "https://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "https://auth.example.com/token",
+            "OAUTH_JWKS_URI": "https://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "https://auth.example.com",
+            "OAUTH_AUDIENCE": "http://localhost:8000/mcp",
             "OAUTH_EXTRA_AUTH_PARAMS": "invalid_json",
         }
 
@@ -484,10 +500,11 @@ class TestLoadOAuthConfig:
             "OAUTH_CLIENT_ID": "test_client",
             "OAUTH_CLIENT_SECRET": "test_secret",
             "OAUTH_BASE_URL": "http://localhost:8000",
-            "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
-            "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
-            "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
-            "OAUTH_ISSUER": "http://auth.example.com",
+            "OAUTH_AUTHORIZATION_ENDPOINT": "https://auth.example.com/authorize",
+            "OAUTH_TOKEN_ENDPOINT": "https://auth.example.com/token",
+            "OAUTH_JWKS_URI": "https://auth.example.com/.well-known/jwks.json",
+            "OAUTH_ISSUER": "https://auth.example.com",
+            "OAUTH_AUDIENCE": "http://localhost:8000/mcp",
             "OAUTH_EXTRA_AUTH_PARAMS": '"not_a_dict"',
         }
 
@@ -527,7 +544,7 @@ class TestParseOAuthScopes:
         # Mutating the result must not corrupt the module-level default.
         result = _parse_oauth_scopes(None)
         result.append("offline_access")
-        assert DEFAULT_OAUTH_SCOPES == ["openid", "profile", "email"]
+        assert DEFAULT_OAUTH_SCOPES == _OAUTH_SCOPES
 
 
 class TestLoadOAuthConfigScopes:
@@ -537,10 +554,11 @@ class TestLoadOAuthConfigScopes:
         "OAUTH_CLIENT_ID": "test_client",
         "OAUTH_CLIENT_SECRET": "test_secret",
         "OAUTH_BASE_URL": "http://localhost:8000",
-        "OAUTH_AUTHORIZATION_ENDPOINT": "http://auth.example.com/authorize",
-        "OAUTH_TOKEN_ENDPOINT": "http://auth.example.com/token",
-        "OAUTH_JWKS_URI": "http://auth.example.com/.well-known/jwks.json",
-        "OAUTH_ISSUER": "http://auth.example.com",
+        "OAUTH_AUTHORIZATION_ENDPOINT": "https://auth.example.com/authorize",
+        "OAUTH_TOKEN_ENDPOINT": "https://auth.example.com/token",
+        "OAUTH_JWKS_URI": "https://auth.example.com/.well-known/jwks.json",
+        "OAUTH_ISSUER": "https://auth.example.com",
+        "OAUTH_AUDIENCE": "http://localhost:8000/mcp",
     }
 
     def test_default_scopes_when_unset(self):
@@ -548,7 +566,7 @@ class TestLoadOAuthConfigScopes:
         with patch("mcp_pinot.config.load_dotenv"):
             with patch.dict(os.environ, dict(self._base_env), clear=True):
                 config = load_oauth_config()
-                assert config.scopes == ["openid", "profile", "email"]
+                assert config.scopes == _OAUTH_SCOPES
 
     def test_custom_scopes_from_env(self):
         env_vars = {**self._base_env, "OAUTH_SCOPES": "openid pinot:read"}
@@ -824,15 +842,26 @@ class TestLoadTableFilters:
         result = _load_table_filters(None)
         assert result is None
 
-    def test_empty_table_list_returns_none(self):
-        """Test that empty table list returns None"""
+    def test_empty_table_list_fails_closed(self):
+        """An accidental empty allow-list cannot silently expose every table."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as f:
             f.write("included_tables: []")
             temp_file = f.name
 
         try:
-            result = _load_table_filters(temp_file)
-            assert result is None
+            with pytest.raises(ValueError, match="allow_all: true"):
+                _load_table_filters(temp_file)
+        finally:
+            os.unlink(temp_file)
+
+    def test_explicit_allow_all_returns_none(self):
+        """Operators can deliberately opt into unrestricted table discovery."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".yaml") as f:
+            f.write("allow_all: true\nincluded_tables: []")
+            temp_file = f.name
+
+        try:
+            assert _load_table_filters(temp_file) is None
         finally:
             os.unlink(temp_file)
 
@@ -852,7 +881,7 @@ class TestLoadTableFilters:
         """Test that nonexistent filter file raises FileNotFoundError"""
         nonexistent_path = "/path/to/nonexistent/filter.yaml"
         with pytest.raises(
-            FileNotFoundError, match="Table filter file not found.*filter.yaml"
+            FileNotFoundError, match=r"Table filter file not found.*filter.yaml"
         ):
             _load_table_filters(nonexistent_path)
 
@@ -901,6 +930,6 @@ class TestLoadPinotConfigWithTableFilters:
             with patch.dict(os.environ, env_vars, clear=True):
                 with pytest.raises(
                     FileNotFoundError,
-                    match="Table filter file not found.*nonexistent/filter.yaml",
+                    match=r"Table filter file not found.*nonexistent/filter.yaml",
                 ):
                     load_pinot_config()

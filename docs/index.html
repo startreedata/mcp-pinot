@@ -693,8 +693,8 @@
     <div class="features-grid">
       <div class="feature-card">
         <div class="feature-icon">&#x1F50D;</div>
-        <h3>15 MCP Tools</h3>
-        <p>Query data, list tables, inspect schemas, manage configurations, and more &mdash; all through natural language via Claude.</p>
+        <h3>14 MCP Tools</h3>
+        <p>Query data, list tables, inspect schemas, and preview configuration changes through any compatible MCP client.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F512;</div>
@@ -704,22 +704,22 @@
       <div class="feature-card">
         <div class="feature-icon">&#x1F310;</div>
         <h3>Flexible Transport</h3>
-        <p>STDIO for Claude Desktop integration and HTTP/SSE for web applications with secure local defaults.</p>
+        <p>STDIO for desktop integration and Streamable HTTP for local or authenticated remote MCP clients.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x2638;</div>
         <h3>Kubernetes Ready</h3>
-        <p>Complete Helm charts and K8s manifests with health checks, autoscaling, and Ingress TLS termination.</p>
+        <p>A configurable Helm chart with health checks, optional network policy, disruption budgets, and ingress support.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x26A1;</div>
-        <h3>REST API</h3>
-        <p>Direct HTTP endpoints for tool calls &mdash; integrate with any language or framework using simple JSON requests.</p>
+        <h3>Standard MCP</h3>
+        <p>Typed MCP tools, prompts, and resources over standard transports &mdash; no proprietary REST tool API required.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">&#x1F9EA;</div>
         <h3>Battle Tested</h3>
-        <p>45+ tests with comprehensive coverage, async support, structured logging, and graceful error handling.</p>
+        <p>Comprehensive unit and integration coverage, typed contracts, structured logging, and actionable errors.</p>
       </div>
     </div>
   </section>
@@ -728,7 +728,7 @@
   <section id="tools">
     <div class="section-header">
       <h2>Available Tools</h2>
-      <p>15 MCP tools for querying data, managing schemas, and controlling table configurations.</p>
+      <p>14 typed MCP tools with case-sensitive, underscore-separated identifiers.</p>
     </div>
     <div class="tools-table-wrapper">
       <table class="tools-table">
@@ -741,77 +741,84 @@
         </thead>
         <tbody>
           <tr>
-            <td><code>test-connection</code></td>
+            <td><code>test_connection</code></td>
             <td>Test and diagnose Pinot cluster connectivity</td>
             <td><span class="tool-category cat-query">Query</span></td>
           </tr>
           <tr>
-            <td><code>read-query</code></td>
+            <td><code>read_query</code></td>
             <td>Execute read-only SELECT queries on Pinot tables</td>
             <td><span class="tool-category cat-query">Query</span></td>
           </tr>
           <tr>
-            <td><code>list-tables</code></td>
-            <td>List all available tables in the cluster</td>
+            <td><code>list_tables</code></td>
+            <td>Page through table names visible to this server</td>
             <td><span class="tool-category cat-meta">Metadata</span></td>
           </tr>
           <tr>
-            <td><code>table-details</code></td>
+            <td><code>get_table_size</code></td>
             <td>Get table size and storage information</td>
             <td><span class="tool-category cat-meta">Metadata</span></td>
           </tr>
           <tr>
-            <td><code>segment-list</code></td>
-            <td>List all segments for a given table</td>
+            <td><code>list_segments</code></td>
+            <td>Page through exact segment names for a table</td>
             <td><span class="tool-category cat-meta">Metadata</span></td>
           </tr>
           <tr>
-            <td><code>segment-metadata-details</code></td>
+            <td><code>list_segment_metadata</code></td>
             <td>Page through detailed metadata for table segments</td>
             <td><span class="tool-category cat-meta">Metadata</span></td>
           </tr>
           <tr>
-            <td><code>index-column-details</code></td>
+            <td><code>get_segment_index_metadata</code></td>
             <td>Inspect index and column-level information</td>
             <td><span class="tool-category cat-meta">Metadata</span></td>
           </tr>
           <tr>
-            <td><code>get-schema</code></td>
+            <td><code>get_schema</code></td>
             <td>Fetch a schema by name</td>
             <td><span class="tool-category cat-config">Config</span></td>
           </tr>
           <tr>
-            <td><code>create-schema</code></td>
-            <td>Create new schemas with override/force options</td>
+            <td><code>create_schema</code></td>
+            <td>Preview or create a Pinot schema</td>
             <td><span class="tool-category cat-config">Config</span></td>
           </tr>
           <tr>
-            <td><code>update-schema</code></td>
-            <td>Modify existing schemas</td>
+            <td><code>update_schema</code></td>
+            <td>Preview or update an existing schema</td>
             <td><span class="tool-category cat-config">Config</span></td>
           </tr>
           <tr>
-            <td><code>get-table-config</code></td>
+            <td><code>get_table_config</code></td>
             <td>Retrieve table configuration</td>
             <td><span class="tool-category cat-config">Config</span></td>
           </tr>
           <tr>
-            <td><code>create-table-config</code></td>
-            <td>Create new table configurations</td>
+            <td><code>create_table_config</code></td>
+            <td>Preview or create a table configuration</td>
             <td><span class="tool-category cat-config">Config</span></td>
           </tr>
           <tr>
-            <td><code>update-table-config</code></td>
-            <td>Modify existing table configurations</td>
+            <td><code>update_table_config</code></td>
+            <td>Preview or update a table configuration</td>
             <td><span class="tool-category cat-config">Config</span></td>
           </tr>
           <tr>
-            <td><code>reload-table-filters</code></td>
+            <td><code>reload_table_filters</code></td>
             <td>Preview by default, then explicitly apply table access filters</td>
             <td><span class="tool-category cat-config">Config</span></td>
           </tr>
         </tbody>
       </table>
+    </div>
+    <div class="config-note" style="margin-top: 1.5rem;">
+      Schema and table-config tools can change live Pinot metadata. Call the
+      intended tool with <code>dry_run=true</code>, show the exact preview to the
+      user, and apply with <code>dry_run=false</code> plus the preview's one-time
+      <code>confirmation_token</code> only after confirmation. A preview is
+      non-mutating but does not guarantee that Pinot will accept the later write.
     </div>
   </section>
 
@@ -882,7 +889,7 @@ mv .env.example .env
         <div class="code-header">Terminal</div>
         <pre>docker run --name pinot-quickstart \
   -p 2123:2123 -p 9000:9000 -p 8000:8000 \
-  -d apachepinot/pinot:latest QuickStart -type batch</pre>
+  -d apachepinot/pinot:1.5.1 QuickStart -type batch</pre>
       </div>
     </div>
   </section>
@@ -891,13 +898,13 @@ mv .env.example .env
   <section id="integration">
     <div class="section-header">
       <h2>Integration</h2>
-      <p>Connect to Claude Desktop, use HTTP APIs, or deploy on Kubernetes.</p>
+      <p>Connect a desktop host, use Streamable HTTP, or deploy on Kubernetes.</p>
     </div>
 
     <div style="max-width: 800px; margin: 0 auto;">
       <div class="config-tabs">
         <button class="config-tab active" onclick="showTab('claude')">Claude Desktop</button>
-        <button class="config-tab" onclick="showTab('http')">HTTP / REST API</button>
+        <button class="config-tab" onclick="showTab('http')">Streamable HTTP</button>
         <button class="config-tab" onclick="showTab('docker')">Docker</button>
         <button class="config-tab" onclick="showTab('k8s')">Kubernetes</button>
       </div>
@@ -932,20 +939,17 @@ mv .env.example .env
 
       <div id="tab-http" class="config-panel">
         <div class="code-block" style="border-top-left-radius: 0; border-top-right-radius: 0;">
-          <div class="code-header">Terminal &mdash; curl</div>
-          <pre><span class="comment"># List available tools</span>
-curl -s http://127.0.0.1:8080/api/tools/list | jq
+          <div class="code-header">Terminal &mdash; MCP client</div>
+          <pre><span class="comment"># Start the local Streamable HTTP server at /mcp</span>
+MCP_TRANSPORT=http MCP_HOST=127.0.0.1 MCP_PORT=8080 uv run mcp-pinot
 
-<span class="comment"># Execute a query</span>
-curl -X POST http://127.0.0.1:8080/api/tools/call \
-  -H <span class="string">"Content-Type: application/json"</span> \
-  -d <span class="string">'{"name": "read-query", "arguments": {"query": "SELECT * FROM airlineStats LIMIT 5"}}'</span>
-
-<span class="comment"># List tables</span>
-curl -X POST http://127.0.0.1:8080/api/tools/call \
-  -H <span class="string">"Content-Type: application/json"</span> \
-  -d <span class="string">'{"name": "list-tables", "arguments": {}}'</span></pre>
+<span class="comment"># In another terminal, connect with the bundled MCP client</span>
+uv run python examples/example_client.py</pre>
         </div>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 1rem;">
+          Use an MCP SDK or compatible host for initialization and tool calls. The
+          server does not expose custom <code>/api/tools/*</code> REST endpoints.
+        </p>
       </div>
 
       <div id="tab-docker" class="config-panel">
@@ -1010,7 +1014,7 @@ helm upgrade mcp-pinot ./helm/mcp-pinot \
     <div class="config-reference">
       <div class="config-note">
         The server loads environment variables and a <code>.env</code> file from the current working directory.
-        Values in <code>.env</code> override process environment variables. Keep local defaults for desktop use, and enable OAuth before binding HTTP or HTTPS to a non-loopback host.
+        Process environment variables take precedence over <code>.env</code>. STDIO is the safe default; select HTTP explicitly and enable an auth provider before binding to a non-loopback host.
       </div>
 
       <div class="config-grid">
@@ -1021,14 +1025,15 @@ helm upgrade mcp-pinot ./helm/mcp-pinot \
         </div>
         <div class="config-card">
           <h3>Local HTTP</h3>
-          <p>Default HTTP/SSE profile for local development.</p>
+          <p>Explicit Streamable HTTP profile for local development.</p>
+          <code>MCP_TRANSPORT=http</code><br>
           <code>MCP_HOST=127.0.0.1</code>
         </div>
         <div class="config-card">
           <h3>Remote HTTP</h3>
-          <p>Network exposure requires OAuth and TLS or an authenticated proxy.</p>
+          <p>Network exposure requires OAuth or static-token auth, plus TLS or an authenticated proxy.</p>
           <code>MCP_HOST=0.0.0.0</code><br>
-          <code>OAUTH_ENABLED=true</code>
+          <code>AUTH_PROVIDER=oauth</code>
         </div>
         <div class="config-card">
           <h3>Helm Exposure</h3>
@@ -1122,7 +1127,7 @@ helm upgrade mcp-pinot ./helm/mcp-pinot \
 
       <div class="config-subsection">
         <h3>MCP Server</h3>
-        <p>HTTP binds to loopback by default. Non-loopback binds fail closed unless OAuth is enabled.</p>
+        <p>STDIO is the default. Explicit HTTP binds to loopback; non-loopback binds fail closed unless OAuth or static-token authentication is enabled.</p>
       </div>
       <div class="tools-table-wrapper" style="margin-bottom: 2rem;">
         <table class="tools-table">
@@ -1137,7 +1142,7 @@ helm upgrade mcp-pinot ./helm/mcp-pinot \
             <tr>
               <td><code>MCP_TRANSPORT</code></td>
               <td>Transport mode: <code>stdio</code> or <code>http</code></td>
-              <td><code>http</code></td>
+              <td><code>stdio</code></td>
             </tr>
             <tr>
               <td><code>MCP_HOST</code></td>

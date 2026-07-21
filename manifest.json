@@ -1,27 +1,42 @@
 {
-  "dxt_version": "0.1",
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
   "name": "mcp-pinot",
   "display_name": "Apache Pinot MCP Server",
-  "version": "1.0.0",
-  "description": "An MCP server that lets Claude (or any MCP compatible agent) explore and query Apache Pinot clusters.",
-  "long_description": "This extension exposes a rich toolset for real-time analytics on Apache Pinot: listing tables, segments, schemas, running read-only SQL, and managing table or schema configs. It’s fully Python-based and runs over STDIO, making it easy to embed inside Claude Desktop or other MCP hosts.",
+  "version": "4.0.0",
+  "description": "Explore Apache Pinot with read-only SQL, typed metadata tools, and preview-first configuration changes.",
+  "long_description": "This Python MCP server exposes agent-oriented tools for Apache Pinot analytics: discover tables, inspect schemas and segments, run read-only SQL, and preview schema or table-config changes before applying them. It runs over STDIO for desktop MCP hosts and supports Streamable HTTP for authenticated remote deployments.",
   "author": {
     "name": "StarTree",
     "url": "https://startree.ai/"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/startreedata/mcp-pinot"
+  },
+  "homepage": "https://startreedata.github.io/mcp-pinot/",
+  "documentation": "https://github.com/startreedata/mcp-pinot/blob/main/user_guide.md",
+  "support": "https://github.com/startreedata/mcp-pinot/issues",
   "icon": "assets/pinot_logo.png",
   "screenshots": [
     "assets/github-events-analysis.png",
     "assets/pinot-mcp-in-action.png"
   ],
   "server": {
-    "type": "python",
+    "type": "uv",
     "entry_point": "mcp_pinot/server.py",
     "mcp_config": {
-      "command": "python3",
-      "args": ["${__dirname}/mcp_pinot/server.py"],
+      "command": "uv",
+      "args": [
+        "run",
+        "--frozen",
+        "--no-dev",
+        "--directory",
+        "${__dirname}",
+        "mcp_pinot/server.py"
+      ],
       "env": {
-        "PYTHONPATH": "${__dirname}/mcp_pinot/lib",
+        "MCP_TRANSPORT": "stdio",
         "PINOT_CONTROLLER_URL": "${user_config.controller_url}",
         "PINOT_BROKER_URL": "${user_config.broker_url}",
         "PINOT_USERNAME": "${user_config.username}",
@@ -33,20 +48,20 @@
     }
   },
   "tools": [
-    { "name": "test-connection",            "description": "Test Pinot connection and return diagnostics" },
-    { "name": "read-query",                 "description": "Execute a SELECT query on the Pinot database" },
-    { "name": "list-tables",                "description": "List all tables in Pinot" },
-    { "name": "table-details",              "description": "Get table size details" },
-    { "name": "segment-list",               "description": "List segments for a table" },
-    { "name": "index-column-details",       "description": "Get index/column details for a segment" },
-    { "name": "segment-metadata-details",   "description": "Page through metadata for a table's segments" },
-    { "name": "reload-table-filters",       "description": "Preview, then explicitly apply table filter YAML" },
-    { "name": "create-schema",              "description": "Create a new schema" },
-    { "name": "update-schema",              "description": "Update an existing schema" },
-    { "name": "get-schema",                 "description": "Fetch a schema by name" },
-    { "name": "create-table-config",        "description": "Create table configuration" },
-    { "name": "update-table-config",        "description": "Update table configuration" },
-    { "name": "get-table-config",           "description": "Get table configuration" }
+    { "name": "test_connection",              "description": "Diagnose broker, controller, and query connectivity." },
+    { "name": "read_query",                   "description": "Run one read-only Pinot SQL query and return a bounded page of rows." },
+    { "name": "list_tables",                  "description": "List Pinot table names visible through the configured table filter." },
+    { "name": "get_table_size",               "description": "Get reported and estimated storage size for one table." },
+    { "name": "list_segments",                "description": "List exact segment names for one table." },
+    { "name": "get_segment_index_metadata",   "description": "Get per-column index metadata for one exact segment." },
+    { "name": "list_segment_metadata",        "description": "Page through row, size, and time metadata for a table's segments." },
+    { "name": "reload_table_filters",         "description": "Preview table-filter YAML by default; explicitly apply only after confirmation." },
+    { "name": "create_schema",                "description": "Preview or create a Pinot schema from a JSON object." },
+    { "name": "update_schema",                "description": "Preview or update an existing Pinot schema." },
+    { "name": "get_schema",                   "description": "Get one Pinot schema and its column definitions." },
+    { "name": "create_table_config",          "description": "Preview or create a Pinot table configuration." },
+    { "name": "update_table_config",          "description": "Preview or update an existing Pinot table configuration." },
+    { "name": "get_table_config",             "description": "Get indexing, retention, tenant, and ingestion configuration for one table." }
   ],
   "keywords": ["pinot", "database", "analytics", "mcp", "python"],
   "license": "Apache-2.0",
@@ -77,6 +92,7 @@
       "title": "Password",
       "description": "Pinot basic-auth password (optional)",
       "default": "",
+      "sensitive": true,
       "required": false
     },
     "token": {
@@ -84,6 +100,7 @@
       "title": "Auth Token",
       "description": "Bearer token for Pinot (overrides username/password)",
       "default": "",
+      "sensitive": true,
       "required": false
     },
     "use_msqe": {
@@ -104,8 +121,6 @@
   "compatibility": {
     "claude_desktop": ">=0.10.0",
     "platforms": ["darwin", "win32", "linux"],
-    "runtimes": {
-      "python": ">=3.12.0 <4"
-    }
+    "runtimes": { "python": ">=3.12.0 <4" }
   }
 }

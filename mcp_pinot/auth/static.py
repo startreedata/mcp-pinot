@@ -22,6 +22,7 @@ from mcp_pinot.config import ServerConfig, load_static_token
 # has no per-user notion under this provider — every authenticated call is this
 # single service principal.
 _STATIC_CLIENT_ID = "mcp-static-client"
+_STATIC_SCOPES = ["pinot:read", "pinot:write", "pinot:admin"]
 
 
 def build_static_auth(server_config: ServerConfig) -> StaticTokenVerifier:
@@ -32,5 +33,8 @@ def build_static_auth(server_config: ServerConfig) -> StaticTokenVerifier:
     """
     token = load_static_token()
     return StaticTokenVerifier(
-        tokens={token: {"client_id": _STATIC_CLIENT_ID, "scopes": []}},
+        # Static authentication is intended for a trusted service principal. Give
+        # that principal explicit scopes so the same component-level authorization
+        # checks used for OAuth remain active instead of being silently bypassed.
+        tokens={token: {"client_id": _STATIC_CLIENT_ID, "scopes": _STATIC_SCOPES}},
     )

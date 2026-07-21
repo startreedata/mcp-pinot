@@ -1,186 +1,184 @@
-# 🚀 MCP Pinot Server - User Guide
+# MCP Pinot Server User Guide
 
-Your MCP Pinot Server is running successfully with **dual transport** support!
+This guide shows how to connect an MCP client to Apache Pinot, discover the
+available tools, run read-only analytics, and safely preview configuration
+changes. It does not assume a particular set of Pinot tables or sample data.
 
-## 🌐 Server Status
+## Prerequisites
 
-- **✅ STDIO Transport**: Running (for Claude Desktop)
-- **✅ HTTP Transport**: Running at `http://127.0.0.1:8080`
-- **✅ REST API**: Available at `/api/tools/*` endpoints
-- **✅ Pinot Connection**: Connected to local quickstart
-- **✅ Tables Found**: 10 tables with sample data
+- Python 3.12 or later
+- `uv`
+- An Apache Pinot controller and broker reachable from this machine
 
-## 📊 Your Pinot Tables
+Configure the endpoints in `.env` or in the MCP client's environment:
 
-1. **airlineStats** - 1,824+ records
-2. **dailySales** - Sales data
-3. **fineFoodReviews** - Food review data  
-4. **githubEvents** - GitHub events data
-5. **meetupRsvp** - Meetup RSVP data
-6. **meetupRsvpComplexType** - Complex meetup data
-7. **meetupRsvpJson** - JSON meetup data
-8. **upsertJsonMeetupRsvp** - Upsert JSON data
-9. **upsertMeetupRsvp** - Upsert meetup data
-10. **upsertPartialMeetupRsvp** - Partial upsert data
-
-## 🔧 How to Query Tables
-
-### Method 1: Python Script (No Dependencies)
-```bash
-python3 simple_query_builtin.py
+```dotenv
+PINOT_CONTROLLER_URL=http://localhost:9000
+PINOT_BROKER_URL=http://localhost:8000
 ```
 
-### Method 2: Direct curl Commands
+Use `PINOT_TOKEN` or `PINOT_USERNAME`/`PINOT_PASSWORD` when the Pinot cluster
+requires authentication.
 
-#### List All Tables
-```bash
-curl -X POST http://127.0.0.1:8080/api/tools/call \
-  -H "Content-Type: application/json" \
-  -d '{"name": "list-tables", "arguments": {}}'
+## Choose a transport
+
+The server exposes standard MCP transports. It does not provide custom
+`/api/tools/list` or `/api/tools/call` REST endpoints.
+
+### STDIO
+
+STDIO is the simplest option for a desktop MCP host. The host starts and manages
+the server process:
+
+```json
+{
+  "mcpServers": {
+    "pinot": {
+      "command": "/absolute/path/to/uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/mcp-pinot",
+        "run",
+        "mcp-pinot"
+      ],
+      "env": {
+        "MCP_TRANSPORT": "stdio",
+        "PINOT_CONTROLLER_URL": "http://localhost:9000",
+        "PINOT_BROKER_URL": "http://localhost:8000"
+      }
+    }
+  }
+}
 ```
 
-#### Count Records in a Table
+### Streamable HTTP
+
+For a local MCP client, start the server on the loopback interface:
+
 ```bash
-curl -X POST http://127.0.0.1:8080/api/tools/call \
-  -H "Content-Type: application/json" \
-  -d '{"name": "read-query", "arguments": {"query": "SELECT COUNT(*) as total FROM airlineStats"}}'
+MCP_TRANSPORT=http MCP_HOST=127.0.0.1 MCP_PORT=8080 uv run mcp-pinot
 ```
 
-#### Get Sample Data
+The MCP endpoint is `http://127.0.0.1:8080/mcp`. Use an MCP client library to
+perform initialization, capability negotiation, and tool calls. The bundled
+example uses FastMCP:
+
 ```bash
-curl -X POST http://127.0.0.1:8080/api/tools/call \
-  -H "Content-Type: application/json" \
-  -d '{"name": "read-query", "arguments": {"query": "SELECT * FROM githubEvents LIMIT 5"}}'
+uv run python examples/example_client.py
 ```
 
-#### Test Connection
-```bash
-curl -X POST http://127.0.0.1:8080/api/tools/call \
-  -H "Content-Type: application/json" \
-  -d '{"name": "test-connection", "arguments": {}}'
-```
+The server refuses an unauthenticated non-loopback HTTP bind. Configure
+`AUTH_PROVIDER=static` with `MCP_STATIC_TOKEN`, or configure the OAuth provider,
+before exposing it to a network. See [SECURITY.md](SECURITY.md).
 
-#### Get Table Details
-```bash
-curl -X POST http://127.0.0.1:8080/api/tools/call \
-  -H "Content-Type: application/json" \
-  -d '{"name": "table-details", "arguments": {"tableName": "airlineStats"}}'
-```
+## Available tools
 
-### Method 3: Comprehensive Test Script
-```bash
-./test_rest_api.sh
-```
+Tool names are case-sensitive and use underscores.
 
-## 🛠 Available Tools
+| Tool | Purpose |
+|---|---|
+| `test_connection` | Diagnose broker, controller, and query connectivity. |
+| `list_tables` | List tables visible through the configured table filter. |
+| `get_schema` | Get one Pinot schema and its column definitions. |
+| `get_table_config` | Get indexing, retention, tenant, and ingestion configuration. |
+| `get_table_size` | Get reported and estimated storage size for a table. |
+| `list_segments` | List exact segment names for a table. |
+| `list_segment_metadata` | Page through row, size, and time metadata for segments. |
+| `get_segment_index_metadata` | Get per-column index metadata for one exact segment. |
+| `read_query` | Run one read-only `SELECT` or `WITH ... SELECT`. |
+| `create_schema` | Preview or create a Pinot schema. |
+| `update_schema` | Preview or update an existing schema. |
+| `create_table_config` | Preview or create a table configuration. |
+| `update_table_config` | Preview or update a table configuration. |
+| `reload_table_filters` | Preview or apply the configured table-filter YAML. |
 
-| Tool | Description | Example |
-|------|-------------|---------|
-| `list-tables` | List all tables | `{"name": "list-tables", "arguments": {}}` |
-| `read-query` | Execute SQL SELECT | `{"name": "read-query", "arguments": {"query": "SELECT * FROM table LIMIT 5"}}` |
-| `test-connection` | Test Pinot connection | `{"name": "test-connection", "arguments": {}}` |
-| `table-details` | Get table size info | `{"name": "table-details", "arguments": {"tableName": "airlineStats"}}` |
+MCP clients discover the authoritative input and output JSON Schemas through
+`tools/list`. Prefer those schemas over copying argument shapes from old examples.
 
-## 📈 Sample Queries You Can Try
+## Explore and query data
 
-### Basic Queries
+A reliable exploration flow is:
+
+1. Call `test_connection` if connectivity is uncertain.
+2. Call `list_tables` and use an exact returned table name.
+3. Call `get_schema` and `get_table_config` before composing SQL.
+4. Use `get_table_size`, `list_segments`, or the segment metadata tools only when
+   that level of operational detail is relevant.
+5. Call `read_query` with one read-only statement and a small page size.
+
+Example analytics statements:
+
 ```sql
--- Count all records
-SELECT COUNT(*) FROM airlineStats
-
--- Get recent GitHub events
-SELECT id, type, created_at FROM githubEvents ORDER BY created_at DESC LIMIT 10
-
--- Analyze meetup data
-SELECT COUNT(*) as total_rsvps FROM meetupRsvp
-
--- Sample airline data
-SELECT * FROM airlineStats LIMIT 5
+SELECT COUNT(*) AS row_count FROM airlineStats
 ```
 
-### Advanced Queries
 ```sql
--- Group by event type
-SELECT type, COUNT(*) as count FROM githubEvents GROUP BY type ORDER BY count DESC LIMIT 5
-
--- Date-based analysis (if date columns exist)
-SELECT DATE_TRUNC('day', created_at) as day, COUNT(*) 
-FROM githubEvents 
-GROUP BY DATE_TRUNC('day', created_at) 
-ORDER BY day DESC LIMIT 7
+SELECT * FROM airlineStats ORDER BY FlightDate DESC LIMIT 10
 ```
 
-## 🌐 API Endpoints
+`read_query` rejects stacked statements and DML, DDL, and administrative
+keywords. It is a safety guardrail, not a replacement for Pinot authentication,
+authorization, resource limits, or native table-level ACLs.
 
-- **GET** `/api/tools/list` - List available tools
-- **POST** `/api/tools/call` - Execute tool calls
-- **GET** `/sse` - MCP SSE endpoint (for MCP clients)
+## Preview writes before applying
 
-## 🎯 Quick Examples
+Schema and table-config tools can change live Pinot metadata. Use this sequence:
 
-### Count Records in All Tables
-```bash
-for table in airlineStats githubEvents meetupRsvp dailySales; do
-  echo -n "$table: "
-  curl -s -X POST http://127.0.0.1:8080/api/tools/call \
-    -H "Content-Type: application/json" \
-    -d "{\"name\": \"read-query\", \"arguments\": {\"query\": \"SELECT COUNT(*) as count FROM $table\"}}" \
-    | grep -o '"count":[0-9]*' | cut -d':' -f2
-done
-```
+1. Call the intended `create_*` or `update_*` tool with `dry_run=true`.
+2. Show the exact target, options, and preview to the user.
+3. Obtain confirmation for that exact change.
+4. Call the same tool with `dry_run=false` and the preview's one-time
+   `confirmation_token`.
+5. Verify the result with `get_schema` or `get_table_config`.
 
-### Get Schema Information
-```bash
-# List all available tools
-curl -s http://127.0.0.1:8080/api/tools/list | jq '.tools[].name'
+A successful preview confirms that the MCP server could parse the proposed
+payload; it does not guarantee that Pinot will accept the apply call. Do not tell
+the user a change was applied until the apply result succeeds.
 
-# Test if server is responsive
-curl -s -X POST http://127.0.0.1:8080/api/tools/call \
-  -H "Content-Type: application/json" \
-  -d '{"name": "test-connection", "arguments": {}}' | jq '.result.connection_test'
-```
+`reload_table_filters` previews by default. Pass `dry_run=false` only after
+reviewing the candidate filters. These filters improve tool discovery and reduce
+cognitive load; they are not an authorization boundary. Use Pinot ACLs for access
+control.
 
-## 🚀 Integration Options
+## Prompts and resources
 
-### For Claude Desktop
-- Use the STDIO transport (already running)
-- Configure in Claude Desktop settings
+The server exposes:
 
-### For Web Applications
-- Use the REST API endpoints
-- Base URL: `http://127.0.0.1:8080`
-- JSON request/response format
+- `pinot_query`, a reusable analytics workflow prompt;
+- `explore_table`, a guided table-exploration prompt;
+- `pinot://tables`, the visible table catalog;
+- `pinot://schema/{schema_name}`;
+- `pinot://table-config/{table_name}`.
 
-### For Kubernetes
-- Use the provided k8s manifests in `k8s/` directory
-- Supports HTTPS with Ingress
+Prompts and resources are optional MCP conveniences. The tools and their schemas
+remain the authoritative execution interface.
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
-### Server Not Responding
-```bash
-# Check if server is running
-curl -s http://127.0.0.1:8080/api/tools/list
+### No tables are returned
 
-# Restart server if needed
-uv --directory . run mcp_pinot/server.py
-```
+- Verify `PINOT_CONTROLLER_URL` and credentials.
+- Call `test_connection`.
+- Check `PINOT_TABLE_FILTER_FILE`; an empty result can be caused by its include
+  patterns.
+- Verify the tables directly in Pinot.
 
-### Query Errors
-- Only one read-only `SELECT` or `WITH ... SELECT` statement is allowed
-- Table names are case-sensitive
-- Use proper SQL syntax for Pinot
+### A query fails
 
-### Connection Issues
-- Ensure Pinot quickstart is running (ports 8000, 9000)
-- Check if tables are loaded: `curl -s http://localhost:9000/tables`
+- Copy the exact case-sensitive name from `list_tables`.
+- Inspect `get_schema` before referencing columns.
+- Send one read-only statement only.
+- Check Pinot permissions, broker availability, and query limits.
 
-## 🎉 Success!
+### HTTP clients cannot connect
 
-Your MCP Pinot Server is working perfectly with:
-- ✅ 10 tables loaded and queryable
-- ✅ REST API returning actual results
-- ✅ Dual transport (STDIO + HTTP) 
-- ✅ Production-ready for Kubernetes
+- Use `/mcp`, not the removed custom `/api/tools/*` paths.
+- Use an MCP SDK or compatible host rather than a bare REST client.
+- Bind `127.0.0.1` for local use.
+- Configure an auth provider before a non-loopback bind.
 
-You can now query your Pinot data using simple HTTP requests! 🚀
+### A write preview succeeded but apply failed
+
+The preview is intentionally non-mutating and is not an authoritative Pinot
+validation response. Read the apply error, correct the payload or permissions,
+preview again, and request confirmation for the revised change.

@@ -1,3 +1,9 @@
+"""Legacy pre-FastMCP prototype; not part of the published package.
+
+The supported implementation is :mod:`mcp_pinot`. See ``mcp_pinot_ops/README.md``
+before reading or modifying this historical code.
+"""
+
 import asyncio
 
 from . import server

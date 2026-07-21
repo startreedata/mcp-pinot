@@ -28,7 +28,9 @@ upgrade guidance will be included with the advisory when practical.
 
 The MCP HTTP transport is intended to be local by default. It binds to
 `127.0.0.1` unless configured otherwise. Binding HTTP or HTTPS to a non-loopback
-address must be protected with OAuth, TLS, or an authenticated reverse proxy.
+address requires an active OAuth or static-token provider. Use TLS directly or
+an authenticated reverse proxy as well; transport encryption does not replace
+the server's inbound authentication requirement.
 
 For Helm deployments, exposing the server through a Kubernetes Service or
 Traefik requires an explicit non-loopback bind host and OAuth-enabled
@@ -36,7 +38,7 @@ configuration.
 
 ### Tool invocation and query safety
 
-The `read-query` tool accepts one read-only `SELECT` or `WITH ... SELECT`
+The `read_query` tool accepts one read-only `SELECT` or `WITH ... SELECT`
 statement. It rejects stacked statements and write, DDL, or administrative SQL
 keywords before sending SQL to Pinot.
 
@@ -62,7 +64,8 @@ endpoint outside a local development environment.
 ## Security checklist before exposing HTTP
 
 - Set `MCP_HOST=0.0.0.0` only when remote clients need network access.
-- Set `OAUTH_ENABLED=true` before binding to a non-loopback host.
+- Set `AUTH_PROVIDER=oauth` (or `static` with `MCP_STATIC_TOKEN`) before binding
+  to a non-loopback host.
 - Use TLS directly or terminate TLS at an authenticated reverse proxy.
 - Configure Pinot-side authentication and authorization.
 - Use least-privilege credentials for the MCP server's Pinot connection.

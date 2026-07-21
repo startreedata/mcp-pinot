@@ -47,4 +47,3 @@ assets
 helm
 *.log
 *.sqlite*
-

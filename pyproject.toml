@@ -1,18 +1,25 @@
 [project]
 name = "mcp-pinot-server"
-version = "3.3.0"
+version = "4.0.0"
 description = "A production-grade MCP server for Apache Pinot"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
+authors = [{ name = "StarTree" }]
+keywords = ["apache-pinot", "analytics", "mcp", "model-context-protocol"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database :: Front-Ends",
+]
 dependencies = [
-    "mcp[cli]>=1.26.0",
-    "fastmcp>=3.0.0",
-    "pinotdb>=5.6.0",
+    "mcp[cli]>=1.28.1,<2",
+    "fastmcp>=3.2.0,<4",
+    "pinotdb>=9.1.2,<10",
     "uvicorn[standard]>=0.34.0",
     "python-dotenv>=1.0.1",
     "httpx>=0.27.2",
-    "pandas>=2.2.3",
     "requests>=2.32.3",
     "rpds-py>=0.18.1",
     "pydantic>=2.12.5",
@@ -29,7 +36,11 @@ mcp-pinot = "mcp_pinot.server:main"
 oauth = "mcp_pinot.auth.oauth:build_oauth_auth"
 
 [project.urls]
-Home = "http://github.com/startreedata/mcp-pinot"
+Homepage = "https://github.com/startreedata/mcp-pinot"
+Documentation = "https://startreedata.github.io/mcp-pinot/"
+Repository = "https://github.com/startreedata/mcp-pinot.git"
+Issues = "https://github.com/startreedata/mcp-pinot/issues"
+Changelog = "https://github.com/startreedata/mcp-pinot/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

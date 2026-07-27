@@ -14,6 +14,7 @@ Prerequisites:
 """
 
 import asyncio
+import os
 
 from fastmcp import Client
 
@@ -23,7 +24,8 @@ async def main():
     print("🚀 MCP Pinot Client Example")
     print("=" * 40)
 
-    async with Client("http://localhost:8080/mcp") as client:
+    endpoint = os.environ.get("MCP_URL", "http://127.0.0.1:8080/mcp")
+    async with Client(endpoint) as client:
         print("✓ Connected to MCP Pinot server!")
         print()
 

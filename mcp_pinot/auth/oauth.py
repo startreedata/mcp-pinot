@@ -14,15 +14,19 @@ from mcp_pinot.config import ServerConfig, load_oauth_config
 def build_oauth_auth(server_config: ServerConfig) -> OAuthProxy:
     """Build the OAuthProxy auth provider from environment configuration."""
     oauth_config = load_oauth_config()
+    expected_audience = f"{oauth_config.base_url.rstrip('/')}{server_config.path}"
+    if oauth_config.audience != expected_audience:
+        raise ValueError(
+            "OAUTH_AUDIENCE must exactly match the canonical MCP resource URI "
+            f"({expected_audience!r}) so token validation and RFC 9728 metadata agree."
+        )
 
     token_verifier = JWTVerifier(
         jwks_uri=oauth_config.jwks_uri,
         issuer=oauth_config.issuer,
         audience=oauth_config.audience,
-        # Enforced on the access token. Default None (do not enforce): OIDC scopes
-        # such as profile/email are rarely present on access tokens, so requiring
-        # them would 401 valid users. Set OAUTH_REQUIRED_SCOPES to opt in. This is
-        # distinct from valid_scopes below (which is only advertised).
+        # Optional baseline scopes are enforced here; component-level Pinot scopes
+        # are independently enforced for every tool/resource/prompt.
         required_scopes=oauth_config.required_scopes,
     )
 

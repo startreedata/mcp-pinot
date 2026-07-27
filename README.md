@@ -29,6 +29,49 @@ It allows you to
 - Designed to assist business users via Claude integration
 - and much more.
 
+## Features
+
+- Every tool advertises typed input and output JSON Schemas, MCP risk annotations,
+  and failure-recovery guidance for agent planning.
+- Large query, table, segment-name, and segment-metadata responses use bounded
+  pages with continuation metadata instead of returning unbounded agent context.
+- Read-only SQL is parsed and enforced before execution; validation, permission,
+  and transient connectivity errors are surfaced as actionable MCP errors.
+- Every mutating tool supports `dry_run`; always preview the exact target and
+  payload before applying. Applying requires the preview's short-lived, one-time
+  `confirmation_token`, including for table-filter reloads. A preview is not a
+  guarantee that Pinot will accept the later write.
+- Single-purpose schema and table-config inspection tools avoid ambiguous combined
+  operations: use `get_schema` and `get_table_config` independently.
+
+## MCP Tool Contract
+
+Tool names are case-sensitive and use underscores. Version 4 renamed four tools
+to make every operation verb-first; clients using the former noun-first names must
+update their calls.
+
+| Tool | Purpose |
+|---|---|
+| `test_connection` | Diagnose broker, controller, and query connectivity. |
+| `list_tables` | List visible Pinot table names. |
+| `get_schema` | Get one table's column schema. |
+| `get_table_config` | Get one table's indexing and ingestion configuration. |
+| `get_table_size` | Get reported and estimated storage size for one table. |
+| `list_segments` | List exact segment names for one table. |
+| `list_segment_metadata` | Page through metadata for a table's segments. |
+| `get_segment_index_metadata` | Inspect per-column indexes for one exact segment. |
+| `read_query` | Run one read-only Pinot SQL query. |
+| `create_schema` / `update_schema` | Preview or apply schema changes. |
+| `create_table_config` / `update_table_config` | Preview or apply table-config changes. |
+| `reload_table_filters` | Preview or apply the configured table-filter YAML. |
+
+For every schema, table-config, or table-filter change, first call the same tool
+with `dry_run=true`, present the preview to the user, and call it with
+`dry_run=false` and the preview's one-time `confirmation_token` only after
+confirmation. Editing a table-filter file after preview invalidates its token.
+Pinot performs authoritative validation during table/schema apply calls, so a
+write can still fail after a successful preview.
+
 <a href="https://glama.ai/mcp/servers/@startreedata/mcp-pinot">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@startreedata/mcp-pinot/badge" alt="StarTree Server for Apache Pinot MCP server" />
 </a>
@@ -88,17 +131,16 @@ mv .env.example .env
 ## Configuration Reference
 
 The server loads configuration from environment variables and from a `.env` file
-found from the current working directory. Values in `.env` override process
-environment variables, so run the server from the repository directory or pass
-the same variables through your process manager, container, or Claude Desktop
-configuration.
+found from the current working directory. Process environment variables take
+precedence over `.env`, so deployment-time settings cannot be silently replaced
+by a checked-out file.
 
 ### Common Profiles
 
 | Use case | Required settings | Notes |
 |---|---|---|
-| Claude Desktop | `MCP_TRANSPORT=stdio` | Recommended for local desktop use. No HTTP listener is started unless TLS certs are configured. |
-| Local HTTP | `MCP_TRANSPORT=http`, `MCP_HOST=127.0.0.1` | Default local development profile. Accessible only from the same machine. |
+| Claude Desktop | `MCP_TRANSPORT=stdio` | Default and recommended for local desktop use; no HTTP listener is started. |
+| Local HTTP | `MCP_TRANSPORT=http`, `MCP_HOST=127.0.0.1` | Explicit local web profile. Accessible only from the same machine. |
 | Remote HTTP/HTTPS | `MCP_TRANSPORT=http`, `MCP_HOST=0.0.0.0`, `AUTH_PROVIDER=oauth`\|`static` | The server refuses non-loopback HTTP/HTTPS binds unless an auth provider is active. Use TLS directly or an authenticated reverse proxy. |
 | Helm exposure | `service.enabled=true`, `mcp.host=0.0.0.0`, `mcp.oauth.enabled=true` | Helm defaults are local-only and render no Service unless exposure is explicitly enabled. |
 
@@ -124,12 +166,17 @@ configuration.
 
 | Variable | Default | Description |
 |---|---|---|
-| `MCP_TRANSPORT` | `http` | Transport mode. Use `stdio` for Claude Desktop and `http` for HTTP/SSE clients. |
+| `MCP_TRANSPORT` | `stdio` | Transport mode. Use `stdio` for desktop clients and `http` for Streamable HTTP clients. |
 | `MCP_HOST` | `127.0.0.1` | HTTP bind host. Set `0.0.0.0` only with an auth provider enabled. |
 | `MCP_PORT` | `8080` | HTTP listen port. |
 | `MCP_PATH` | `/mcp` | MCP HTTP path. |
 | `MCP_SSL_KEYFILE` | unset | TLS private key path. Requires `MCP_SSL_CERTFILE`. |
 | `MCP_SSL_CERTFILE` | unset | TLS certificate path. Requires `MCP_SSL_KEYFILE`. |
+| `MCP_LOG_LEVEL` | `INFO` | Application log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Logs go to stderr so STDIO protocol output remains valid. |
+| `MCP_RATE_LIMIT_RPS` / `MCP_RATE_LIMIT_BURST` | `10` / `20` | Per-principal (authenticated) or per-peer (loopback HTTP) tool-call rate and burst limits. |
+| `MCP_RATE_LIMIT_MAX_CLIENTS` | `10000` | Maximum in-memory client buckets; least-recently-used buckets are evicted. |
+| `MCP_RATE_LIMIT_IDLE_TTL_SECONDS` | `600` | Idle time before a rate-limit bucket can be evicted. |
+| `MCP_CONFIRMATION_TTL_SECONDS` | `300` | Confirmation-token lifetime, constrained to 30–3600 seconds. Tokens are process-bound and intentionally fail after restart. |
 
 ### Authentication
 
@@ -139,6 +186,7 @@ An auth provider is required before binding HTTP or HTTPS to a non-loopback host
 |---|---|---|
 | `AUTH_PROVIDER` | unset | Active auth provider: `none` (default), `oauth`, or `static`. Some provider is required before a non-loopback bind. |
 | `MCP_STATIC_TOKEN` | empty | Shared bearer secret for `AUTH_PROVIDER=static` — a service-to-service caller sends it as `Authorization: Bearer <token>`. Required when the static provider is active. |
+| `MCP_STATIC_SCOPES` | `pinot:read pinot:write pinot:admin` | Space- or comma-separated scopes granted to the static principal. Use `pinot:read` for a read-only service. |
 | `OAUTH_ENABLED` | `false` | Legacy flag; `true` is equivalent to `AUTH_PROVIDER=oauth`. Enables OAuth authentication. |
 | `OAUTH_CLIENT_ID` | empty | OAuth client ID. |
 | `OAUTH_CLIENT_SECRET` | empty | OAuth client secret. |
@@ -147,7 +195,7 @@ An auth provider is required before binding HTTP or HTTPS to a non-loopback host
 | `OAUTH_TOKEN_ENDPOINT` | empty | Upstream token endpoint. |
 | `OAUTH_JWKS_URI` | empty | JWKS URI used for token verification. |
 | `OAUTH_ISSUER` | empty | Expected token issuer. |
-| `OAUTH_AUDIENCE` | unset | Optional expected audience claim. |
+| `OAUTH_AUDIENCE` | unset | Required with OAuth. Must equal the canonical MCP resource URI (`OAUTH_BASE_URL` without a trailing slash plus `MCP_PATH`). |
 | `OAUTH_EXTRA_AUTH_PARAMS` | unset | Optional JSON object with additional authorization parameters. |
 
 ### Table Filtering
@@ -216,7 +264,7 @@ The filter supports glob-style patterns using standard Unix filename pattern mat
 #### Query Filtering
 When filtering is enabled, SQL queries are checked before execution:
 
-- **Supported SQL Features**: FROM clauses, JOIN clauses (INNER, LEFT, RIGHT, OUTER, CROSS), subqueries, CTEs (WITH), UNION queries, comma-separated table lists
+- **Supported SQL Features**: FROM clauses, JOIN clauses (INNER, LEFT, RIGHT, OUTER, CROSS), subqueries, CTEs (WITH), and comma-separated table lists
 - **Quoted Identifiers**: Supports both double-quoted (`"table name"`) and backtick-quoted (`` `table_name` ``) table names
 - **Schema Prefixes**: Handles schema-qualified table names (e.g., `database.schema.table`)
 - **Comments**: Removes SQL comments before checking
@@ -248,9 +296,13 @@ To disable table filtering, either:
 
 When not configured, all tables in the Pinot cluster are visible.
 
+When a filter file supplies both `allow_all: true` and a non-empty
+`included_tables`, the explicit allow-list takes precedence and the server logs a
+warning. Applying a reload requires the token from an unchanged dry-run candidate.
+
 ### Read-only Query Enforcement
 
-The `read-query` tool always validates SQL before forwarding it to Pinot. It
+The `read_query` tool always validates SQL before forwarding it to Pinot. It
 accepts one statement only, and that statement must be a read-only `SELECT` or
 `WITH ... SELECT` query. SQL comments are stripped, semicolon-stacked statements
 are rejected, and write/DDL/admin keywords are blocked.
@@ -267,8 +319,10 @@ To enable OAuth authentication, set the following environment variables in your 
 - `OAUTH_JWKS_URI`: JSON Web Key Set URI for token verification
 - `OAUTH_ISSUER`: Token issuer identifier
 
+**Additional required variable:**
+- `OAUTH_AUDIENCE`: canonical MCP resource URI used for audience validation
+
 **Optional variables:**
-- `OAUTH_AUDIENCE`: Expected audience claim for token validation
 - `OAUTH_EXTRA_AUTH_PARAMS`: Additional authorization parameters as JSON object (e.g., `{"scope": "openid profile"}`)
 
 Example configuration:
@@ -281,7 +335,7 @@ OAUTH_AUTHORIZATION_ENDPOINT=https://example.com/oauth/authorize
 OAUTH_TOKEN_ENDPOINT=https://example.com/oauth/token
 OAUTH_JWKS_URI=https://example.com/.well-known/jwks.json
 OAUTH_ISSUER=https://example.com
-OAUTH_AUDIENCE=client-id
+OAUTH_AUDIENCE=http://localhost:8000/mcp
 OAUTH_EXTRA_AUTH_PARAMS={"scope": "openid profile"}
 ```
 
@@ -293,17 +347,19 @@ uv --directory . run mcp_pinot/server.py
 You should see logs indicating that the server is running.
 
 > Security notes:
-> - The HTTP transport binds to `127.0.0.1` by default. Prefer the `stdio` transport for Claude Desktop; set `MCP_HOST=0.0.0.0` only when the server is protected by OAuth and TLS or an authenticated reverse proxy.
+> - STDIO is the default. When HTTP is selected it binds to `127.0.0.1`; set `MCP_HOST=0.0.0.0` only with OAuth or static-token authentication plus TLS or an authenticated reverse proxy.
 > - The server refuses to start when HTTP is bound to a non-loopback host without an auth provider (`AUTH_PROVIDER=oauth` or `static`, or the legacy `OAUTH_ENABLED=true`).
-> - `read-query` enforces a single read-only SQL statement before execution. This is a guardrail, not a replacement for Pinot authentication and authorization.
-> - Ensure you are using `mcp[cli]` version `>=1.10.0`, which includes DNS rebinding protections for the HTTP/SSE server.
+> - `read_query` enforces a single read-only SQL statement before execution. This is a guardrail, not a replacement for Pinot authentication and authorization.
+> - The supported `mcp[cli]` dependency includes DNS rebinding protections for the Streamable HTTP server.
+> - Confirmation replay state and rate-limit buckets are process-local. Run exactly one server process/Helm replica. The chart rejects `replicas != 1`; horizontal scaling requires a shared state-store implementation.
+> - `/readyz` reports MCP process readiness, not Pinot cluster health. Use `test_connection` to diagnose Pinot dependencies.
 
 ### Launch Pinot Quickstart (Optional)
 
 Start Pinot QuickStart using docker:
 
 ```bash
-docker run --name pinot-quickstart -p 2123:2123 -p 9000:9000 -p 8000:8000 -d apachepinot/pinot:latest QuickStart -type batch
+docker run --name pinot-quickstart -p 2123:2123 -p 9000:9000 -p 8000:8000 -d apachepinot/pinot:1.5.1 QuickStart -type batch
 ```
 
 Query MCP Server
@@ -352,24 +408,19 @@ You could also configure environment variables here instead of the `.env` file, 
 
 Claude will now auto-launch the MCP server on startup and recognize the new Pinot-based tools.
 
-## Using DXT Extension
+## Using the MCP Bundle
 
-Apache Pinot MCP server now supports DXT desktop extensions file 
-
-To use it, you first need to install dxt via 
-```
-npm install -g @anthropic-ai/dxt
-```
-
-then you can run the following commands:
+The release workflow publishes a Claude Desktop MCP Bundle (`.mcpb`). Its UV
+runtime installs the locked dependencies for the user's platform, so one small
+bundle works across macOS, Linux, and Windows. To build one locally:
 
 ```bash
-uv pip install -r pyproject.toml --target mcp_pinot/lib
-uv pip install . --target mcp_pinot/lib 
-dxt pack
+npm install -g @anthropic-ai/mcpb@2.1.2
+mcpb validate manifest.json
+mcpb pack
 ```
 
-After this you'll get a .dxt file in your dir. Double click on that file to install it in claude desktop
+Open the resulting `.mcpb` file to install it in Claude Desktop.
 
 ## Security and Vulnerability Reporting
 
@@ -379,19 +430,20 @@ endpoint.
 
 ## Developer
 
-- All tools are defined in the `Pinot` class in `utils/pinot_client.py`
+- MCP tool definitions live in `mcp_pinot/server.py`; Pinot HTTP/DB operations
+  live in `mcp_pinot/pinot_client.py`.
 
 ### Build
 Build the project with
 
 ```bash
-pip install -e ".[dev]"
+uv sync --frozen
 ```
 
 ### Test
 Test the repo with:
 ```bash
-pytest
+uv run pytest --cov=mcp_pinot
 ```
 
 ### Build the Docker image
@@ -401,7 +453,9 @@ docker build -t mcp-pinot .
 
 ### Run the container
 ```bash
-docker run -v $(pwd)/.env:/app/.env mcp-pinot
+docker run --rm -i -v "$(pwd)/.env:/app/config/.env:ro" mcp-pinot
 ```
 
-Note: Make sure to have your `.env` file configured with the appropriate Pinot cluster settings before running the container.
+This uses the default STDIO transport. For HTTP/Kubernetes deployments, configure
+an inbound auth provider before binding to a non-loopback address; see the
+configuration and Helm sections above.

@@ -9,24 +9,43 @@ from dotenv import find_dotenv, load_dotenv
 import yaml
 
 
-def setup_logging():
-    """Set up basic logging configuration."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        stream=sys.stderr,
-        force=True,
+def setup_logging() -> None:
+    """Configure the application logger without replacing host/framework handlers."""
+    level_name = os.getenv("MCP_LOG_LEVEL", "INFO").strip().upper()
+    level = logging.getLevelNamesMapping().get(level_name)
+    if not isinstance(level, int):
+        raise ValueError(
+            "MCP_LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR, or CRITICAL."
+        )
+
+    app_logger = logging.getLogger("mcp-pinot")
+    handler = next(
+        (
+            existing
+            for existing in app_logger.handlers
+            if getattr(existing, "_mcp_pinot_handler", False)
+        ),
+        None,
     )
+    if handler is None:
+        handler = logging.StreamHandler(sys.stderr)
+        handler._mcp_pinot_handler = True  # type: ignore[attr-defined]
+        app_logger.addHandler(handler)
+    handler.setLevel(level)
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    app_logger.setLevel(level)
+    app_logger.propagate = False
 
 
 def get_logger(name: str = "mcp-pinot") -> logging.Logger:
     """Get a logger instance."""
     return logging.getLogger(name)
 
-
-# Initialize logging when module is imported
-setup_logging()
 
 # Create a default logger for this module
 logger = get_logger()
@@ -50,13 +69,16 @@ class PinotConfig:
     query_timeout: int = 60
     included_tables: list[str] | None = None
     table_filter_file: str | None = None
+    controller_username: str | None = None
+    controller_password: str | None = None
+    controller_token: str | None = None
 
 
 @dataclass
 class ServerConfig:
     """Configuration container for MCP server transport settings"""
 
-    transport: str = "http"
+    transport: str = "stdio"
     host: str = "127.0.0.1"
     port: int = 8080
     ssl_keyfile: str | None = None
@@ -65,13 +87,27 @@ class ServerConfig:
     path: str = "/mcp"
     # Name of the active auth provider (see mcp_pinot.auth). None disables auth.
     auth_provider: str | None = None
+    # Exact HTTP Host authorities accepted at the MCP endpoint. Wildcards are not
+    # supported; include both hostname and hostname:port when clients use both.
+    allowed_hosts: tuple[str, ...] = ("127.0.0.1", "127.0.0.1:8080")
+    # Exact browser Origin values accepted at the MCP endpoint. An empty tuple
+    # rejects requests that send Origin while allowing clients that omit it.
+    allowed_origins: tuple[str, ...] = ()
 
 
 # Default OAuth scopes advertised in the server's discovery metadata
 # (scopes_supported) and requested by clients. Without a non-empty
 # scopes_supported, the mcp-remote bridge (Claude Desktop) treats every scope as
 # invalid and refuses to start the OAuth flow. See fastmcp#1716.
-DEFAULT_OAUTH_SCOPES = ["openid", "profile", "email"]
+DEFAULT_OAUTH_SCOPES = [
+    "openid",
+    "profile",
+    "email",
+    "pinot:read",
+    "pinot:write",
+    "pinot:admin",
+]
+PINOT_AUTHORIZATION_SCOPES = frozenset({"pinot:read", "pinot:write", "pinot:admin"})
 
 
 @dataclass
@@ -85,10 +121,10 @@ class OAuthConfig:
     upstream_token_endpoint: str
     jwks_uri: str
     issuer: str
-    audience: str | None = None
+    audience: str
     extra_authorize_params: dict[str, str] | None = None
-    scopes: list[str] | None = None  # advertised as scopes_supported (not enforced)
-    required_scopes: list[str] | None = None  # enforced on access tokens (opt-in)
+    scopes: list[str] | None = None  # advertised OAuth scope catalog
+    required_scopes: list[str] | None = None  # optional global baseline scopes
 
 
 def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
@@ -169,31 +205,28 @@ def _validate_filter_file_path(filter_file_path: str | None) -> bool:
     return True
 
 
-def _parse_table_filter_config(filter_file_path: str) -> dict | None:
+def _parse_table_filter_config(filter_file_path: str) -> dict:
     """Parse YAML configuration from filter file.
 
     Args:
         filter_file_path: Path to the YAML filter file
 
     Returns:
-        dict | None: Parsed configuration or None on error
+        dict: Parsed and structurally valid configuration.
     """
     try:
         with open(filter_file_path, encoding="utf-8") as file:
             config = yaml.safe_load(file)
 
-        if not config:
-            logger.warning("Empty table filter configuration file")
-            return None
+        if not isinstance(config, dict):
+            raise ValueError("Table filter YAML must contain an object at the root.")
 
         return config
 
     except yaml.YAMLError as e:
-        logger.error(f"Invalid YAML syntax in {filter_file_path}: {e}")
-        return None
+        raise ValueError(f"Invalid table filter YAML in {filter_file_path}.") from e
     except OSError as e:
-        logger.error(f"Failed to read filter file {filter_file_path}: {e}")
-        return None
+        raise OSError(f"Failed to read table filter file {filter_file_path}.") from e
 
 
 def _load_table_filters(filter_file_path: str | None) -> list[str] | None:
@@ -210,15 +243,38 @@ def _load_table_filters(filter_file_path: str | None) -> list[str] | None:
         return None
 
     config = _parse_table_filter_config(filter_file_path)
-    if not config:
-        return None
 
     included_tables = config.get("included_tables")
+    allow_all = config.get("allow_all", False)
+    if not isinstance(allow_all, bool):
+        raise ValueError("'allow_all' must be true or false when provided.")
 
-    # Treat empty lists the same as None - no filtering
-    if not included_tables:
-        logger.info("Table filter set but no tables listed — including all tables.")
+    if included_tables is None or included_tables == []:
+        if not allow_all:
+            raise ValueError(
+                "Table filter configuration would allow every table. Set "
+                "'allow_all: true' explicitly, or provide a non-empty "
+                "'included_tables' list."
+            )
+        logger.warning("Table filter explicitly configured to allow all tables.")
         return None
+
+    if not isinstance(included_tables, list) or not all(
+        isinstance(pattern, str) for pattern in included_tables
+    ):
+        raise ValueError("'included_tables' must be a list of strings.")
+    if allow_all:
+        logger.warning(
+            "Both allow_all=true and included_tables are configured; the explicit "
+            "included_tables allow-list takes precedence."
+        )
+    if len(included_tables) > 1000:
+        raise ValueError("'included_tables' may contain at most 1000 patterns.")
+    for pattern in included_tables:
+        if not pattern or len(pattern) > 256 or any(ord(char) < 32 for char in pattern):
+            raise ValueError(
+                "Each table-filter pattern must contain 1-256 printable characters."
+            )
 
     table_count = len(included_tables)
     logger.info(f"{table_count} table(s) available after filtering.")
@@ -248,7 +304,7 @@ def reload_table_filters_from_file(file_path: str) -> list[str] | None:
 
 def load_pinot_config() -> PinotConfig:
     """Load and return Pinot configuration from environment variables"""
-    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
+    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=False)
 
     # Get the broker URL if provided
     broker_url = os.getenv("PINOT_BROKER_URL")
@@ -321,6 +377,9 @@ def load_pinot_config() -> PinotConfig:
         query_timeout=int(os.getenv("PINOT_QUERY_TIMEOUT", "60")),
         included_tables=included_tables,
         table_filter_file=filter_file_path,
+        controller_username=os.getenv("PINOT_CONTROLLER_USERNAME"),
+        controller_password=os.getenv("PINOT_CONTROLLER_PASSWORD"),
+        controller_token=os.getenv("PINOT_CONTROLLER_TOKEN"),
     )
 
 
@@ -338,19 +397,54 @@ def _resolve_auth_provider() -> str | None:
     return None
 
 
+def _parse_http_allowlist(raw: str | None) -> tuple[str, ...]:
+    """Parse a comma-separated exact-match HTTP allowlist."""
+    if raw is None:
+        return ()
+    return tuple(value.strip() for value in raw.split(",") if value.strip())
+
+
+def _default_allowed_hosts(host: str, port: int) -> tuple[str, ...]:
+    """Return safe exact Host defaults for a concrete bind address.
+
+    Wildcard bind addresses do not identify a public authority, so deployments
+    using them must explicitly set MCP_ALLOWED_HOSTS.
+    """
+    normalized_host = host.strip()
+    if normalized_host in {"0.0.0.0", "::", "[::]"}:
+        return ()
+    authority_host = (
+        f"[{normalized_host}]"
+        if ":" in normalized_host and not normalized_host.startswith("[")
+        else normalized_host
+    )
+    return (authority_host, f"{authority_host}:{port}")
+
+
 def load_server_config() -> ServerConfig:
     """Load and return MCP server configuration from environment variables"""
-    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
+    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=False)
+
+    host = os.getenv("MCP_HOST", "127.0.0.1")
+    port = int(os.getenv("MCP_PORT", "8080"))
+    allowed_hosts_raw = os.getenv("MCP_ALLOWED_HOSTS")
+    allowed_hosts = (
+        _default_allowed_hosts(host, port)
+        if allowed_hosts_raw is None
+        else _parse_http_allowlist(allowed_hosts_raw)
+    )
 
     return ServerConfig(
-        transport=os.getenv("MCP_TRANSPORT", "http").lower(),
-        host=os.getenv("MCP_HOST", "127.0.0.1"),
-        port=int(os.getenv("MCP_PORT", "8080")),
+        transport=os.getenv("MCP_TRANSPORT", "stdio").lower(),
+        host=host,
+        port=port,
         ssl_keyfile=os.getenv("MCP_SSL_KEYFILE"),
         ssl_certfile=os.getenv("MCP_SSL_CERTFILE"),
         oauth_enabled=os.getenv("OAUTH_ENABLED", "false").lower() == "true",
         path=os.getenv("MCP_PATH", "/mcp"),
         auth_provider=_resolve_auth_provider(),
+        allowed_hosts=allowed_hosts,
+        allowed_origins=_parse_http_allowlist(os.getenv("MCP_ALLOWED_ORIGINS")),
     )
 
 
@@ -387,7 +481,7 @@ def load_static_token() -> str:
     misconfigured ``AUTH_PROVIDER=static`` deployment fails at startup rather
     than accepting requests it cannot authenticate.
     """
-    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
+    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=False)
     token = os.getenv("MCP_STATIC_TOKEN", "").strip()
     if not token:
         raise ValueError(
@@ -397,9 +491,25 @@ def load_static_token() -> str:
     return token
 
 
+def load_static_scopes() -> list[str]:
+    """Return explicit scopes granted to the shared static service principal."""
+    raw = os.getenv("MCP_STATIC_SCOPES")
+    if not raw or not raw.strip():
+        return ["pinot:read", "pinot:write", "pinot:admin"]
+    scopes = list(dict.fromkeys(raw.replace(",", " ").split()))
+    invalid = sorted(set(scopes) - PINOT_AUTHORIZATION_SCOPES)
+    if invalid:
+        raise ValueError(
+            "MCP_STATIC_SCOPES contains unsupported scopes: " + ", ".join(invalid)
+        )
+    if not scopes:
+        raise ValueError("MCP_STATIC_SCOPES must grant at least one Pinot scope.")
+    return scopes
+
+
 def load_oauth_config() -> OAuthConfig:
     """Load and return OAuth configuration from environment variables"""
-    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=True)
+    load_dotenv(dotenv_path=find_dotenv(usecwd=True), override=False)
 
     # Parse extra authorization parameters from environment variables
     # Format: OAUTH_EXTRA_AUTH_PARAMS='{"param1": "value1", "param2": "value2"}'
@@ -417,15 +527,51 @@ def load_oauth_config() -> OAuthConfig:
             logger.warning(f"Invalid OAUTH_EXTRA_AUTH_PARAMS JSON: {e}. Ignoring.")
             extra_authorize_params = None
 
+    values = {
+        "client_id": os.getenv("OAUTH_CLIENT_ID", "").strip(),
+        "client_secret": os.getenv("OAUTH_CLIENT_SECRET", "").strip(),
+        "base_url": os.getenv("OAUTH_BASE_URL", "").strip(),
+        "upstream_authorization_endpoint": os.getenv(
+            "OAUTH_AUTHORIZATION_ENDPOINT", ""
+        ).strip(),
+        "upstream_token_endpoint": os.getenv("OAUTH_TOKEN_ENDPOINT", "").strip(),
+        "jwks_uri": os.getenv("OAUTH_JWKS_URI", "").strip(),
+        "issuer": os.getenv("OAUTH_ISSUER", "").strip(),
+        "audience": os.getenv("OAUTH_AUDIENCE", "").strip(),
+    }
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        env_by_field = {
+            "client_id": "OAUTH_CLIENT_ID",
+            "client_secret": "OAUTH_CLIENT_SECRET",
+            "base_url": "OAUTH_BASE_URL",
+            "upstream_authorization_endpoint": "OAUTH_AUTHORIZATION_ENDPOINT",
+            "upstream_token_endpoint": "OAUTH_TOKEN_ENDPOINT",
+            "jwks_uri": "OAUTH_JWKS_URI",
+            "issuer": "OAUTH_ISSUER",
+            "audience": "OAUTH_AUDIENCE",
+        }
+        env_names = ", ".join(env_by_field[name] for name in missing)
+        raise ValueError(f"OAuth configuration is incomplete; missing: {env_names}.")
+
+    for name in (
+        "base_url",
+        "upstream_authorization_endpoint",
+        "upstream_token_endpoint",
+        "jwks_uri",
+        "issuer",
+    ):
+        parsed = urlparse(values[name])
+        loopback = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError(f"OAuth {name} must be an absolute URL.")
+        if parsed.scheme != "https" and not (parsed.scheme == "http" and loopback):
+            raise ValueError(
+                f"OAuth {name} must use HTTPS (HTTP is allowed only for loopback)."
+            )
+
     return OAuthConfig(
-        client_id=os.getenv("OAUTH_CLIENT_ID", ""),
-        client_secret=os.getenv("OAUTH_CLIENT_SECRET", ""),
-        base_url=os.getenv("OAUTH_BASE_URL", "http://localhost:8080"),
-        upstream_authorization_endpoint=os.getenv("OAUTH_AUTHORIZATION_ENDPOINT", ""),
-        upstream_token_endpoint=os.getenv("OAUTH_TOKEN_ENDPOINT", ""),
-        jwks_uri=os.getenv("OAUTH_JWKS_URI", ""),
-        issuer=os.getenv("OAUTH_ISSUER", ""),
-        audience=os.getenv("OAUTH_AUDIENCE"),
+        **values,
         extra_authorize_params=extra_authorize_params,
         scopes=_parse_oauth_scopes(os.getenv("OAUTH_SCOPES")),
         required_scopes=_parse_optional_scopes(os.getenv("OAUTH_REQUIRED_SCOPES")),

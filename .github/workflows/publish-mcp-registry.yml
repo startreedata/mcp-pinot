@@ -1,10 +1,6 @@
 name: Publish MCP Registry
 
 on:
-  # One-time recovery trigger for v4.0.0. This branch trigger is removed after
-  # the registry accepts the already-published release artifacts.
-  push:
-    branches: [codex/mcp-registry-v4-repair]
   workflow_dispatch:
     inputs:
       release-tag:
@@ -21,7 +17,7 @@ jobs:
       contents: read
       id-token: write
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release-tag || 'v4.0.0' }}
+      RELEASE_TAG: ${{ inputs.release-tag }}
 
     steps:
     - name: Checkout canonical metadata

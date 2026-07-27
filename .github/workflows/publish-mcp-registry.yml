@@ -1,0 +1,64 @@
+name: Publish MCP Registry
+
+on:
+  # One-time recovery trigger for v4.0.0. This branch trigger is removed after
+  # the registry accepts the already-published release artifacts.
+  push:
+    branches: [codex/mcp-registry-v4-repair]
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Existing release tag to publish, for example v4.0.0"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  publish-mcp-registry:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release-tag || 'v4.0.0' }}
+
+    steps:
+    - name: Checkout canonical metadata
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+    - name: Set up Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      with:
+        python-version: '3.12'
+
+    - name: Verify release and prepare metadata
+      env:
+        PYPI_PACKAGE: mcp-pinot-server
+      run: |
+        case "$RELEASE_TAG" in
+          v*) ;;
+          *) echo "Release tag must start with v." >&2; exit 1 ;;
+        esac
+        git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG"
+        python -m pip install --upgrade pip
+        python -m pip install packaging
+        python scripts/prepare_registry_metadata.py "$RELEASE_TAG"
+        PACKAGE_VERSION="${RELEASE_TAG#v}"
+        curl --fail --silent --show-error \
+          "https://pypi.org/pypi/$PYPI_PACKAGE/$PACKAGE_VERSION/json" >/dev/null
+
+    - name: Install pinned MCP publisher
+      run: |
+        curl --fail --location --silent --show-error --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 \
+          --output mcp-publisher.tar.gz \
+          "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.0/mcp-publisher_linux_amd64.tar.gz"
+        echo "1370446bbe74d562608e8005a6ccce02d146a661fbd78674e11cc70b9618d6cf  mcp-publisher.tar.gz" \
+          | sha256sum --check --strict
+        tar xzf mcp-publisher.tar.gz mcp-publisher
+        ./mcp-publisher validate
+
+    - name: Publish to MCP Registry
+      run: |
+        ./mcp-publisher login github-oidc
+        ./mcp-publisher publish

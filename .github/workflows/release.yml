@@ -255,33 +255,7 @@ jobs:
       env:
         RELEASE_TAG: ${{ github.ref_name }}
       run: |
-        python - <<'PY'
-        from pathlib import Path
-        import json
-        import os
-
-        from packaging.version import InvalidVersion, Version
-
-        raw_version = os.environ["RELEASE_TAG"]
-        server_version = raw_version[1:] if raw_version.startswith("v") else raw_version
-        try:
-            package_version = str(Version(server_version))
-        except InvalidVersion as exc:
-            raise SystemExit(f"Release tag {raw_version!r} is not a valid PyPI version: {exc}") from exc
-
-        path = Path("server.json")
-        metadata = json.loads(path.read_text())
-        metadata["version"] = server_version
-        for package in metadata.get("packages", []):
-            # All published packages (pypi, oci, ...) share the release version.
-            package["version"] = package_version
-        path.write_text(json.dumps(metadata, indent=2) + "\n")
-        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-            print(f"server_version={server_version}", file=output)
-            print(f"package_version={package_version}", file=output)
-        print(f"Set MCP Registry version to {server_version}")
-        print(f"Set PyPI package version to {package_version}")
-        PY
+        python scripts/prepare_registry_metadata.py "$RELEASE_TAG"
 
     - name: Wait for PyPI package metadata
       env:

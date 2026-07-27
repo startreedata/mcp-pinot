@@ -69,9 +69,7 @@
     },
     {
       "registryType": "oci",
-      "registryBaseUrl": "https://ghcr.io",
-      "identifier": "ghcr.io/startreedata/mcp-pinot",
-      "version": "4.0.0",
+      "identifier": "ghcr.io/startreedata/mcp-pinot:4.0.0",
       "transport": {
         "type": "stdio"
       }

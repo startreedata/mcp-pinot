@@ -832,6 +832,9 @@ class TestPinotClient:
         )
 
         assert result == [{"col1": "data"}]
+        assert mock_requests.post.call_args.kwargs["json"]["sql"] == (
+            "WITH cte AS (SELECT * FROM test_table) SELECT * FROM cte LIMIT 501"
+        )
 
     def test_execute_query_allows_order_by_desc(self, mock_pinot_config, mock_requests):
         """Test DESC sort direction is accepted in read-only SELECT queries."""

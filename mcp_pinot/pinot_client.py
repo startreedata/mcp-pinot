@@ -506,17 +506,17 @@ class PinotClient:
         headers = {"accept": "application/json", "Content-Type": "application/json"}
 
         token = (
-            self.config.controller_token or self.config.token
+            (self.config.controller_token or self.config.token)
             if controller
             else self.config.token
         )
         username = (
-            self.config.controller_username or self.config.username
+            (self.config.controller_username or self.config.username)
             if controller
             else self.config.username
         )
         password = (
-            self.config.controller_password or self.config.password
+            (self.config.controller_password or self.config.password)
             if controller
             else self.config.password
         )

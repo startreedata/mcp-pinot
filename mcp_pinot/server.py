@@ -135,9 +135,7 @@ class _ToolRateLimitMiddleware(Middleware):
             return limiter
 
         while self._limiters:
-            _oldest_principal, (_limiter, last_seen) = next(
-                iter(self._limiters.items())
-            )
+            _limiter, last_seen = next(iter(self._limiters.values()))
             if now - last_seen <= self._idle_ttl_seconds:
                 break
             self._limiters.popitem(last=False)

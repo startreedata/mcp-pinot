@@ -8,7 +8,13 @@ from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.server.middleware.rate_limiting import RateLimitError
 import pytest
 
-from mcp_pinot.server import _is_loopback_host, _ToolRateLimitMiddleware, main, mcp
+from mcp_pinot.server import (
+    _CONFIRMATION_TTL_SECONDS,
+    _is_loopback_host,
+    _ToolRateLimitMiddleware,
+    main,
+    mcp,
+)
 
 SCHEMA_INPUT = {"schemaName": "test", "dimensionFieldSpecs": []}
 TABLE_CONFIG_INPUT = {
@@ -679,8 +685,6 @@ class TestFastMCPServer:
     async def test_confirmation_rejects_tampered_signature_and_expired_token(
         self, mock_pinot_client
     ):
-        import mcp_pinot.server as server
-
         async with Client(mcp) as client:
             with patch("mcp_pinot.server.time.time", return_value=1_000):
                 preview = await client.call_tool(
@@ -701,7 +705,7 @@ class TestFastMCPServer:
             )
             with patch(
                 "mcp_pinot.server.time.time",
-                return_value=1_000 + server._CONFIRMATION_TTL_SECONDS,
+                return_value=1_000 + _CONFIRMATION_TTL_SECONDS,
             ):
                 expired = await client.call_tool(
                     "create_schema",

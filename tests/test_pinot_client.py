@@ -97,6 +97,20 @@ class TestPinotClient:
         decoded = base64.b64decode(headers["Authorization"][6:]).decode()
         assert decoded == "test_user:test_pass"
 
+    def test_create_auth_headers_separates_broker_and_controller_credentials(
+        self, mock_pinot_config
+    ):
+        """Controller credentials must never leak into broker requests."""
+        mock_pinot_config.token = "Bearer broker-token"
+        mock_pinot_config.controller_token = "Bearer controller-token"
+        pinot = PinotClient(mock_pinot_config)
+
+        broker_headers = pinot._create_auth_headers(controller=False)
+        controller_headers = pinot._create_auth_headers(controller=True)
+
+        assert broker_headers["Authorization"] == "Bearer broker-token"
+        assert controller_headers["Authorization"] == "Bearer controller-token"
+
     def test_create_auth_headers_with_database(self, mock_pinot_config):
         """Test auth headers creation with database."""
         mock_pinot_config.database = "test_db"

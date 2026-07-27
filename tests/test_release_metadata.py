@@ -194,8 +194,10 @@ def test_registry_and_release_metadata_are_publishable_and_pinned() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     manifest = _json("manifest.json")
+    registry = _json("server.json")
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
+    assert 1 <= len(registry["description"]) <= 100
     assert (
         'LABEL io.modelcontextprotocol.server.name="io.github.startreedata/mcp-pinot"'
         in dockerfile

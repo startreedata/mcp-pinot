@@ -132,6 +132,16 @@ mcp:
   host: "127.0.0.1"
   port: 8000
   path: "/mcp"
+  # Exact Host authorities accepted at the MCP endpoint (MCP_ALLOWED_HOSTS).
+  # REQUIRED whenever mcp.host is a wildcard bind such as 0.0.0.0: the server has
+  # no way to infer its public authority and exits at startup rather than accepting
+  # any Host. Use the names clients actually connect to, including the port when
+  # clients send one, e.g. [mcp.example.com, mcp.example.com:443].
+  allowedHosts: []
+  # Exact browser Origin values accepted (MCP_ALLOWED_ORIGINS). Empty rejects
+  # requests that send Origin while still allowing clients that omit it, which is
+  # the right default for non-browser MCP clients.
+  allowedOrigins: []
   ssl:
     enabled: false
     keyFile: "/etc/ssl/tls.key"

@@ -57,6 +57,14 @@ spec:
               value: {{ .Values.mcp.port | quote }}
             - name: MCP_PATH
               value: {{ .Values.mcp.path | quote }}
+            {{- if .Values.mcp.allowedHosts }}
+            - name: MCP_ALLOWED_HOSTS
+              value: {{ join "," .Values.mcp.allowedHosts | quote }}
+            {{- end }}
+            {{- if .Values.mcp.allowedOrigins }}
+            - name: MCP_ALLOWED_ORIGINS
+              value: {{ join "," .Values.mcp.allowedOrigins | quote }}
+            {{- end }}
             {{- if .Values.mcp.ssl.enabled }}
             - name: MCP_SSL_KEYFILE
               value: {{ .Values.mcp.ssl.keyFile | quote }}

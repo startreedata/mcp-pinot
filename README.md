@@ -170,6 +170,8 @@ by a checked-out file.
 | `MCP_HOST` | `127.0.0.1` | HTTP bind host. Set `0.0.0.0` only with an auth provider enabled. |
 | `MCP_PORT` | `8080` | HTTP listen port. |
 | `MCP_PATH` | `/mcp` | MCP HTTP path. |
+| `MCP_ALLOWED_HOSTS` | exact host[:port] of a concrete bind | Comma-separated Host authorities accepted at the MCP endpoint. A wildcard bind (`0.0.0.0`, `::`) has no inferable public authority, so it defaults to empty and **the server exits at startup** until you list the names clients use, e.g. `mcp.example.com,mcp.example.com:443`. |
+| `MCP_ALLOWED_ORIGINS` | unset | Comma-separated browser `Origin` values accepted. Empty rejects requests that send `Origin` while still allowing clients that omit it. |
 | `MCP_SSL_KEYFILE` | unset | TLS private key path. Requires `MCP_SSL_CERTFILE`. |
 | `MCP_SSL_CERTFILE` | unset | TLS certificate path. Requires `MCP_SSL_KEYFILE`. |
 | `MCP_LOG_LEVEL` | `INFO` | Application log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Logs go to stderr so STDIO protocol output remains valid. |

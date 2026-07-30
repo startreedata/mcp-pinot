@@ -78,15 +78,25 @@ none
 {{- end }}
 
 {{/*
-Whether the caller supplies MCP_STATIC_TOKEN themselves through env.additional.
+Whether env.additional already declares a given variable.
 
-When they do, the chart neither mints a token nor declares the variable, so the
-Pod keeps exactly one MCP_STATIC_TOKEN and no unused secret material is stored.
+Call as: include "mcp-pinot.envHas" (dict "root" . "name" "MCP_STATIC_TOKEN")
+Used so the chart never fights a caller who supplies a value itself: it neither
+mints a token nor declares a duplicate variable, and the exposure guards trust an
+externally supplied allowlist.
+*/}}
+{{- define "mcp-pinot.envHas" -}}
+{{- $name := .name -}}
+{{- range .root.Values.env.additional -}}
+{{- if eq (.name | default "") $name -}}true{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the caller supplies MCP_STATIC_TOKEN themselves through env.additional.
 */}}
 {{- define "mcp-pinot.staticTokenFromEnv" -}}
-{{- range .Values.env.additional -}}
-{{- if eq (.name | default "") "MCP_STATIC_TOKEN" -}}true{{- end -}}
-{{- end -}}
+{{- include "mcp-pinot.envHas" (dict "root" . "name" "MCP_STATIC_TOKEN") -}}
 {{- end }}
 
 {{/*
@@ -140,6 +150,10 @@ Validate MCP HTTP exposure settings.
 {{- end -}}
 {{- if and (not $isLoopback) (not $authEnabled) -}}
 {{- fail "mcp.host is non-loopback, so an auth provider is required; set mcp.auth.provider=oauth|static (or the legacy mcp.oauth.enabled=true)" -}}
+{{- end -}}
+{{- $hostAllowlisted := or .Values.mcp.allowedHosts (eq (include "mcp-pinot.envHas" (dict "root" . "name" "MCP_ALLOWED_HOSTS")) "true") -}}
+{{- if and (not $isLoopback) (not $hostAllowlisted) -}}
+{{- fail "mcp.host is a wildcard bind, which does not identify a public authority: set mcp.allowedHosts to the exact Host authorities clients use (e.g. [mcp.example.com, mcp.example.com:443]). Without it the server exits at startup instead of serving." -}}
 {{- end -}}
 {{- end }}
 

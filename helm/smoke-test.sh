@@ -6,6 +6,13 @@ CHART="$(dirname "$0")/mcp-pinot"
 
 render() { helm template smoke "$CHART" "$@"; }
 
+# Exposed renders need a Host allowlist (see the wildcard-bind guard below); this
+# keeps each case focused on the behaviour it is named for.
+render_exposed() {
+  render --set service.enabled=true --set mcp.host=0.0.0.0 \
+    --set 'mcp.allowedHosts={mcp.example.com}' "$@"
+}
+
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
 # Avoid Bash here-strings, which allocate temporary files and can make these
@@ -35,7 +42,7 @@ matches 'requests:' || fail "resource requests missing"
 matches 'limits:' || fail "resource limits missing"
 
 # provider=static: AUTH_PROVIDER + MCP_STATIC_TOKEN from the chart Secret.
-out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+out=$(render_exposed \
   --set mcp.auth.provider=static --set mcp.auth.staticToken=s3cret)
 matches 'name: AUTH_PROVIDER' || fail "AUTH_PROVIDER not rendered"
 matches 'value: "static"' || fail "AUTH_PROVIDER value wrong"
@@ -47,7 +54,7 @@ matches "static-token: \"$(printf s3cret | base64)\"" || fail "static-token not 
 
 # provider=static with no staticToken: the chart mints and persists one, so the
 # install is usable without an operator choosing or pasting a secret.
-out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+out=$(render_exposed \
   --set mcp.auth.provider=static)
 matches 'name: MCP_STATIC_TOKEN' || fail "auto-generated MCP_STATIC_TOKEN not wired"
 matches 'key: static-token' || fail "auto-generated static-token ref missing"
@@ -56,7 +63,7 @@ matches 'static-token: "[A-Za-z0-9+/=]\{32,\}"' || fail "auto-generated static-t
 # provider=static with the token supplied through env.additional: the chart stays
 # out of the way, so MCP_STATIC_TOKEN is declared exactly once and no unused
 # secret material is stored.
-out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+out=$(render_exposed \
   --set mcp.auth.provider=static \
   --set 'env.additional[0].name=MCP_STATIC_TOKEN' \
   --set 'env.additional[0].value=external' )
@@ -65,20 +72,43 @@ matches "static-token:" && fail "unused static-token key rendered"
 [ "$(printf '%s' "$out" | grep -c 'name: MCP_STATIC_TOKEN')" = "1" ] \
   || fail "MCP_STATIC_TOKEN not declared exactly once"
 
-# provider=oauth with a narrowed grant renders the read-only scope set.
+# A wildcard bind needs an explicit Host allowlist: the chart refuses to render
+# rather than letting the server exit at startup.
+if render --set service.enabled=true --set mcp.host=0.0.0.0 \
+  --set mcp.auth.provider=static >/dev/null 2>&1; then
+  fail "wildcard bind rendered without mcp.allowedHosts"
+fi
+
+# ... and renders MCP_ALLOWED_HOSTS/ORIGINS once supplied.
 out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+  --set mcp.auth.provider=static \
+  --set 'mcp.allowedHosts={mcp.example.com,mcp.example.com:443}' \
+  --set 'mcp.allowedOrigins={https://mcp.example.com}')
+matches 'name: MCP_ALLOWED_HOSTS' || fail "MCP_ALLOWED_HOSTS not rendered"
+matches 'value: "mcp.example.com,mcp.example.com:443"' || fail "allowed hosts value wrong"
+matches 'name: MCP_ALLOWED_ORIGINS' || fail "MCP_ALLOWED_ORIGINS not rendered"
+
+# An allowlist supplied through env.additional satisfies the guard too.
+out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+  --set mcp.auth.provider=static \
+  --set 'env.additional[0].name=MCP_ALLOWED_HOSTS' \
+  --set 'env.additional[0].value=mcp.example.com')
+matches 'name: MCP_ALLOWED_HOSTS' || fail "external MCP_ALLOWED_HOSTS missing"
+
+# provider=oauth with a narrowed grant renders the read-only scope set.
+out=$(render_exposed \
   --set mcp.auth.provider=oauth --set mcp.oauth.clientSecret=cs3cret \
   --set 'mcp.oauth.grantedScopes={pinot:read}')
 matches 'name: OAUTH_GRANTED_SCOPES' || fail "OAUTH_GRANTED_SCOPES not rendered"
 matches 'value: "pinot:read"' || fail "granted scopes value wrong"
 
 # ... and omits it entirely when unset, leaving the server default in place.
-out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+out=$(render_exposed \
   --set mcp.auth.provider=oauth --set mcp.oauth.clientSecret=cs3cret)
 matches 'name: OAUTH_GRANTED_SCOPES' && fail "OAUTH_GRANTED_SCOPES rendered when unset"
 
 # provider=oauth alone wires the full OAuth env block and Secret key.
-out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+out=$(render_exposed \
   --set mcp.auth.provider=oauth --set mcp.oauth.clientSecret=cs3cret)
 matches 'value: "oauth"' || fail "AUTH_PROVIDER=oauth not rendered"
 matches 'name: OAUTH_ISSUER' || fail "OAUTH_* block missing for provider=oauth"
@@ -86,14 +116,14 @@ matches 'key: oauth-client-secret' || fail "oauth-client-secret ref missing"
 matches "oauth-client-secret: \"$(printf cs3cret | base64)\"" || fail "oauth-client-secret not in Secret"
 
 # Legacy oauth.enabled=true still wires the same block, with no AUTH_PROVIDER.
-out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+out=$(render_exposed \
   --set mcp.oauth.enabled=true)
 matches 'name: OAUTH_ISSUER' || fail "OAUTH_* block missing for legacy flag"
 matches 'name: AUTH_PROVIDER' && fail "legacy flag rendered AUTH_PROVIDER"
 
 # AUTH_PROVIDER renders normalized (trim + lowercase), matching the server's
 # _resolve_auth_provider; a whitespace-only value renders no env var at all.
-out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+out=$(render_exposed \
   --set mcp.auth.provider=" OAuth ")
 matches 'value: "oauth"' || fail "AUTH_PROVIDER not normalized"
 out=$(render --set mcp.auth.provider="   ")

@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   denied. Set to `pinot:read` for a read-only deployment.
 - Chart value `mcp.oauth.grantedScopes` renders `OAUTH_GRANTED_SCOPES`, so a
   read-only OIDC deployment is expressible from Helm (`[pinot:read]`).
+- Chart values `mcp.allowedHosts` / `mcp.allowedOrigins` render `MCP_ALLOWED_HOSTS`
+  / `MCP_ALLOWED_ORIGINS`, and the chart now fails render when `mcp.host` is a
+  wildcard bind with no Host allowlist. Without them a chart-managed deployment
+  bound to 0.0.0.0 exited at startup ("Refusing to start HTTP transport without an
+  exact Host allowlist") with no chart-level way to fix it; both variables were
+  also undocumented.
 - Helm chart auto-generates the `static` shared token when `mcp.auth.staticToken`
   is left empty (with `mcp.auth.provider=static`): a random token is minted on
   first install and persisted in the `-secrets` Secret, reused on every upgrade via

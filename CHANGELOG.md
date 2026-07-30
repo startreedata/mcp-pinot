@@ -22,12 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `lookup`. Makes the static provider zero-touch per environment — operators never
   pick, paste, or distribute a token.
 
-### Changed
-- `OAUTH_AUDIENCE` is now optional and defaults to the canonical MCP resource URI
-  (`OAUTH_BASE_URL` + `MCP_PATH`). A value that differs from that URI is honoured
-  with a warning instead of refusing to start, because providers that set `aud` to
-  the client ID cannot issue the resource URI.
-
 ### Fixed
 - Made confirmation tokens canonical and replay-safe by keying consumption on the
   signed nonce; malformed base64url, expiry, signature tampering, cross-operation
@@ -44,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicate-field detection.
 
 ### Changed
+- `OAUTH_AUDIENCE` is now optional and defaults to the canonical MCP resource URI
+  (`OAUTH_BASE_URL` + `MCP_PATH`). A value that differs from that URI is honoured
+  with a warning instead of refusing to start, because providers that set `aud` to
+  the client ID cannot issue the resource URI.
 - Helm intentionally supports one replica while confirmation and rate-limit state
   are process-local; rolling updates no longer overlap two server processes and the
   optional PDB defaults to `maxUnavailable: 1`.

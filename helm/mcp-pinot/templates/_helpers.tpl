@@ -78,6 +78,36 @@ none
 {{- end }}
 
 {{/*
+Resolve the static shared bearer token for provider=static.
+
+Precedence: an explicit mcp.auth.staticToken wins. Otherwise the token is
+auto-generated ONCE per environment and persisted in this chart's Secret: on
+upgrades `lookup` finds the existing Secret and reuses its `static-token` key, so
+the value is stable across releases, and only the very first install mints a
+fresh randAlphaNum. This makes provider=static zero-touch — no operator ever has
+to pick, paste, or distribute a token, and each environment gets a distinct one.
+
+During `helm template`/`--dry-run` there is no cluster to look up, so a throwaway
+token is rendered; that output is never applied. Consumers must therefore read
+the token from the Secret (key `static-token`), never from rendered manifests.
+*/}}
+{{- define "mcp-pinot.staticToken" -}}
+{{- if .Values.mcp.auth.staticToken -}}
+{{- .Values.mcp.auth.staticToken -}}
+{{- else -}}
+{{- $secretName := printf "%s-secrets" (include "mcp-pinot.fullname" .) -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName -}}
+{{- $prior := "" -}}
+{{- if $existing -}}{{- $prior = index (default dict $existing.data) "static-token" -}}{{- end -}}
+{{- if $prior -}}
+{{- $prior | b64dec -}}
+{{- else -}}
+{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Validate MCP HTTP exposure settings.
 */}}
 {{- define "mcp-pinot.isLoopbackHost" -}}

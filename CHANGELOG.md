@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `OAUTH_GRANTED_SCOPES` (default `pinot:read pinot:write pinot:admin`): Pinot
+  authorization scopes granted to every principal the OAuth provider
+  authenticates, unioned onto the scopes the token already carries. General-purpose
+  OIDC providers issue a fixed scope catalog and cannot mint `pinot:*`, so before
+  this an authenticated user's token carried no Pinot scope and every tool call was
+  denied. Set to `pinot:read` for a read-only deployment.
+- Helm chart auto-generates the `static` shared token when `mcp.auth.staticToken`
+  is left empty (with `mcp.auth.provider=static`): a random token is minted on
+  first install and persisted in the `-secrets` Secret, reused on every upgrade via
+  `lookup`. Makes the static provider zero-touch per environment — operators never
+  pick, paste, or distribute a token.
+
+### Changed
+- `OAUTH_AUDIENCE` is now optional and defaults to the canonical MCP resource URI
+  (`OAUTH_BASE_URL` + `MCP_PATH`). A value that differs from that URI is honoured
+  with a warning instead of refusing to start, because providers that set `aud` to
+  the client ID cannot issue the resource URI.
+
 ### Fixed
 - Made confirmation tokens canonical and replay-safe by keying consumption on the
   signed nonce; malformed base64url, expiry, signature tampering, cross-operation

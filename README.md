@@ -195,7 +195,8 @@ An auth provider is required before binding HTTP or HTTPS to a non-loopback host
 | `OAUTH_TOKEN_ENDPOINT` | empty | Upstream token endpoint. |
 | `OAUTH_JWKS_URI` | empty | JWKS URI used for token verification. |
 | `OAUTH_ISSUER` | empty | Expected token issuer. |
-| `OAUTH_AUDIENCE` | unset | Required with OAuth. Must equal the canonical MCP resource URI (`OAUTH_BASE_URL` without a trailing slash plus `MCP_PATH`). |
+| `OAUTH_AUDIENCE` | canonical MCP resource URI | Audience tokens are validated against. Defaults to `OAUTH_BASE_URL` (without a trailing slash) plus `MCP_PATH`, which is what RFC 9728 metadata advertises. Set it explicitly when the provider issues a different `aud` — many (Dex among them) set it to the client ID; the server logs a warning and honours your value. |
+| `OAUTH_GRANTED_SCOPES` | `pinot:read pinot:write pinot:admin` | Pinot scopes granted to every principal this provider authenticates, unioned onto the scopes the token already carries. Needed because general-purpose OIDC providers issue a fixed scope catalog and cannot mint `pinot:*`, so without a grant every tool call from a valid user would be denied. Set to `pinot:read` for a read-only deployment. |
 | `OAUTH_EXTRA_AUTH_PARAMS` | unset | Optional JSON object with additional authorization parameters. |
 
 ### Table Filtering
@@ -319,11 +320,13 @@ To enable OAuth authentication, set the following environment variables in your 
 - `OAUTH_JWKS_URI`: JSON Web Key Set URI for token verification
 - `OAUTH_ISSUER`: Token issuer identifier
 
-**Additional required variable:**
-- `OAUTH_AUDIENCE`: canonical MCP resource URI used for audience validation
-
 **Optional variables:**
+- `OAUTH_AUDIENCE`: audience tokens are validated against. Defaults to the canonical MCP resource URI (`OAUTH_BASE_URL` + `MCP_PATH`). Set it when your provider issues a different `aud` — for example an IdP that puts the client ID there.
+- `OAUTH_GRANTED_SCOPES`: Pinot scopes granted to authenticated principals (default all three). Use `pinot:read` to make the deployment read-only for every OIDC caller.
+- `OAUTH_REQUIRED_SCOPES`: baseline scopes an access token must already carry (default: none enforced).
 - `OAUTH_EXTRA_AUTH_PARAMS`: Additional authorization parameters as JSON object (e.g., `{"scope": "openid profile"}`)
+
+Tool-level authorization uses `pinot:read` / `pinot:write` / `pinot:admin`. General-purpose OIDC providers issue a fixed scope catalog and cannot mint resource scopes like these, so `OAUTH_GRANTED_SCOPES` is what makes an authenticated user able to call anything — narrow it rather than leaving tools ungated.
 
 Example configuration:
 ```bash

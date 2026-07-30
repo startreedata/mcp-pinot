@@ -218,3 +218,128 @@ class TestAuthProviderResolution:
             with patch.dict(os.environ, env, clear=True):
                 # Normalized to lower-case.
                 assert load_server_config().auth_provider == "startree"
+
+
+class TestOAuthAudience:
+    """OAUTH_AUDIENCE is optional and defaults to the canonical resource URI."""
+
+    @staticmethod
+    def _verifier(env):
+        from mcp_pinot.auth.oauth import build_token_verifier
+        from mcp_pinot.config import load_oauth_config
+
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env, clear=True):
+                return build_token_verifier(load_oauth_config(), "/mcp")
+
+    def test_defaults_to_canonical_resource_uri(self):
+        env = {k: v for k, v in _OAUTH_ENV.items() if k != "OAUTH_AUDIENCE"}
+        assert self._verifier(env).audience == "http://localhost:8080/mcp"
+
+    def test_missing_audience_no_longer_blocks_startup(self):
+        """It used to raise, which made every Dex-backed deployment unstartable."""
+        env = {k: v for k, v in _OAUTH_ENV.items() if k != "OAUTH_AUDIENCE"}
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env, clear=True):
+                build_auth(_cfg(auth_provider="oauth"))
+
+    def test_explicit_non_canonical_audience_is_honoured(self):
+        """Dex and friends set `aud` to the client ID; that must not be fatal."""
+        env = {**_OAUTH_ENV, "OAUTH_AUDIENCE": "startree-mcp-server"}
+        assert self._verifier(env).audience == "startree-mcp-server"
+
+    def test_non_canonical_audience_warns(self, caplog):
+        env = {**_OAUTH_ENV, "OAUTH_AUDIENCE": "startree-mcp-server"}
+        with caplog.at_level("WARNING", logger="mcp_pinot.auth.oauth"):
+            with patch("mcp_pinot.config.load_dotenv"):
+                with patch.dict(os.environ, env, clear=True):
+                    build_auth(_cfg(auth_provider="oauth"))
+        assert "canonical MCP resource URI" in caplog.text
+
+
+class TestOAuthGrantedScopes:
+    """Pinot scopes granted to principals an OIDC provider authenticates."""
+
+    @staticmethod
+    def _token(scopes):
+        from mcp.server.auth.provider import AccessToken
+
+        return AccessToken(token="t", client_id="c", scopes=list(scopes))
+
+    async def _verify(self, granted, token_scopes):
+        from mcp_pinot.auth.oauth import PinotScopeGrantingVerifier
+
+        verifier = PinotScopeGrantingVerifier(
+            jwks_uri=_OAUTH_ENV["OAUTH_JWKS_URI"],
+            issuer=_OAUTH_ENV["OAUTH_ISSUER"],
+            audience="aud",
+            granted_scopes=granted,
+        )
+        upstream = self._token(token_scopes)
+        with patch(
+            "fastmcp.server.auth.providers.jwt.JWTVerifier.verify_token",
+            return_value=upstream,
+        ):
+            return await verifier.verify_token("raw-token"), upstream
+
+    @pytest.mark.asyncio
+    async def test_grants_are_unioned_onto_token_scopes(self):
+        """Dex issues `openid`; the Pinot scopes have to come from configuration."""
+        result, _ = await self._verify(
+            ["pinot:read", "pinot:write", "pinot:admin"], ["openid"]
+        )
+        assert result.scopes == ["openid", "pinot:read", "pinot:write", "pinot:admin"]
+
+    @pytest.mark.asyncio
+    async def test_read_only_grant_withholds_write_and_admin(self):
+        result, _ = await self._verify(["pinot:read"], ["openid"])
+        assert result.scopes == ["openid", "pinot:read"]
+
+    @pytest.mark.asyncio
+    async def test_token_scopes_are_never_revoked(self):
+        """A provider that can mint Pinot scopes keeps them under a narrow grant."""
+        result, _ = await self._verify(["pinot:read"], ["pinot:read", "pinot:write"])
+        assert set(result.scopes) == {"pinot:read", "pinot:write"}
+
+    @pytest.mark.asyncio
+    async def test_no_grant_returns_token_untouched(self):
+        result, upstream = await self._verify([], ["openid"])
+        assert result is upstream
+
+    @pytest.mark.asyncio
+    async def test_invalid_token_stays_rejected(self):
+        from mcp_pinot.auth.oauth import PinotScopeGrantingVerifier
+
+        verifier = PinotScopeGrantingVerifier(
+            jwks_uri=_OAUTH_ENV["OAUTH_JWKS_URI"],
+            issuer=_OAUTH_ENV["OAUTH_ISSUER"],
+            audience="aud",
+            granted_scopes=["pinot:read"],
+        )
+        with patch(
+            "fastmcp.server.auth.providers.jwt.JWTVerifier.verify_token",
+            return_value=None,
+        ):
+            assert await verifier.verify_token("bad") is None
+
+    @pytest.mark.asyncio
+    async def test_default_grant_is_the_full_pinot_scope_set(self):
+        from mcp_pinot.auth.oauth import build_token_verifier
+        from mcp_pinot.config import load_oauth_config
+
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, _OAUTH_ENV, clear=True):
+                verifier = build_token_verifier(load_oauth_config(), "/mcp")
+        with patch(
+            "fastmcp.server.auth.providers.jwt.JWTVerifier.verify_token",
+            return_value=self._token(["openid"]),
+        ):
+            token = await verifier.verify_token("raw")
+        assert token.scopes == ["openid", "pinot:read", "pinot:write", "pinot:admin"]
+
+    def test_unsupported_grant_scope_raises(self):
+        env = {**_OAUTH_ENV, "OAUTH_GRANTED_SCOPES": "pinot:read superuser"}
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env, clear=True):
+                with pytest.raises(ValueError, match="OAUTH_GRANTED_SCOPES"):
+                    build_auth(_cfg(auth_provider="oauth"))

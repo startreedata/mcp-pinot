@@ -130,6 +130,26 @@ the token from the Secret (key `static-token`), never from rendered manifests.
 {{- end }}
 
 {{/*
+Health-probe command. The server terminates TLS itself when mcp.ssl.enabled is set,
+so the probe has to speak the same scheme — an http:// probe against a TLS listener
+fails forever, which is why probes used to have to be disabled for any deployment
+serving HTTPS. The certificate is issued for the service's public names, never for
+127.0.0.1, so a loopback probe cannot verify it; verification is therefore skipped
+for the local check only. /livez and /readyz sit outside the MCP path, so the Host
+allowlist and the auth provider do not apply to them.
+
+Call as: include "mcp-pinot.probeCommand" (dict "root" . "check" .Values.healthCheck.liveness)
+*/}}
+{{- define "mcp-pinot.probeCommand" -}}
+{{- $scheme := ternary "https" "http" .root.Values.mcp.ssl.enabled -}}
+- python
+- -c
+- "import ssl, sys, urllib.request; ctx = ssl._create_unverified_context() if sys.argv[1].startswith('https') else None; sys.exit(0 if urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2]), context=ctx).status == 200 else 1)"
+- {{ printf "%s://127.0.0.1:%v%s" $scheme .check.port .check.path | quote }}
+- {{ .check.timeoutSeconds | quote }}
+{{- end }}
+
+{{/*
 Validate MCP HTTP exposure settings.
 */}}
 {{- define "mcp-pinot.isLoopbackHost" -}}

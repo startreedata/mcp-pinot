@@ -72,6 +72,16 @@ matches "static-token:" && fail "unused static-token key rendered"
 [ "$(printf '%s' "$out" | grep -c 'name: MCP_STATIC_TOKEN')" = "1" ] \
   || fail "MCP_STATIC_TOKEN not declared exactly once"
 
+# Health probes must speak the scheme the server actually serves; an http:// probe
+# against a TLS listener fails forever.
+out=$(render_exposed --set mcp.auth.provider=static --set mcp.ssl.enabled=true)
+matches 'https://127.0.0.1:8000/livez' || fail "liveness probe not using https with mcp.ssl.enabled"
+matches 'https://127.0.0.1:8000/readyz' || fail "readiness probe not using https with mcp.ssl.enabled"
+matches '_create_unverified_context' || fail "loopback https probe must skip cert verification"
+out=$(render_exposed --set mcp.auth.provider=static)
+matches 'http://127.0.0.1:8000/livez' || fail "liveness probe not using http without TLS"
+matches 'https://127.0.0.1' && fail "https probe rendered without mcp.ssl.enabled"
+
 # A wildcard bind needs an explicit Host allowlist: the chart refuses to render
 # rather than letting the server exit at startup.
 if render --set service.enabled=true --set mcp.host=0.0.0.0 \

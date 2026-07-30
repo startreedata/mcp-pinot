@@ -29,6 +29,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pick, paste, or distribute a token.
 
 ### Fixed
+- `test_connection` no longer reports a healthy deployment as broken. It probed
+  through the pinotdb DB-API connection, which no tool uses: against a broker whose
+  response pinotdb rejects (`check_sufficient_responded`) it returned
+  `connection_test`/`query_test`/`tables_test` all false while `read_query`,
+  `list_tables` and the inspection tools all worked. Each check now runs
+  independently through the same path as the tool it stands in for, the DB-API probe
+  is reported separately as informational `dbapi_test`, and the error names which
+  checks actually failed.
+- Health probes follow `mcp.ssl.enabled` instead of always using `http://`, so a
+  deployment that terminates TLS in the server can keep probes enabled — previously
+  the probe could never succeed there and had to be turned off, leaving Kubernetes
+  with no readiness signal.
 - Made confirmation tokens canonical and replay-safe by keying consumption on the
   signed nonce; malformed base64url, expiry, signature tampering, cross-operation
   reuse, and string-malleated replays are rejected.

@@ -172,11 +172,7 @@ spec:
           livenessProbe:
             exec:
               command:
-                - python
-                - -c
-                - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2])).status == 200 else 1)"
-                - {{ printf "http://127.0.0.1:%v%s" .Values.healthCheck.liveness.port .Values.healthCheck.liveness.path | quote }}
-                - {{ .Values.healthCheck.liveness.timeoutSeconds | quote }}
+                {{- include "mcp-pinot.probeCommand" (dict "root" . "check" .Values.healthCheck.liveness) | nindent 16 }}
             initialDelaySeconds: {{ .Values.healthCheck.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthCheck.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.liveness.timeoutSeconds }}
@@ -187,11 +183,7 @@ spec:
           readinessProbe:
             exec:
               command:
-                - python
-                - -c
-                - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2])).status == 200 else 1)"
-                - {{ printf "http://127.0.0.1:%v%s" .Values.healthCheck.readiness.port .Values.healthCheck.readiness.path | quote }}
-                - {{ .Values.healthCheck.readiness.timeoutSeconds | quote }}
+                {{- include "mcp-pinot.probeCommand" (dict "root" . "check" .Values.healthCheck.readiness) | nindent 16 }}
             initialDelaySeconds: {{ .Values.healthCheck.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthCheck.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.readiness.timeoutSeconds }}

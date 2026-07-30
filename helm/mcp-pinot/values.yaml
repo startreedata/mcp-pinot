@@ -200,7 +200,12 @@ pinot:
     token: ""
     tokenFilename: ""
 
-# Health check configuration
+# Health check configuration. The probes exec a local HTTP(S) request against
+# /livez and /readyz; the scheme follows mcp.ssl.enabled, and certificate
+# verification is skipped for that loopback check only (the certificate is issued
+# for the public names, not 127.0.0.1). Those two routes sit outside the MCP path,
+# so neither the Host allowlist nor the auth provider applies to them — probes work
+# with any auth configuration.
 healthCheck:
   liveness:
     enabled: true

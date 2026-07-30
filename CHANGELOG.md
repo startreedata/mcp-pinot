@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OIDC providers issue a fixed scope catalog and cannot mint `pinot:*`, so before
   this an authenticated user's token carried no Pinot scope and every tool call was
   denied. Set to `pinot:read` for a read-only deployment.
+- Chart value `mcp.oauth.grantedScopes` renders `OAUTH_GRANTED_SCOPES`, so a
+  read-only OIDC deployment is expressible from Helm (`[pinot:read]`).
 - Helm chart auto-generates the `static` shared token when `mcp.auth.staticToken`
   is left empty (with `mcp.auth.provider=static`): a random token is minted on
   first install and persisted in the `-secrets` Secret, reused on every upgrade via

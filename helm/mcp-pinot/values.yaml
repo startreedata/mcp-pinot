@@ -157,6 +157,12 @@ mcp:
       - pinot:write
       - pinot:admin
   oauth:
+    # Pinot scopes granted to every principal the OIDC provider authenticates,
+    # unioned onto the scopes the token already carries. Empty means the server
+    # default (pinot:read, pinot:write, pinot:admin). Set to [pinot:read] for a
+    # read-only deployment. Needed because general-purpose OIDC providers issue a
+    # fixed scope catalog and cannot mint pinot:* themselves.
+    grantedScopes: []
     # Legacy alias for mcp.auth.provider=oauth.
     enabled: false
     clientId: ""

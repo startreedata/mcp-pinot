@@ -139,6 +139,10 @@ spec:
             - name: OAUTH_AUDIENCE
               value: {{ .Values.mcp.oauth.audience | quote }}
             {{- end }}
+            {{- if .Values.mcp.oauth.grantedScopes }}
+            - name: OAUTH_GRANTED_SCOPES
+              value: {{ join " " .Values.mcp.oauth.grantedScopes | quote }}
+            {{- end }}
             {{- if .Values.mcp.oauth.extraAuthorizeParams }}
             - name: OAUTH_EXTRA_AUTH_PARAMS
               value: {{ .Values.mcp.oauth.extraAuthorizeParams | toJson | quote }}

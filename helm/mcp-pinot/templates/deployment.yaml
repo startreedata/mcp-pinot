@@ -101,7 +101,7 @@ spec:
             - name: AUTH_PROVIDER
               value: {{ $authProvider | quote }}
             {{- end }}
-            {{- if eq $authProvider "static" }}
+            {{- if and (eq $authProvider "static") (ne (include "mcp-pinot.staticTokenFromEnv" .) "true") }}
             - name: MCP_STATIC_TOKEN
               valueFrom:
                 secretKeyRef:

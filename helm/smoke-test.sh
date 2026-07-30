@@ -45,12 +45,37 @@ matches 'value: "pinot:read pinot:write pinot:admin"' || fail "static scopes val
 matches 'key: static-token' || fail "static-token secretKeyRef missing"
 matches "static-token: \"$(printf s3cret | base64)\"" || fail "static-token not in Secret"
 
-# provider=static with no staticToken: no chart-managed MCP_STATIC_TOKEN, so a
-# token supplied through env.additional is not declared twice.
+# provider=static with no staticToken: the chart mints and persists one, so the
+# install is usable without an operator choosing or pasting a secret.
 out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
   --set mcp.auth.provider=static)
-matches 'name: MCP_STATIC_TOKEN' && fail "MCP_STATIC_TOKEN rendered without a token"
-matches "static-token:" && fail "empty static-token key rendered"
+matches 'name: MCP_STATIC_TOKEN' || fail "auto-generated MCP_STATIC_TOKEN not wired"
+matches 'key: static-token' || fail "auto-generated static-token ref missing"
+matches 'static-token: "[A-Za-z0-9+/=]\{32,\}"' || fail "auto-generated static-token not in Secret"
+
+# provider=static with the token supplied through env.additional: the chart stays
+# out of the way, so MCP_STATIC_TOKEN is declared exactly once and no unused
+# secret material is stored.
+out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+  --set mcp.auth.provider=static \
+  --set 'env.additional[0].name=MCP_STATIC_TOKEN' \
+  --set 'env.additional[0].value=external' )
+matches 'key: static-token' && fail "chart minted a token despite an external one"
+matches "static-token:" && fail "unused static-token key rendered"
+[ "$(printf '%s' "$out" | grep -c 'name: MCP_STATIC_TOKEN')" = "1" ] \
+  || fail "MCP_STATIC_TOKEN not declared exactly once"
+
+# provider=oauth with a narrowed grant renders the read-only scope set.
+out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+  --set mcp.auth.provider=oauth --set mcp.oauth.clientSecret=cs3cret \
+  --set 'mcp.oauth.grantedScopes={pinot:read}')
+matches 'name: OAUTH_GRANTED_SCOPES' || fail "OAUTH_GRANTED_SCOPES not rendered"
+matches 'value: "pinot:read"' || fail "granted scopes value wrong"
+
+# ... and omits it entirely when unset, leaving the server default in place.
+out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
+  --set mcp.auth.provider=oauth --set mcp.oauth.clientSecret=cs3cret)
+matches 'name: OAUTH_GRANTED_SCOPES' && fail "OAUTH_GRANTED_SCOPES rendered when unset"
 
 # provider=oauth alone wires the full OAuth env block and Secret key.
 out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \

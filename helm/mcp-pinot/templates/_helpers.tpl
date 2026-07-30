@@ -78,6 +78,18 @@ none
 {{- end }}
 
 {{/*
+Whether the caller supplies MCP_STATIC_TOKEN themselves through env.additional.
+
+When they do, the chart neither mints a token nor declares the variable, so the
+Pod keeps exactly one MCP_STATIC_TOKEN and no unused secret material is stored.
+*/}}
+{{- define "mcp-pinot.staticTokenFromEnv" -}}
+{{- range .Values.env.additional -}}
+{{- if eq (.name | default "") "MCP_STATIC_TOKEN" -}}true{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Resolve the static shared bearer token for provider=static.
 
 Precedence: an explicit mcp.auth.staticToken wins. Otherwise the token is

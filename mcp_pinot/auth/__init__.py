@@ -2,7 +2,8 @@
 
 The server obtains its auth provider through :func:`build_auth`, which selects a
 provider by name (``ServerConfig.auth_provider``) from a registry. Built-in
-providers are ``none``, ``oauth`` and ``static``. Additional providers can be
+providers are ``none``, ``oauth``, ``static``, and ``oauth+static`` for a
+deployment serving interactive users and one trusted backend at the same time. Additional providers can be
 contributed **without modifying this package** by registering a Python entry
 point in the ``mcp_pinot.auth_providers`` group — for example a private StarTree
 token provider in a downstream fork::
@@ -20,6 +21,7 @@ from collections.abc import Callable
 from importlib.metadata import entry_points
 from typing import Any
 
+from mcp_pinot.auth.multi import build_oauth_static_auth
 from mcp_pinot.auth.oauth import build_oauth_auth
 from mcp_pinot.auth.static import build_static_auth
 from mcp_pinot.config import ServerConfig, get_logger
@@ -78,13 +80,26 @@ def available_providers() -> list[str]:
     return sorted(_PROVIDERS)
 
 
+def _canonical_name(raw: str) -> str:
+    """Normalise a provider name, so ``a+b`` and ``b+a`` select the same provider.
+
+    Composite names describe a *set* of accepted credential types; the order a
+    caller writes them in carries no meaning (verification order is the provider's
+    own concern).
+    """
+    parts = [part.strip() for part in raw.split("+") if part.strip()]
+    if len(parts) <= 1:
+        return raw.strip()
+    return "+".join(sorted(dict.fromkeys(parts)))
+
+
 def build_auth(server_config: ServerConfig) -> "AuthProvider | None":
     """Build the auth provider selected by ``server_config.auth_provider``.
 
     Returns ``None`` (no authentication) when no provider is selected or the
     selected provider is ``none``. Raises ``ValueError`` for an unknown provider.
     """
-    name = (server_config.auth_provider or "none").lower()
+    name = _canonical_name((server_config.auth_provider or "none").lower())
     if name == "none":
         return None
 
@@ -102,3 +117,6 @@ def build_auth(server_config: ServerConfig) -> "AuthProvider | None":
 register_auth_provider("none", _build_none)
 register_auth_provider("oauth", build_oauth_auth)
 register_auth_provider("static", build_static_auth)
+# Both credential types on one deployment. Registered under the canonical
+# (alphabetically sorted) name; "static+oauth" normalises to this.
+register_auth_provider("oauth+static", build_oauth_static_auth)

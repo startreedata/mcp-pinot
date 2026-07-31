@@ -147,10 +147,11 @@ mcp:
     keyFile: "/etc/ssl/tls.key"
     certFile: "/etc/ssl/tls.crt"
   auth:
-    # Auth provider for the MCP HTTP endpoint: "" (unset), "none", "oauth", or
-    # "static". Takes precedence over the legacy mcp.oauth.enabled flag.
-    # "" and "none" both mean unauthenticated and do not satisfy the
-    # non-loopback exposure gate.
+    # Auth provider for the MCP HTTP endpoint: "" (unset), "none", "oauth",
+    # "static", or "oauth+static" to accept both an OIDC login and the shared
+    # backend token on the same deployment. Takes precedence over the legacy
+    # mcp.oauth.enabled flag. "" and "none" both mean unauthenticated and do not
+    # satisfy the non-loopback exposure gate.
     provider: ""
     # Shared bearer token for provider=static (service-to-service callers).
     # Rendered into the chart Secret and mounted as MCP_STATIC_TOKEN.

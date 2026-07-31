@@ -1,4 +1,5 @@
 import os
+from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
@@ -343,3 +344,104 @@ class TestOAuthGrantedScopes:
             with patch.dict(os.environ, env, clear=True):
                 with pytest.raises(ValueError, match="OAUTH_GRANTED_SCOPES"):
                     build_auth(_cfg(auth_provider="oauth"))
+
+
+class TestOAuthPlusStatic:
+    """One deployment serving interactive users and one trusted backend."""
+
+    _ENV: ClassVar[dict[str, str]] = {
+        **_OAUTH_ENV,
+        "MCP_STATIC_TOKEN": "backend-secret",
+    }
+
+    def _build(self, **extra):
+        provider = extra.pop("_provider", "oauth+static")
+        env = {**self._ENV, **extra}
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env, clear=True):
+                return build_auth(_cfg(auth_provider=provider))
+
+    def test_builds_an_oauth_proxy_so_the_login_routes_exist(self):
+        from fastmcp.server.auth import OAuthProxy
+
+        assert isinstance(self._build(), OAuthProxy)
+
+    def test_provider_name_order_is_irrelevant(self):
+        """The name describes a set of accepted credentials, not an order."""
+        from mcp_pinot.auth.multi import ChainedTokenVerifier
+
+        for name in ("oauth+static", "static+oauth", " oauth + static "):
+            auth = self._build(_provider=name)
+            assert isinstance(auth._token_validator, ChainedTokenVerifier)
+
+    def test_composite_provider_is_discoverable(self):
+        assert "oauth+static" in available_providers()
+
+    def test_missing_static_token_fails_startup(self):
+        """Asking for both and getting one silently would be worse than failing."""
+        env = {k: v for k, v in self._ENV.items() if k != "MCP_STATIC_TOKEN"}
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env, clear=True):
+                with pytest.raises(ValueError, match="MCP_STATIC_TOKEN"):
+                    build_auth(_cfg(auth_provider="oauth+static"))
+
+    def test_incomplete_oauth_fails_startup(self):
+        env = {k: v for k, v in self._ENV.items() if k != "OAUTH_JWKS_URI"}
+        with patch("mcp_pinot.config.load_dotenv"):
+            with patch.dict(os.environ, env, clear=True):
+                with pytest.raises(ValueError, match="OAUTH_JWKS_URI"):
+                    build_auth(_cfg(auth_provider="oauth+static"))
+
+    @pytest.mark.asyncio
+    async def test_the_shared_token_authenticates_with_its_own_scopes(self):
+        auth = self._build(MCP_STATIC_SCOPES="pinot:read")
+        token = await auth._token_validator.verify_token("backend-secret")
+        assert token is not None
+        assert token.scopes == ["pinot:read"]
+        assert token.client_id == "mcp-static-client"
+
+    @pytest.mark.asyncio
+    async def test_an_oidc_token_authenticates_with_the_granted_scopes(self):
+        """Reached only after the shared-token check misses."""
+        from mcp.server.auth.provider import AccessToken as UpstreamToken
+
+        auth = self._build(
+            MCP_STATIC_SCOPES="pinot:read",
+            OAUTH_GRANTED_SCOPES="pinot:read pinot:write",
+        )
+        upstream = UpstreamToken(token="jwt", client_id="alice", scopes=["openid"])
+        with patch(
+            "fastmcp.server.auth.providers.jwt.JWTVerifier.verify_token",
+            return_value=upstream,
+        ):
+            token = await auth._token_validator.verify_token("a-dex-jwt")
+        assert token.client_id == "alice"
+        assert token.scopes == ["openid", "pinot:read", "pinot:write"]
+
+    @pytest.mark.asyncio
+    async def test_an_unrecognised_token_is_rejected(self):
+        auth = self._build()
+        with patch(
+            "fastmcp.server.auth.providers.jwt.JWTVerifier.verify_token",
+            return_value=None,
+        ):
+            assert await auth._token_validator.verify_token("neither") is None
+
+    @pytest.mark.asyncio
+    async def test_the_shared_token_short_circuits_the_oidc_check(self):
+        """The backend calls on every request; it must not pay for a JWKS fetch."""
+        from unittest.mock import AsyncMock
+
+        auth = self._build()
+        with patch(
+            "fastmcp.server.auth.providers.jwt.JWTVerifier.verify_token",
+            new_callable=AsyncMock,
+        ) as jwt_verify:
+            await auth._token_validator.verify_token("backend-secret")
+        jwt_verify.assert_not_awaited()
+
+    def test_chained_verifier_requires_at_least_one_verifier(self):
+        from mcp_pinot.auth.multi import ChainedTokenVerifier
+
+        with pytest.raises(ValueError, match="at least one"):
+            ChainedTokenVerifier([])

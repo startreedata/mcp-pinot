@@ -78,6 +78,19 @@ none
 {{- end }}
 
 {{/*
+Whether a given credential type is accepted, given that mcp.auth.provider may name
+several (e.g. "oauth+static" for interactive users plus one trusted backend).
+
+Call as: include "mcp-pinot.authHas" (dict "root" . "name" "static")
+*/}}
+{{- define "mcp-pinot.authHas" -}}
+{{- $want := .name -}}
+{{- range splitList "+" (include "mcp-pinot.authProvider" .root) -}}
+{{- if eq (trim .) $want -}}true{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Whether env.additional already declares a given variable.
 
 Call as: include "mcp-pinot.envHas" (dict "root" . "name" "MCP_STATIC_TOKEN")

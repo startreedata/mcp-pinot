@@ -109,14 +109,16 @@ spec:
             - name: AUTH_PROVIDER
               value: {{ $authProvider | quote }}
             {{- end }}
-            {{- if and (eq $authProvider "static") (ne (include "mcp-pinot.staticTokenFromEnv" .) "true") }}
+            {{- $staticAuth := eq (include "mcp-pinot.authHas" (dict "root" . "name" "static")) "true" }}
+            {{- $oauthAuth := eq (include "mcp-pinot.authHas" (dict "root" . "name" "oauth")) "true" }}
+            {{- if and $staticAuth (ne (include "mcp-pinot.staticTokenFromEnv" .) "true") }}
             - name: MCP_STATIC_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ include "mcp-pinot.fullname" . }}-secrets
                   key: static-token
             {{- end }}
-            {{- if eq $authProvider "static" }}
+            {{- if $staticAuth }}
             - name: MCP_STATIC_SCOPES
               value: {{ join " " .Values.mcp.auth.staticScopes | quote }}
             {{- end }}
@@ -124,7 +126,7 @@ spec:
             # OAuth Configuration
             - name: OAUTH_ENABLED
               value: {{ .Values.mcp.oauth.enabled | quote }}
-            {{- if eq $authProvider "oauth" }}
+            {{- if $oauthAuth }}
             - name: OAUTH_AUTHORIZATION_ENDPOINT
               value: {{ .Values.mcp.oauth.upstreamAuthorizationEndpoint | quote }}
             - name: OAUTH_TOKEN_ENDPOINT

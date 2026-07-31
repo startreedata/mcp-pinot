@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `AUTH_PROVIDER=oauth+static` (either spelling) accepts **both** an OIDC login and
+  the static shared token on one deployment, through a `ChainedTokenVerifier` behind
+  the OAuth provider. A hosted MCP normally has both kinds of caller — people with a
+  browser and one trusted backend without one — and selecting a single provider forced
+  a choice between them, with no clean workaround (a second deployment needs a second
+  hostname and certificate; many IdPs cannot issue the client-credentials grant).
+  The shared secret is checked first, so the backend never pays for a signing-key
+  fetch, and each credential keeps its own scopes: `MCP_STATIC_SCOPES` for the backend,
+  `OAUTH_GRANTED_SCOPES` for people. Chart: `mcp.auth.provider: oauth+static`.
 - `OAUTH_GRANTED_SCOPES` (default `pinot:read pinot:write pinot:admin`): Pinot
   authorization scopes granted to every principal the OAuth provider
   authenticates, unioned onto the scopes the token already carries. General-purpose

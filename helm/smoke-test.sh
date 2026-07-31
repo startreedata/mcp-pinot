@@ -105,6 +105,18 @@ out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
   --set 'env.additional[0].value=mcp.example.com')
 matches 'name: MCP_ALLOWED_HOSTS' || fail "external MCP_ALLOWED_HOSTS missing"
 
+# provider=oauth+static wires BOTH credential types on one deployment.
+out=$(render_exposed \
+  --set mcp.auth.provider=oauth+static --set mcp.oauth.clientSecret=cs3cret \
+  --set 'mcp.auth.staticScopes={pinot:read}' \
+  --set 'mcp.oauth.grantedScopes={pinot:read,pinot:write}')
+matches 'value: "oauth+static"' || fail "composite AUTH_PROVIDER not rendered"
+matches 'name: MCP_STATIC_TOKEN' || fail "static token missing under oauth+static"
+matches 'name: OAUTH_ISSUER' || fail "OAuth block missing under oauth+static"
+matches 'value: "pinot:read pinot:write"' || fail "granted scopes missing under oauth+static"
+matches 'key: static-token' || fail "static-token ref missing under oauth+static"
+matches 'key: oauth-client-secret' || fail "oauth-client-secret ref missing under oauth+static"
+
 # provider=oauth with a narrowed grant renders the read-only scope set.
 out=$(render_exposed \
   --set mcp.auth.provider=oauth --set mcp.oauth.clientSecret=cs3cret \

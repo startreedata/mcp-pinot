@@ -141,7 +141,7 @@ by a checked-out file.
 |---|---|---|
 | Claude Desktop | `MCP_TRANSPORT=stdio` | Default and recommended for local desktop use; no HTTP listener is started. |
 | Local HTTP | `MCP_TRANSPORT=http`, `MCP_HOST=127.0.0.1` | Explicit local web profile. Accessible only from the same machine. |
-| Remote HTTP/HTTPS | `MCP_TRANSPORT=http`, `MCP_HOST=0.0.0.0`, `AUTH_PROVIDER=oauth`\|`static` | The server refuses non-loopback HTTP/HTTPS binds unless an auth provider is active. Use TLS directly or an authenticated reverse proxy. |
+| Remote HTTP/HTTPS | `MCP_TRANSPORT=http`, `MCP_HOST=0.0.0.0`, `MCP_ALLOWED_HOSTS=<host[:port]>`, `AUTH_PROVIDER=oauth`\|`static`\|`oauth+static` | The server refuses non-loopback HTTP/HTTPS binds unless an auth provider is active, and a wildcard bind requires an explicit Host allowlist. Use `oauth+static` to serve interactive users and one trusted backend at once. Use TLS directly or an authenticated reverse proxy. |
 | Helm exposure | `service.enabled=true`, `mcp.host=0.0.0.0`, `mcp.oauth.enabled=true` | Helm defaults are local-only and render no Service unless exposure is explicitly enabled. |
 
 ### Pinot Connection
@@ -186,7 +186,8 @@ An auth provider is required before binding HTTP or HTTPS to a non-loopback host
 
 | Variable | Default | Description |
 |---|---|---|
-| `AUTH_PROVIDER` | unset | Active auth provider: `none` (default), `oauth`, or `static`. Some provider is required before a non-loopback bind. |
+| `AUTH_PROVIDER` | unset | Active auth provider: `none` (default), `oauth`, `static`, or `oauth+static`. Some provider is required before a non-loopback bind. |
+| | | `oauth+static` accepts both an OIDC login and the shared token on one deployment — the usual hosted case, where people use a browser and one trusted backend cannot. Either spelling works; the shared secret is checked first, and each credential keeps its own scopes (`MCP_STATIC_SCOPES` vs `OAUTH_GRANTED_SCOPES`). |
 | `MCP_STATIC_TOKEN` | empty | Shared bearer secret for `AUTH_PROVIDER=static` — a service-to-service caller sends it as `Authorization: Bearer <token>`. Required when the static provider is active. |
 | `MCP_STATIC_SCOPES` | `pinot:read pinot:write pinot:admin` | Space- or comma-separated scopes granted to the static principal. Use `pinot:read` for a read-only service. |
 | `OAUTH_ENABLED` | `false` | Legacy flag; `true` is equivalent to `AUTH_PROVIDER=oauth`. Enables OAuth authentication. |

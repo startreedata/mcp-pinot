@@ -141,7 +141,7 @@ by a checked-out file.
 |---|---|---|
 | Claude Desktop | `MCP_TRANSPORT=stdio` | Default and recommended for local desktop use; no HTTP listener is started. |
 | Local HTTP | `MCP_TRANSPORT=http`, `MCP_HOST=127.0.0.1` | Explicit local web profile. Accessible only from the same machine. |
-| Remote HTTP/HTTPS | `MCP_TRANSPORT=http`, `MCP_HOST=0.0.0.0`, `AUTH_PROVIDER=oauth`\|`static` | The server refuses non-loopback HTTP/HTTPS binds unless an auth provider is active. Use TLS directly or an authenticated reverse proxy. |
+| Remote HTTP/HTTPS | `MCP_TRANSPORT=http`, `MCP_HOST=0.0.0.0`, `MCP_ALLOWED_HOSTS=<host[:port]>`, `AUTH_PROVIDER=oauth`\|`static`\|`oauth+static` | The server refuses non-loopback HTTP/HTTPS binds unless an auth provider is active, and a wildcard bind requires an explicit Host allowlist. Use `oauth+static` to serve interactive users and one trusted backend at once. Use TLS directly or an authenticated reverse proxy. |
 | Helm exposure | `service.enabled=true`, `mcp.host=0.0.0.0`, `mcp.oauth.enabled=true` | Helm defaults are local-only and render no Service unless exposure is explicitly enabled. |
 
 ### Pinot Connection
@@ -170,6 +170,8 @@ by a checked-out file.
 | `MCP_HOST` | `127.0.0.1` | HTTP bind host. Set `0.0.0.0` only with an auth provider enabled. |
 | `MCP_PORT` | `8080` | HTTP listen port. |
 | `MCP_PATH` | `/mcp` | MCP HTTP path. |
+| `MCP_ALLOWED_HOSTS` | exact host[:port] of a concrete bind | Comma-separated Host authorities accepted at the MCP endpoint. A wildcard bind (`0.0.0.0`, `::`) has no inferable public authority, so it defaults to empty and **the server exits at startup** until you list the names clients use, e.g. `mcp.example.com,mcp.example.com:443`. |
+| `MCP_ALLOWED_ORIGINS` | unset | Comma-separated browser `Origin` values accepted. Empty rejects requests that send `Origin` while still allowing clients that omit it. |
 | `MCP_SSL_KEYFILE` | unset | TLS private key path. Requires `MCP_SSL_CERTFILE`. |
 | `MCP_SSL_CERTFILE` | unset | TLS certificate path. Requires `MCP_SSL_KEYFILE`. |
 | `MCP_LOG_LEVEL` | `INFO` | Application log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Logs go to stderr so STDIO protocol output remains valid. |
@@ -184,7 +186,8 @@ An auth provider is required before binding HTTP or HTTPS to a non-loopback host
 
 | Variable | Default | Description |
 |---|---|---|
-| `AUTH_PROVIDER` | unset | Active auth provider: `none` (default), `oauth`, or `static`. Some provider is required before a non-loopback bind. |
+| `AUTH_PROVIDER` | unset | Active auth provider: `none` (default), `oauth`, `static`, or `oauth+static`. Some provider is required before a non-loopback bind. |
+| | | `oauth+static` accepts both an OIDC login and the shared token on one deployment — the usual hosted case, where people use a browser and one trusted backend cannot. Either spelling works; the shared secret is checked first, and each credential keeps its own scopes (`MCP_STATIC_SCOPES` vs `OAUTH_GRANTED_SCOPES`). |
 | `MCP_STATIC_TOKEN` | empty | Shared bearer secret for `AUTH_PROVIDER=static` — a service-to-service caller sends it as `Authorization: Bearer <token>`. Required when the static provider is active. |
 | `MCP_STATIC_SCOPES` | `pinot:read pinot:write pinot:admin` | Space- or comma-separated scopes granted to the static principal. Use `pinot:read` for a read-only service. |
 | `OAUTH_ENABLED` | `false` | Legacy flag; `true` is equivalent to `AUTH_PROVIDER=oauth`. Enables OAuth authentication. |
@@ -195,7 +198,8 @@ An auth provider is required before binding HTTP or HTTPS to a non-loopback host
 | `OAUTH_TOKEN_ENDPOINT` | empty | Upstream token endpoint. |
 | `OAUTH_JWKS_URI` | empty | JWKS URI used for token verification. |
 | `OAUTH_ISSUER` | empty | Expected token issuer. |
-| `OAUTH_AUDIENCE` | unset | Required with OAuth. Must equal the canonical MCP resource URI (`OAUTH_BASE_URL` without a trailing slash plus `MCP_PATH`). |
+| `OAUTH_AUDIENCE` | canonical MCP resource URI | Audience tokens are validated against. Defaults to `OAUTH_BASE_URL` (without a trailing slash) plus `MCP_PATH`, which is what RFC 9728 metadata advertises. Set it explicitly when the provider issues a different `aud` — many (Dex among them) set it to the client ID; the server logs a warning and honours your value. |
+| `OAUTH_GRANTED_SCOPES` | `pinot:read pinot:write pinot:admin` | Pinot scopes granted to every principal this provider authenticates, unioned onto the scopes the token already carries. Needed because general-purpose OIDC providers issue a fixed scope catalog and cannot mint `pinot:*`, so without a grant every tool call from a valid user would be denied. Set to `pinot:read` for a read-only deployment. |
 | `OAUTH_EXTRA_AUTH_PARAMS` | unset | Optional JSON object with additional authorization parameters. |
 
 ### Table Filtering
@@ -319,11 +323,13 @@ To enable OAuth authentication, set the following environment variables in your 
 - `OAUTH_JWKS_URI`: JSON Web Key Set URI for token verification
 - `OAUTH_ISSUER`: Token issuer identifier
 
-**Additional required variable:**
-- `OAUTH_AUDIENCE`: canonical MCP resource URI used for audience validation
-
 **Optional variables:**
+- `OAUTH_AUDIENCE`: audience tokens are validated against. Defaults to the canonical MCP resource URI (`OAUTH_BASE_URL` + `MCP_PATH`). Set it when your provider issues a different `aud` — for example an IdP that puts the client ID there.
+- `OAUTH_GRANTED_SCOPES`: Pinot scopes granted to authenticated principals (default all three). Use `pinot:read` to make the deployment read-only for every OIDC caller.
+- `OAUTH_REQUIRED_SCOPES`: baseline scopes an access token must already carry (default: none enforced).
 - `OAUTH_EXTRA_AUTH_PARAMS`: Additional authorization parameters as JSON object (e.g., `{"scope": "openid profile"}`)
+
+Tool-level authorization uses `pinot:read` / `pinot:write` / `pinot:admin`. General-purpose OIDC providers issue a fixed scope catalog and cannot mint resource scopes like these, so `OAUTH_GRANTED_SCOPES` is what makes an authenticated user able to call anything — narrow it rather than leaving tools ungated.
 
 Example configuration:
 ```bash

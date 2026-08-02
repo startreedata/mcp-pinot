@@ -591,11 +591,25 @@ class PinotClient:
             return self._conn
 
     def test_connection(self) -> dict[str, Any]:
-        """Test the connection and return diagnostic information"""
+        """Test connectivity the way the tools use it and return diagnostics.
+
+        Each check runs independently and through the same code path as the tool it
+        stands in for — the query check via :meth:`execute_query` (what
+        ``read_query`` uses) and the listing check via :meth:`get_tables` (what
+        ``list_tables`` uses). An earlier version probed through the pinotdb DB-API
+        connection instead, which no tool uses: against a broker whose response
+        pinotdb rejects (``check_sufficient_responded``) it reported every check
+        failed on a deployment where every tool worked, sending operators to chase
+        endpoints and credentials that were fine.
+
+        The DB-API probe is still run, but only as an informational ``dbapi_test``
+        signal: it never decides whether the deployment is healthy.
+        """
         result: dict[str, Any] = {
             "connection_test": False,
             "query_test": False,
             "tables_test": False,
+            "dbapi_test": False,
             "error": None,
             "config": {
                 "broker_host": self.config.broker_host,
@@ -614,30 +628,54 @@ class PinotClient:
             },
         }
 
+        failed: list[str] = []
+
+        # Broker query check — the path read_query takes. A successful query also
+        # proves the broker connection, so connection_test is derived from it
+        # rather than from a separate client the tools never use.
         try:
-            # Test basic connection
-            conn = self.get_connection()
+            result["query_result"] = self.execute_query(
+                "SELECT 1 AS test_column", max_rows=1
+            )
             result["connection_test"] = True
-
-            # Test simple query
-            curs = conn.cursor()
-            curs.execute("SELECT 1 as test_column")
-            test_result = curs.fetchall()
             result["query_test"] = True
-            result["query_result"] = test_result
+        except Exception as e:
+            logger.error("Connection test: broker query failed: %s", e, exc_info=True)
+            failed.append("broker query")
 
-            # Test tables listing
+        # Controller listing check — the path list_tables takes.
+        try:
             tables = self.get_tables()
             result["tables_test"] = True
             result["tables_count"] = len(tables)
             result["sample_tables"] = tables[:5] if tables else []
-
         except Exception as e:
-            result["error"] = (
-                "Pinot connectivity check failed. Verify endpoints, credentials, "
-                "and network access; consult server logs for the correlation detail."
+            logger.error(
+                "Connection test: controller table listing failed: %s", e, exc_info=True
             )
-            logger.error("Connection test failed: %s", e, exc_info=True)
+            failed.append("controller table listing")
+
+        # Informational only: some brokers return responses the pinotdb DB-API
+        # rejects even though the REST path the tools use works fine.
+        try:
+            cursor = self.get_connection().cursor()
+            cursor.execute("SELECT 1")
+            cursor.fetchall()
+            result["dbapi_test"] = True
+        except Exception as e:
+            logger.info(
+                "Connection test: optional pinotdb DB-API probe failed "
+                "(does not affect any tool): %s",
+                e,
+            )
+
+        if failed:
+            result["error"] = (
+                "Pinot connectivity check failed for: "
+                + ", ".join(failed)
+                + ". Verify endpoints, credentials, and network access; consult "
+                "server logs for the correlation detail."
+            )
 
         return result
 

@@ -160,16 +160,34 @@ class ConnectionDiagnostics(BaseModel):
     """
 
     connection_test: bool = Field(
-        default=False, description="True when a broker connection was established."
+        default=False,
+        description=(
+            "True when the broker answered, i.e. the query check below succeeded."
+        ),
     )
     query_test: bool = Field(
-        default=False, description="True when a trivial 'SELECT 1' succeeded."
+        default=False,
+        description=(
+            "True when a trivial 'SELECT 1' succeeded through the same broker path "
+            "read_query uses."
+        ),
     )
     tables_test: bool = Field(
         default=False, description="True when the controller table listing succeeded."
     )
+    dbapi_test: bool = Field(
+        default=False,
+        description=(
+            "Informational: True when the optional pinotdb DB-API probe also "
+            "succeeded. No tool uses that path, so false here does not mean the "
+            "deployment is unhealthy — check query_test and tables_test instead."
+        ),
+    )
     error: str | None = Field(
-        default=None, description="Error message when a check failed, else null."
+        default=None,
+        description=(
+            "Names the checks that failed, or null when both required checks passed."
+        ),
     )
     tables_count: int | None = Field(
         default=None, description="Number of tables discovered, when available."

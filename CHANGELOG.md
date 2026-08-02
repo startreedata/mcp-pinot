@@ -7,7 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `AUTH_PROVIDER=oauth+static` (either spelling) accepts **both** an OIDC login and
+  the static shared token on one deployment, through a `ChainedTokenVerifier` behind
+  the OAuth provider. A hosted MCP normally has both kinds of caller — people with a
+  browser and one trusted backend without one — and selecting a single provider forced
+  a choice between them, with no clean workaround (a second deployment needs a second
+  hostname and certificate; many IdPs cannot issue the client-credentials grant).
+  The shared secret is checked first, so the backend never pays for a signing-key
+  fetch, and each credential keeps its own scopes: `MCP_STATIC_SCOPES` for the backend,
+  `OAUTH_GRANTED_SCOPES` for people. Chart: `mcp.auth.provider: oauth+static`.
+- `OAUTH_GRANTED_SCOPES` (default `pinot:read pinot:write pinot:admin`): Pinot
+  authorization scopes granted to every principal the OAuth provider
+  authenticates, unioned onto the scopes the token already carries. General-purpose
+  OIDC providers issue a fixed scope catalog and cannot mint `pinot:*`, so before
+  this an authenticated user's token carried no Pinot scope and every tool call was
+  denied. Set to `pinot:read` for a read-only deployment.
+- Chart value `mcp.oauth.grantedScopes` renders `OAUTH_GRANTED_SCOPES`, so a
+  read-only OIDC deployment is expressible from Helm (`[pinot:read]`).
+- Chart values `mcp.allowedHosts` / `mcp.allowedOrigins` render `MCP_ALLOWED_HOSTS`
+  / `MCP_ALLOWED_ORIGINS`, and the chart now fails render when `mcp.host` is a
+  wildcard bind with no Host allowlist. Without them a chart-managed deployment
+  bound to 0.0.0.0 exited at startup ("Refusing to start HTTP transport without an
+  exact Host allowlist") with no chart-level way to fix it; both variables were
+  also undocumented.
+- Helm chart auto-generates the `static` shared token when `mcp.auth.staticToken`
+  is left empty (with `mcp.auth.provider=static`): a random token is minted on
+  first install and persisted in the `-secrets` Secret, reused on every upgrade via
+  `lookup`. Makes the static provider zero-touch per environment — operators never
+  pick, paste, or distribute a token.
+
 ### Fixed
+- `test_connection` no longer reports a healthy deployment as broken. It probed
+  through the pinotdb DB-API connection, which no tool uses: against a broker whose
+  response pinotdb rejects (`check_sufficient_responded`) it returned
+  `connection_test`/`query_test`/`tables_test` all false while `read_query`,
+  `list_tables` and the inspection tools all worked. Each check now runs
+  independently through the same path as the tool it stands in for, the DB-API probe
+  is reported separately as informational `dbapi_test`, and the error names which
+  checks actually failed.
+- Health probes follow `mcp.ssl.enabled` instead of always using `http://`, so a
+  deployment that terminates TLS in the server can keep probes enabled — previously
+  the probe could never succeed there and had to be turned off, leaving Kubernetes
+  with no readiness signal.
 - Made confirmation tokens canonical and replay-safe by keying consumption on the
   signed nonce; malformed base64url, expiry, signature tampering, cross-operation
   reuse, and string-malleated replays are rejected.
@@ -23,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicate-field detection.
 
 ### Changed
+- `OAUTH_AUDIENCE` is now optional and defaults to the canonical MCP resource URI
+  (`OAUTH_BASE_URL` + `MCP_PATH`). A value that differs from that URI is honoured
+  with a warning instead of refusing to start, because providers that set `aud` to
+  the client ID cannot issue the resource URI.
 - Helm intentionally supports one replica while confirmation and rate-limit state
   are process-local; rolling updates no longer overlap two server processes and the
   optional PDB defaults to `maxUnavailable: 1`.

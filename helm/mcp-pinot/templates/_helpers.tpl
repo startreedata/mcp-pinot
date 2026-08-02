@@ -78,6 +78,95 @@ none
 {{- end }}
 
 {{/*
+Whether a given credential type is accepted, given that mcp.auth.provider may name
+several (e.g. "oauth+static" for interactive users plus one trusted backend).
+
+Call as: include "mcp-pinot.authHas" (dict "root" . "name" "static")
+*/}}
+{{- define "mcp-pinot.authHas" -}}
+{{- $want := .name -}}
+{{- range splitList "+" (include "mcp-pinot.authProvider" .root) -}}
+{{- if eq (trim .) $want -}}true{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether env.additional already declares a given variable.
+
+Call as: include "mcp-pinot.envHas" (dict "root" . "name" "MCP_STATIC_TOKEN")
+Used so the chart never fights a caller who supplies a value itself: it neither
+mints a token nor declares a duplicate variable, and the exposure guards trust an
+externally supplied allowlist.
+*/}}
+{{- define "mcp-pinot.envHas" -}}
+{{- $name := .name -}}
+{{- $found := false -}}
+{{- range .root.Values.env.additional -}}
+{{- if eq (.name | default "") $name -}}{{- $found = true -}}{{- end -}}
+{{- end -}}
+{{- if $found -}}true{{- end -}}
+{{- end }}
+
+{{/*
+Whether the caller supplies MCP_STATIC_TOKEN themselves through env.additional.
+*/}}
+{{- define "mcp-pinot.staticTokenFromEnv" -}}
+{{- include "mcp-pinot.envHas" (dict "root" . "name" "MCP_STATIC_TOKEN") -}}
+{{- end }}
+
+{{/*
+Resolve the static shared bearer token for provider=static.
+
+This helper is used only when MCP_STATIC_TOKEN is not supplied through
+env.additional. In that chart-managed path, an explicit mcp.auth.staticToken wins.
+Otherwise the token is auto-generated ONCE per environment and persisted in this
+chart's Secret: on upgrades `lookup` finds the existing Secret and reuses its
+`static-token` key, so the value is stable across releases, and only the very first
+install mints a fresh randAlphaNum. This makes provider=static zero-touch — no
+operator ever has to pick, paste, or distribute a token, and each environment gets
+a distinct one.
+
+During `helm template`/`--dry-run` there is no cluster to look up, so a throwaway
+token is rendered; that output is never applied. Consumers must therefore read
+the token from the Secret (key `static-token`), never from rendered manifests.
+*/}}
+{{- define "mcp-pinot.staticToken" -}}
+{{- if .Values.mcp.auth.staticToken -}}
+{{- .Values.mcp.auth.staticToken -}}
+{{- else -}}
+{{- $secretName := printf "%s-secrets" (include "mcp-pinot.fullname" .) -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName -}}
+{{- $prior := "" -}}
+{{- if $existing -}}{{- $prior = index (default dict $existing.data) "static-token" -}}{{- end -}}
+{{- if $prior -}}
+{{- $prior | b64dec -}}
+{{- else -}}
+{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Health-probe command. The server terminates TLS itself when mcp.ssl.enabled is set,
+so the probe has to speak the same scheme — an http:// probe against a TLS listener
+fails forever, which is why probes used to have to be disabled for any deployment
+serving HTTPS. The certificate is issued for the service's public names, never for
+127.0.0.1, so a loopback probe cannot verify it; verification is therefore skipped
+for the local check only. /livez and /readyz sit outside the MCP path, so the Host
+allowlist and the auth provider do not apply to them.
+
+Call as: include "mcp-pinot.probeCommand" (dict "root" . "check" .Values.healthCheck.liveness)
+*/}}
+{{- define "mcp-pinot.probeCommand" -}}
+{{- $scheme := ternary "https" "http" .root.Values.mcp.ssl.enabled -}}
+- python
+- -c
+- "import ssl, sys, urllib.request; ctx = ssl._create_unverified_context() if sys.argv[1].startswith('https') else None; sys.exit(0 if urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2]), context=ctx).status == 200 else 1)"
+- {{ printf "%s://127.0.0.1:%v%s" $scheme .check.port .check.path | quote }}
+- {{ .check.timeoutSeconds | quote }}
+{{- end }}
+
+{{/*
 Validate MCP HTTP exposure settings.
 */}}
 {{- define "mcp-pinot.isLoopbackHost" -}}
@@ -86,6 +175,7 @@ Validate MCP HTTP exposure settings.
 {{- end }}
 
 {{- define "mcp-pinot.validateExposure" -}}
+{{- $host := lower (toString .Values.mcp.host) -}}
 {{- $isLoopback := eq (include "mcp-pinot.isLoopbackHost" .) "true" -}}
 {{- $serviceEnabled := .Values.service.enabled -}}
 {{- $traefikEnabled := .Values.traefik.enabled -}}
@@ -98,6 +188,11 @@ Validate MCP HTTP exposure settings.
 {{- end -}}
 {{- if and (not $isLoopback) (not $authEnabled) -}}
 {{- fail "mcp.host is non-loopback, so an auth provider is required; set mcp.auth.provider=oauth|static (or the legacy mcp.oauth.enabled=true)" -}}
+{{- end -}}
+{{- $hostAllowlisted := or .Values.mcp.allowedHosts (eq (include "mcp-pinot.envHas" (dict "root" . "name" "MCP_ALLOWED_HOSTS")) "true") -}}
+{{- $isWildcard := or (eq $host "0.0.0.0") (eq $host "::") (eq $host "[::]") -}}
+{{- if and $isWildcard (not $hostAllowlisted) -}}
+{{- fail "mcp.host is a wildcard bind, which does not identify a public authority: set mcp.allowedHosts to the exact Host authorities clients use (e.g. [mcp.example.com, mcp.example.com:443]). Without it the server exits at startup instead of serving." -}}
 {{- end -}}
 {{- end }}
 

@@ -8,13 +8,13 @@
     "source": "github"
   },
   "websiteUrl": "https://startreedata.github.io/mcp-pinot/",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "mcp-pinot-server",
-      "version": "4.0.0",
+      "version": "4.1.0",
       "transport": {
         "type": "stdio"
       },
@@ -69,7 +69,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/startreedata/mcp-pinot:4.0.0",
+      "identifier": "ghcr.io/startreedata/mcp-pinot:4.1.0",
       "transport": {
         "type": "stdio"
       }

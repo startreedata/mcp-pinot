@@ -100,9 +100,11 @@ externally supplied allowlist.
 */}}
 {{- define "mcp-pinot.envHas" -}}
 {{- $name := .name -}}
+{{- $found := false -}}
 {{- range .root.Values.env.additional -}}
-{{- if eq (.name | default "") $name -}}true{{- end -}}
+{{- if eq (.name | default "") $name -}}{{- $found = true -}}{{- end -}}
 {{- end -}}
+{{- if $found -}}true{{- end -}}
 {{- end }}
 
 {{/*
@@ -115,12 +117,14 @@ Whether the caller supplies MCP_STATIC_TOKEN themselves through env.additional.
 {{/*
 Resolve the static shared bearer token for provider=static.
 
-Precedence: an explicit mcp.auth.staticToken wins. Otherwise the token is
-auto-generated ONCE per environment and persisted in this chart's Secret: on
-upgrades `lookup` finds the existing Secret and reuses its `static-token` key, so
-the value is stable across releases, and only the very first install mints a
-fresh randAlphaNum. This makes provider=static zero-touch — no operator ever has
-to pick, paste, or distribute a token, and each environment gets a distinct one.
+This helper is used only when MCP_STATIC_TOKEN is not supplied through
+env.additional. In that chart-managed path, an explicit mcp.auth.staticToken wins.
+Otherwise the token is auto-generated ONCE per environment and persisted in this
+chart's Secret: on upgrades `lookup` finds the existing Secret and reuses its
+`static-token` key, so the value is stable across releases, and only the very first
+install mints a fresh randAlphaNum. This makes provider=static zero-touch — no
+operator ever has to pick, paste, or distribute a token, and each environment gets
+a distinct one.
 
 During `helm template`/`--dry-run` there is no cluster to look up, so a throwaway
 token is rendered; that output is never applied. Consumers must therefore read
@@ -171,6 +175,7 @@ Validate MCP HTTP exposure settings.
 {{- end }}
 
 {{- define "mcp-pinot.validateExposure" -}}
+{{- $host := lower (toString .Values.mcp.host) -}}
 {{- $isLoopback := eq (include "mcp-pinot.isLoopbackHost" .) "true" -}}
 {{- $serviceEnabled := .Values.service.enabled -}}
 {{- $traefikEnabled := .Values.traefik.enabled -}}
@@ -185,7 +190,8 @@ Validate MCP HTTP exposure settings.
 {{- fail "mcp.host is non-loopback, so an auth provider is required; set mcp.auth.provider=oauth|static (or the legacy mcp.oauth.enabled=true)" -}}
 {{- end -}}
 {{- $hostAllowlisted := or .Values.mcp.allowedHosts (eq (include "mcp-pinot.envHas" (dict "root" . "name" "MCP_ALLOWED_HOSTS")) "true") -}}
-{{- if and (not $isLoopback) (not $hostAllowlisted) -}}
+{{- $isWildcard := or (eq $host "0.0.0.0") (eq $host "::") (eq $host "[::]") -}}
+{{- if and $isWildcard (not $hostAllowlisted) -}}
 {{- fail "mcp.host is a wildcard bind, which does not identify a public authority: set mcp.allowedHosts to the exact Host authorities clients use (e.g. [mcp.example.com, mcp.example.com:443]). Without it the server exits at startup instead of serving." -}}
 {{- end -}}
 {{- end }}

@@ -89,6 +89,12 @@ if render --set service.enabled=true --set mcp.host=0.0.0.0 \
   fail "wildcard bind rendered without mcp.allowedHosts"
 fi
 
+# A concrete non-loopback bind identifies its own authority and therefore does
+# not need the wildcard-only allowlist guard.
+out=$(render --set service.enabled=true --set mcp.host=10.0.0.5 \
+  --set mcp.auth.provider=static)
+matches 'value: "10.0.0.5"' || fail "concrete non-loopback host did not render"
+
 # ... and renders MCP_ALLOWED_HOSTS/ORIGINS once supplied.
 out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
   --set mcp.auth.provider=static \
@@ -102,7 +108,9 @@ matches 'name: MCP_ALLOWED_ORIGINS' || fail "MCP_ALLOWED_ORIGINS not rendered"
 out=$(render --set service.enabled=true --set mcp.host=0.0.0.0 \
   --set mcp.auth.provider=static \
   --set 'env.additional[0].name=MCP_ALLOWED_HOSTS' \
-  --set 'env.additional[0].value=mcp.example.com')
+  --set 'env.additional[0].value=mcp.example.com' \
+  --set 'env.additional[1].name=MCP_ALLOWED_HOSTS' \
+  --set 'env.additional[1].value=mcp.example.com:443')
 matches 'name: MCP_ALLOWED_HOSTS' || fail "external MCP_ALLOWED_HOSTS missing"
 
 # provider=oauth+static wires BOTH credential types on one deployment.

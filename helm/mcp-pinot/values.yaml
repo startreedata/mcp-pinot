@@ -132,19 +132,34 @@ mcp:
   host: "127.0.0.1"
   port: 8000
   path: "/mcp"
+  # Exact Host authorities accepted at the MCP endpoint (MCP_ALLOWED_HOSTS).
+  # REQUIRED whenever mcp.host is a wildcard bind such as 0.0.0.0: the server has
+  # no way to infer its public authority and exits at startup rather than accepting
+  # any Host. Use the names clients actually connect to, including the port when
+  # clients send one, e.g. [mcp.example.com, mcp.example.com:443].
+  allowedHosts: []
+  # Exact browser Origin values accepted (MCP_ALLOWED_ORIGINS). Empty rejects
+  # requests that send Origin while still allowing clients that omit it, which is
+  # the right default for non-browser MCP clients.
+  allowedOrigins: []
   ssl:
     enabled: false
     keyFile: "/etc/ssl/tls.key"
     certFile: "/etc/ssl/tls.crt"
   auth:
-    # Auth provider for the MCP HTTP endpoint: "" (unset), "none", "oauth", or
-    # "static". Takes precedence over the legacy mcp.oauth.enabled flag.
-    # "" and "none" both mean unauthenticated and do not satisfy the
-    # non-loopback exposure gate.
+    # Auth provider for the MCP HTTP endpoint: "" (unset), "none", "oauth",
+    # "static", or "oauth+static" to accept both an OIDC login and the shared
+    # backend token on the same deployment. Takes precedence over the legacy
+    # mcp.oauth.enabled flag. "" and "none" both mean unauthenticated and do not
+    # satisfy the non-loopback exposure gate.
     provider: ""
     # Shared bearer token for provider=static (service-to-service callers).
-    # Rendered into the chart Secret, mounted as MCP_STATIC_TOKEN. Leave empty
-    # to supply MCP_STATIC_TOKEN yourself via env.additional.
+    # Rendered into the chart Secret and mounted as MCP_STATIC_TOKEN.
+    # Leave EMPTY to auto-generate: with provider=static the chart mints a random
+    # token on first install and persists it in the Secret, reusing it on every
+    # upgrade via lookup, so no operator has to pick, paste, or distribute one and
+    # each environment gets a distinct token. Consumers read it from the Secret
+    # (key static-token). Set explicitly only to pin a known value.
     staticToken: ""
     # Scopes granted to the shared service principal. Remove write/admin for a
     # read-only deployment.
@@ -153,6 +168,12 @@ mcp:
       - pinot:write
       - pinot:admin
   oauth:
+    # Pinot scopes granted to every principal the OIDC provider authenticates,
+    # unioned onto the scopes the token already carries. Empty means the server
+    # default (pinot:read, pinot:write, pinot:admin). Set to [pinot:read] for a
+    # read-only deployment. Needed because general-purpose OIDC providers issue a
+    # fixed scope catalog and cannot mint pinot:* themselves.
+    grantedScopes: []
     # Legacy alias for mcp.auth.provider=oauth.
     enabled: false
     clientId: ""
@@ -180,7 +201,12 @@ pinot:
     token: ""
     tokenFilename: ""
 
-# Health check configuration
+# Health check configuration. The probes exec a local HTTP(S) request against
+# /livez and /readyz; the scheme follows mcp.ssl.enabled, and certificate
+# verification is skipped for that loopback check only (the certificate is issued
+# for the public names, not 127.0.0.1). Those two routes sit outside the MCP path,
+# so neither the Host allowlist nor the auth provider applies to them — probes work
+# with any auth configuration.
 healthCheck:
   liveness:
     enabled: true

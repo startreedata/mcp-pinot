@@ -187,23 +187,97 @@ class TestPinotClient:
             assert result["connection_test"] is True
             assert result["query_test"] is True
             assert result["tables_test"] is True
+            assert result["dbapi_test"] is True
             assert result["error"] is None
             assert result["tables_count"] == 2
 
-    def test_test_connection_failure(self, mock_pinot_config):
-        """Test connection test with failure."""
+    def test_test_connection_reports_healthy_when_only_dbapi_probe_fails(
+        self, mock_pinot_config, mock_requests
+    ):
+        """A pinotdb incompatibility must not be reported as a dead deployment.
+
+        Regression test for the diagnostic that claimed every check failed on a
+        working StarTree deployment: pinotdb rejected the broker's response to
+        `SELECT 1` (check_sufficient_responded) while every tool, which goes over
+        the broker's REST endpoint, worked.
+        """
         pinot = PinotClient(mock_pinot_config)
 
-        with patch.object(pinot, "get_connection") as mock_get_conn:
-            mock_get_conn.side_effect = Exception("Connection failed")
+        with (
+            patch.object(pinot, "execute_query") as mock_query,
+            patch.object(pinot, "get_tables") as mock_tables,
+            patch.object(pinot, "get_connection") as mock_conn,
+        ):
+            mock_query.return_value = [{"test_column": 1}]
+            mock_tables.return_value = ["table1"]
+            mock_conn.side_effect = Exception("pinotdb: Query")
+
+            result = pinot.test_connection()
+
+        assert result["query_test"] is True
+        assert result["connection_test"] is True
+        assert result["tables_test"] is True
+        assert result["dbapi_test"] is False
+        assert result["error"] is None, "a DB-API-only failure must not report an error"
+
+    def test_test_connection_probes_the_path_read_query_uses(
+        self, mock_pinot_config, mock_requests
+    ):
+        """The query check must go through execute_query, not the DB-API cursor."""
+        pinot = PinotClient(mock_pinot_config)
+
+        with (
+            patch.object(pinot, "execute_query") as mock_query,
+            patch.object(pinot, "get_tables", return_value=[]),
+            patch.object(pinot, "get_connection", side_effect=Exception("unused")),
+        ):
+            mock_query.return_value = [{"test_column": 1}]
+            pinot.test_connection()
+
+        assert mock_query.call_count == 1
+        assert "SELECT 1" in mock_query.call_args.args[0].upper()
+
+    def test_test_connection_failure(self, mock_pinot_config):
+        """Both required checks failing is reported, without leaking detail."""
+        pinot = PinotClient(mock_pinot_config)
+
+        with (
+            patch.object(pinot, "execute_query") as mock_query,
+            patch.object(pinot, "get_tables") as mock_tables,
+            patch.object(pinot, "get_connection") as mock_conn,
+        ):
+            mock_query.side_effect = Exception("Connection failed")
+            mock_tables.side_effect = Exception("Connection failed")
+            mock_conn.side_effect = Exception("Connection failed")
 
             result = pinot.test_connection()
 
             assert result["connection_test"] is False
             assert result["query_test"] is False
             assert result["tables_test"] is False
+            assert result["dbapi_test"] is False
             assert "connectivity check failed" in result["error"]
+            assert "broker query" in result["error"]
+            assert "controller table listing" in result["error"]
             assert "Connection failed" not in result["error"]
+
+    def test_test_connection_names_only_the_failed_check(
+        self, mock_pinot_config, mock_requests
+    ):
+        """A half-broken deployment says which half."""
+        pinot = PinotClient(mock_pinot_config)
+
+        with (
+            patch.object(pinot, "execute_query", return_value=[{"test_column": 1}]),
+            patch.object(pinot, "get_tables", side_effect=Exception("controller down")),
+            patch.object(pinot, "get_connection", side_effect=Exception("unused")),
+        ):
+            result = pinot.test_connection()
+
+        assert result["query_test"] is True
+        assert result["tables_test"] is False
+        assert "controller table listing" in result["error"]
+        assert "broker query" not in result["error"]
 
     def test_execute_query_http_success(self, mock_pinot_config, mock_requests):
         """Test successful HTTP query execution."""

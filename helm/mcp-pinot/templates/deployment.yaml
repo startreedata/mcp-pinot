@@ -57,6 +57,14 @@ spec:
               value: {{ .Values.mcp.port | quote }}
             - name: MCP_PATH
               value: {{ .Values.mcp.path | quote }}
+            {{- if .Values.mcp.allowedHosts }}
+            - name: MCP_ALLOWED_HOSTS
+              value: {{ join "," .Values.mcp.allowedHosts | quote }}
+            {{- end }}
+            {{- if .Values.mcp.allowedOrigins }}
+            - name: MCP_ALLOWED_ORIGINS
+              value: {{ join "," .Values.mcp.allowedOrigins | quote }}
+            {{- end }}
             {{- if .Values.mcp.ssl.enabled }}
             - name: MCP_SSL_KEYFILE
               value: {{ .Values.mcp.ssl.keyFile | quote }}
@@ -101,14 +109,16 @@ spec:
             - name: AUTH_PROVIDER
               value: {{ $authProvider | quote }}
             {{- end }}
-            {{- if and (eq $authProvider "static") .Values.mcp.auth.staticToken }}
+            {{- $staticAuth := eq (include "mcp-pinot.authHas" (dict "root" . "name" "static")) "true" }}
+            {{- $oauthAuth := eq (include "mcp-pinot.authHas" (dict "root" . "name" "oauth")) "true" }}
+            {{- if and $staticAuth (ne (include "mcp-pinot.staticTokenFromEnv" .) "true") }}
             - name: MCP_STATIC_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ include "mcp-pinot.fullname" . }}-secrets
                   key: static-token
             {{- end }}
-            {{- if eq $authProvider "static" }}
+            {{- if $staticAuth }}
             - name: MCP_STATIC_SCOPES
               value: {{ join " " .Values.mcp.auth.staticScopes | quote }}
             {{- end }}
@@ -116,7 +126,7 @@ spec:
             # OAuth Configuration
             - name: OAUTH_ENABLED
               value: {{ .Values.mcp.oauth.enabled | quote }}
-            {{- if eq $authProvider "oauth" }}
+            {{- if $oauthAuth }}
             - name: OAUTH_AUTHORIZATION_ENDPOINT
               value: {{ .Values.mcp.oauth.upstreamAuthorizationEndpoint | quote }}
             - name: OAUTH_TOKEN_ENDPOINT
@@ -139,6 +149,10 @@ spec:
             - name: OAUTH_AUDIENCE
               value: {{ .Values.mcp.oauth.audience | quote }}
             {{- end }}
+            {{- if .Values.mcp.oauth.grantedScopes }}
+            - name: OAUTH_GRANTED_SCOPES
+              value: {{ join " " .Values.mcp.oauth.grantedScopes | quote }}
+            {{- end }}
             {{- if .Values.mcp.oauth.extraAuthorizeParams }}
             - name: OAUTH_EXTRA_AUTH_PARAMS
               value: {{ .Values.mcp.oauth.extraAuthorizeParams | toJson | quote }}
@@ -160,11 +174,7 @@ spec:
           livenessProbe:
             exec:
               command:
-                - python
-                - -c
-                - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2])).status == 200 else 1)"
-                - {{ printf "http://127.0.0.1:%v%s" .Values.healthCheck.liveness.port .Values.healthCheck.liveness.path | quote }}
-                - {{ .Values.healthCheck.liveness.timeoutSeconds | quote }}
+                {{- include "mcp-pinot.probeCommand" (dict "root" . "check" .Values.healthCheck.liveness) | nindent 16 }}
             initialDelaySeconds: {{ .Values.healthCheck.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthCheck.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.liveness.timeoutSeconds }}
@@ -175,11 +185,7 @@ spec:
           readinessProbe:
             exec:
               command:
-                - python
-                - -c
-                - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2])).status == 200 else 1)"
-                - {{ printf "http://127.0.0.1:%v%s" .Values.healthCheck.readiness.port .Values.healthCheck.readiness.path | quote }}
-                - {{ .Values.healthCheck.readiness.timeoutSeconds | quote }}
+                {{- include "mcp-pinot.probeCommand" (dict "root" . "check" .Values.healthCheck.readiness) | nindent 16 }}
             initialDelaySeconds: {{ .Values.healthCheck.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthCheck.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.readiness.timeoutSeconds }}

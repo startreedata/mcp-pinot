@@ -125,6 +125,12 @@ class OAuthConfig:
     extra_authorize_params: dict[str, str] | None = None
     scopes: list[str] | None = None  # advertised OAuth scope catalog
     required_scopes: list[str] | None = None  # optional global baseline scopes
+    # Pinot authorization scopes granted to every principal this provider
+    # authenticates. Most OIDC providers issue a fixed scope catalog and cannot
+    # mint resource-specific scopes such as pinot:read, so without a grant the
+    # per-tool scope checks would reject every call from a valid user. Narrow this
+    # to ["pinot:read"] for a read-only deployment.
+    granted_scopes: list[str] | None = None
 
 
 def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
@@ -474,6 +480,27 @@ def _parse_optional_scopes(raw: str | None) -> list[str] | None:
     return [scope for scope in scopes if scope] or None
 
 
+def _parse_pinot_scopes(raw: str | None, env_name: str) -> list[str]:
+    """Parse a Pinot-authorization scope list, validating every entry.
+
+    Shared by ``MCP_STATIC_SCOPES`` and ``OAUTH_GRANTED_SCOPES``: both name the
+    Pinot scopes a principal is granted, so both reject anything outside
+    :data:`PINOT_AUTHORIZATION_SCOPES` rather than silently granting nothing.
+    Falls back to the full set when unset/empty.
+    """
+    if not raw or not raw.strip():
+        return ["pinot:read", "pinot:write", "pinot:admin"]
+    scopes = list(dict.fromkeys(raw.replace(",", " ").split()))
+    invalid = sorted(set(scopes) - PINOT_AUTHORIZATION_SCOPES)
+    if invalid:
+        raise ValueError(
+            f"{env_name} contains unsupported scopes: " + ", ".join(invalid)
+        )
+    if not scopes:
+        raise ValueError(f"{env_name} must grant at least one Pinot scope.")
+    return scopes
+
+
 def load_static_token() -> str:
     """Return the shared bearer secret for the ``static`` auth provider.
 
@@ -493,18 +520,7 @@ def load_static_token() -> str:
 
 def load_static_scopes() -> list[str]:
     """Return explicit scopes granted to the shared static service principal."""
-    raw = os.getenv("MCP_STATIC_SCOPES")
-    if not raw or not raw.strip():
-        return ["pinot:read", "pinot:write", "pinot:admin"]
-    scopes = list(dict.fromkeys(raw.replace(",", " ").split()))
-    invalid = sorted(set(scopes) - PINOT_AUTHORIZATION_SCOPES)
-    if invalid:
-        raise ValueError(
-            "MCP_STATIC_SCOPES contains unsupported scopes: " + ", ".join(invalid)
-        )
-    if not scopes:
-        raise ValueError("MCP_STATIC_SCOPES must grant at least one Pinot scope.")
-    return scopes
+    return _parse_pinot_scopes(os.getenv("MCP_STATIC_SCOPES"), "MCP_STATIC_SCOPES")
 
 
 def load_oauth_config() -> OAuthConfig:
@@ -539,7 +555,11 @@ def load_oauth_config() -> OAuthConfig:
         "issuer": os.getenv("OAUTH_ISSUER", "").strip(),
         "audience": os.getenv("OAUTH_AUDIENCE", "").strip(),
     }
-    missing = [name for name, value in values.items() if not value]
+    # OAUTH_AUDIENCE is optional: when unset, build_oauth_auth() defaults it to the
+    # canonical MCP resource URI, which is what RFC 9728 metadata advertises.
+    missing = [
+        name for name, value in values.items() if not value and name != "audience"
+    ]
     if missing:
         env_by_field = {
             "client_id": "OAUTH_CLIENT_ID",
@@ -549,7 +569,6 @@ def load_oauth_config() -> OAuthConfig:
             "upstream_token_endpoint": "OAUTH_TOKEN_ENDPOINT",
             "jwks_uri": "OAUTH_JWKS_URI",
             "issuer": "OAUTH_ISSUER",
-            "audience": "OAUTH_AUDIENCE",
         }
         env_names = ", ".join(env_by_field[name] for name in missing)
         raise ValueError(f"OAuth configuration is incomplete; missing: {env_names}.")
@@ -575,4 +594,7 @@ def load_oauth_config() -> OAuthConfig:
         extra_authorize_params=extra_authorize_params,
         scopes=_parse_oauth_scopes(os.getenv("OAUTH_SCOPES")),
         required_scopes=_parse_optional_scopes(os.getenv("OAUTH_REQUIRED_SCOPES")),
+        granted_scopes=_parse_pinot_scopes(
+            os.getenv("OAUTH_GRANTED_SCOPES"), "OAUTH_GRANTED_SCOPES"
+        ),
     )

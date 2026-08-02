@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 import tomllib
 
+from scripts.prepare_registry_metadata import prepare_metadata
+
 ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_TOOL_NAMES = {
@@ -144,7 +146,17 @@ def test_release_versions_are_aligned() -> None:
     assert manifest["manifest_version"] == "0.4"
     assert manifest["version"] == version
     assert registry["version"] == version
-    assert {package["version"] for package in registry["packages"]} == {version}
+    versioned_packages = [
+        package for package in registry["packages"] if package["registryType"] != "oci"
+    ]
+    assert {package["version"] for package in versioned_packages} == {version}
+    oci_packages = [
+        package for package in registry["packages"] if package["registryType"] == "oci"
+    ]
+    assert oci_packages
+    assert all(
+        package["identifier"].endswith(f":{version}") for package in oci_packages
+    )
     assert chart_version == version
     assert chart_app_version == version
     assert locked_project["version"] == version
@@ -198,6 +210,10 @@ def test_registry_and_release_metadata_are_publishable_and_pinned() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert 1 <= len(registry["description"]) <= 100
+    for package in registry["packages"]:
+        if package["registryType"] == "oci":
+            assert "registryBaseUrl" not in package
+            assert "version" not in package
     assert (
         'LABEL io.modelcontextprotocol.server.name="io.github.startreedata/mcp-pinot"'
         in dockerfile
@@ -213,3 +229,38 @@ def test_registry_and_release_metadata_are_publishable_and_pinned() -> None:
     )
     assert ">=9.1.2" in pinotdb and "<10" in pinotdb
     assert '"4.0.0"' not in (ROOT / "mcp_pinot/__init__.py").read_text(encoding="utf-8")
+
+
+def test_registry_metadata_preparation_uses_canonical_oci_references(tmp_path) -> None:
+    metadata_path = tmp_path / "server.json"
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "version": "4.0.0",
+                "packages": [
+                    {
+                        "registryType": "pypi",
+                        "identifier": "mcp-pinot-server",
+                        "version": "4.0.0",
+                    },
+                    {
+                        "registryType": "oci",
+                        "registryBaseUrl": "https://ghcr.io",
+                        "identifier": "ghcr.io/startreedata/mcp-pinot:4.0.0",
+                        "version": "4.0.0",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    prepare_metadata(metadata_path, "v4.0.1")
+
+    prepared = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert prepared["version"] == "4.0.1"
+    assert prepared["packages"][0]["version"] == "4.0.1"
+    assert prepared["packages"][1] == {
+        "registryType": "oci",
+        "identifier": "ghcr.io/startreedata/mcp-pinot:4.0.1",
+    }

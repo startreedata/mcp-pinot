@@ -368,11 +368,11 @@ class TestOAuthPlusStatic:
 
     def test_provider_name_order_is_irrelevant(self):
         """The name describes a set of accepted credentials, not an order."""
-        from mcp_pinot.auth.multi import ChainedTokenVerifier
+        from mcp_pinot.auth.multi import OAuthStaticProxy
 
         for name in ("oauth+static", "static+oauth", " oauth + static "):
             auth = self._build(_provider=name)
-            assert isinstance(auth._token_validator, ChainedTokenVerifier)
+            assert isinstance(auth, OAuthStaticProxy)
 
     def test_composite_provider_is_discoverable(self):
         assert "oauth+static" in available_providers()
@@ -395,10 +395,48 @@ class TestOAuthPlusStatic:
     @pytest.mark.asyncio
     async def test_the_shared_token_authenticates_with_its_own_scopes(self):
         auth = self._build(MCP_STATIC_SCOPES="pinot:read")
-        token = await auth._token_validator.verify_token("backend-secret")
+        token = await auth.load_access_token("backend-secret")
         assert token is not None
         assert token.scopes == ["pinot:read"]
         assert token.client_id == "mcp-static-client"
+
+    @pytest.mark.asyncio
+    async def test_oauth_routes_and_static_token_work_on_the_same_http_app(self):
+        """Regression: OAuthProxy must not reject the raw shared bearer token."""
+        from fastmcp import FastMCP
+        import httpx
+
+        auth = self._build(MCP_STATIC_SCOPES="pinot:read")
+        app = FastMCP("hybrid-test", auth=auth).http_app(path="/mcp")
+        initialize = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "hybrid-test", "version": "1"},
+            },
+        }
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Authorization": "Bearer backend-secret",
+        }
+
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://localhost:8080"
+            ) as client:
+                discovery = await client.get(
+                    "/.well-known/oauth-protected-resource/mcp"
+                )
+                initialize_response = await client.post(
+                    "/mcp", json=initialize, headers=headers
+                )
+
+        assert discovery.status_code == 200
+        assert initialize_response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_an_oidc_token_authenticates_with_the_granted_scopes(self):
@@ -425,23 +463,19 @@ class TestOAuthPlusStatic:
             "fastmcp.server.auth.providers.jwt.JWTVerifier.verify_token",
             return_value=None,
         ):
-            assert await auth._token_validator.verify_token("neither") is None
+            assert await auth.load_access_token("neither") is None
 
     @pytest.mark.asyncio
     async def test_the_shared_token_short_circuits_the_oidc_check(self):
         """The backend calls on every request; it must not pay for a JWKS fetch."""
         from unittest.mock import AsyncMock
 
+        from fastmcp.server.auth import OAuthProxy
+
         auth = self._build()
-        with patch(
-            "fastmcp.server.auth.providers.jwt.JWTVerifier.verify_token",
-            new_callable=AsyncMock,
-        ) as jwt_verify:
-            await auth._token_validator.verify_token("backend-secret")
-        jwt_verify.assert_not_awaited()
-
-    def test_chained_verifier_requires_at_least_one_verifier(self):
-        from mcp_pinot.auth.multi import ChainedTokenVerifier
-
-        with pytest.raises(ValueError, match="at least one"):
-            ChainedTokenVerifier([])
+        with patch.object(
+            OAuthProxy, "load_access_token", new_callable=AsyncMock
+        ) as oauth_load:
+            token = await auth.load_access_token("backend-secret")
+        assert token is not None
+        oauth_load.assert_not_awaited()

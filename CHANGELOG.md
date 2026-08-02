@@ -9,14 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `AUTH_PROVIDER=oauth+static` (either spelling) accepts **both** an OIDC login and
-  the static shared token on one deployment, through a `ChainedTokenVerifier` behind
-  the OAuth provider. A hosted MCP normally has both kinds of caller — people with a
-  browser and one trusted backend without one — and selecting a single provider forced
-  a choice between them, with no clean workaround (a second deployment needs a second
-  hostname and certificate; many IdPs cannot issue the client-credentials grant).
-  The shared secret is checked first, so the backend never pays for a signing-key
-  fetch, and each credential keeps its own scopes: `MCP_STATIC_SCOPES` for the backend,
-  `OAUTH_GRANTED_SCOPES` for people. Chart: `mcp.auth.provider: oauth+static`.
+  the static shared token on one deployment. An OAuth proxy retains the interactive
+  discovery/login routes while checking the shared token at the client-facing MCP
+  endpoint before delegating other credentials to the OAuth flow. A hosted MCP
+  normally has both kinds of caller — people with a browser and one trusted backend
+  without one — and selecting a single provider forced a choice between them, with no
+  clean workaround (a second deployment needs a second hostname and certificate;
+  many IdPs cannot issue the client-credentials grant). Each credential keeps its own
+  scopes: `MCP_STATIC_SCOPES` for the backend, `OAUTH_GRANTED_SCOPES` for people.
+  Chart: `mcp.auth.provider: oauth+static`.
 - `OAUTH_GRANTED_SCOPES` (default `pinot:read pinot:write pinot:admin`): Pinot
   authorization scopes granted to every principal the OAuth provider
   authenticates, unioned onto the scopes the token already carries. General-purpose
@@ -38,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pick, paste, or distribute a token.
 
 ### Fixed
+- Hybrid `oauth+static` deployments now accept the raw shared bearer token at the
+  real HTTP MCP endpoint. `OAuthProxy` first validates its own client-facing JWT
+  and only calls its configured verifier after swapping for the stored upstream
+  token, so placing a static verifier behind the proxy made direct static requests
+  return `401` even though verifier-only unit tests passed.
 - `test_connection` no longer reports a healthy deployment as broken. It probed
   through the pinotdb DB-API connection, which no tool uses: against a broker whose
   response pinotdb rejects (`check_sufficient_responded`) it returned

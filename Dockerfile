@@ -38,7 +38,8 @@ RUN groupadd --gid 1000 appuser \
     && chown -R 1000:1000 /app
 
 COPY --from=builder /app/.venv /app/.venv
-COPY --chmod=0555 run.sh /app/run.sh
+COPY run.sh /app/run.sh
+RUN chmod 0555 /app/run.sh
 
 USER 1000:1000
 

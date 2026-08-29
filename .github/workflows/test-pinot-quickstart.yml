@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FASTMCP_MCP_CAMELCASE_COMPAT: "false"
+
 jobs:
   test-pinot-quickstart:
     runs-on: ubuntu-latest
@@ -30,11 +33,11 @@ jobs:
         version: "0.8.22"
         python-version: ${{ matrix.python-version }}
     
+    - name: Verify lockfile
+      run: uv lock --check
+
     - name: Install dependencies
-      run: |
-        uv venv
-        source .venv/bin/activate
-        uv pip install -e ".[dev]"
+      run: uv sync --frozen --all-extras
     
     - name: Set up Docker
       uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4

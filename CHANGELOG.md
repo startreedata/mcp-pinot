@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0-beta.1] - 2026-08-29
+
+### Breaking Changes
+- Upgraded the MCP Python SDK from 1.x to 2.1.1 and FastMCP from 3.x to the
+  pinned 4.0.0b5 beta. Integrators importing MCP protocol models must use the SDK 2
+  snake-case Python attributes and the renamed `MCPError` exception.
+
+### Changed
+- Oversized tool responses now fail with a bounded, actionable `ToolError`
+  instead of being truncated into text that violates the tool's advertised
+  structured output schema.
+- CI now checks that the committed lockfile actually resolves MCP 2.x and
+  FastMCP 4.x, preventing permissive dependency ranges from producing a false
+  upgrade while the frozen artifacts remain on MCP 1.x.
+
+## [4.1.0] - 2026-08-29
+
 ### Added
 - `AUTH_PROVIDER=oauth+static` (either spelling) accepts **both** an OIDC login and
   the static shared token on one deployment. An OAuth proxy retains the interactive

@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from fastmcp import Client
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 import pytest
 
 from mcp_pinot.config import PinotConfig
@@ -133,7 +133,7 @@ def test_create_payload_names_are_validated_before_http(pinot_client, payload, m
 async def test_resource_templates_reject_encoded_path_attacks(uri):
     """Protocol-level resource reads never forward decoded hostile components."""
     with patch("mcp_pinot.server.pinot_client") as client:
-        with pytest.raises(McpError):
+        with pytest.raises(MCPError):
             async with Client(mcp) as mcp_client:
                 await mcp_client.read_resource(uri)
 

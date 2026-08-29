@@ -6,11 +6,15 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.server.middleware.rate_limiting import RateLimitError
+from fastmcp.tools import ToolResult
+from mcp.types import TextContent
+from mcp.types.version import LATEST_PROTOCOL_VERSION
 import pytest
 
 from mcp_pinot.server import (
     _CONFIRMATION_TTL_SECONDS,
     _is_loopback_host,
+    _SchemaPreservingResponseLimitMiddleware,
     _ToolRateLimitMiddleware,
     main,
     mcp,
@@ -92,6 +96,12 @@ class TestFastMCPServer:
         assert mcp.name == "Pinot MCP Server"
 
     @pytest.mark.asyncio
+    async def test_client_negotiates_the_current_mcp_2_protocol(self):
+        """The default in-process client uses MCP 2's modern protocol path."""
+        async with Client(mcp) as client:
+            assert client.protocol_version == LATEST_PROTOCOL_VERSION
+
+    @pytest.mark.asyncio
     async def test_tools_registration(self):
         """Test that all tools are properly registered"""
         tools = await mcp.list_tools()
@@ -111,20 +121,34 @@ class TestFastMCPServer:
 
         assert tools, "no tools registered"
         for tool in tools:
-            assert tool.inputSchema, f"{tool.name} missing inputSchema"
-            assert tool.outputSchema, f"{tool.name} missing outputSchema"
+            assert tool.input_schema, f"{tool.name} missing inputSchema"
+            assert tool.output_schema, f"{tool.name} missing outputSchema"
             assert tool.annotations is not None, f"{tool.name} missing annotations"
             assert tool.annotations.title, f"{tool.name} missing annotation title"
-            assert tool.annotations.readOnlyHint is not None, (
-                f"{tool.name} missing readOnlyHint"
+            assert tool.annotations.read_only_hint is not None, (
+                f"{tool.name} missing read_only_hint"
             )
+
+    @pytest.mark.asyncio
+    async def test_response_limit_preserves_schemas_and_rejects_oversize_results(self):
+        """Oversized output fails explicitly instead of changing its wire shape."""
+        middleware = _SchemaPreservingResponseLimitMiddleware(max_size=100)
+        result = ToolResult(
+            content=[TextContent(type="text", text="x" * 500)],
+        )
+
+        async def call_next(_context):
+            return result
+
+        with pytest.raises(ToolError, match="100-byte limit"):
+            await middleware.on_call_tool(SimpleNamespace(), call_next)
 
     @pytest.mark.asyncio
     async def test_read_query_param_constraints_in_schema(self):
         """read_query advertises the pagination bounds in its input schema."""
         async with Client(mcp) as client:
             tools = {t.name: t for t in await client.list_tools()}
-        props = tools["read_query"].inputSchema["properties"]
+        props = tools["read_query"].input_schema["properties"]
         assert props["limit"]["maximum"] == 500
         assert props["limit"]["minimum"] == 1
         assert props["offset"]["minimum"] == 0
@@ -136,7 +160,7 @@ class TestFastMCPServer:
             tools = {t.name: t for t in await client.list_tools()}
 
         def schema_text(name: str) -> str:
-            return json.dumps(tools[name].outputSchema)
+            return json.dumps(tools[name].output_schema)
 
         assert "schemaName" in schema_text("get_schema")
         assert "dimensionFieldSpecs" in schema_text("get_schema")
@@ -163,8 +187,8 @@ class TestFastMCPServer:
         async with Client(mcp) as client:
             tools = {t.name: t for t in await client.list_tools()}
 
-        table_prop = tools["get_table_size"].inputSchema["properties"]["table_name"]
-        segment_prop = tools["get_segment_index_metadata"].inputSchema["properties"][
+        table_prop = tools["get_table_size"].input_schema["properties"]["table_name"]
+        segment_prop = tools["get_segment_index_metadata"].input_schema["properties"][
             "segment_name"
         ]
         assert table_prop["pattern"] == ("^(?:[A-Za-z0-9_-]+\\.)?[A-Za-z0-9_-]+$")
@@ -177,8 +201,8 @@ class TestFastMCPServer:
         """Write tools expose constrained structured inputs, not raw JSON strings."""
         async with Client(mcp) as client:
             tools = {t.name: t for t in await client.list_tools()}
-        schema_prop = tools["create_schema"].inputSchema["properties"]["schema"]
-        config_prop = tools["create_table_config"].inputSchema["properties"][
+        schema_prop = tools["create_schema"].input_schema["properties"]["schema"]
+        config_prop = tools["create_table_config"].input_schema["properties"][
             "table_config"
         ]
         assert schema_prop["type"] == "object"
@@ -218,7 +242,7 @@ class TestFastMCPServer:
         """tableType is constrained to the valid Pinot table types."""
         async with Client(mcp) as client:
             tools = {t.name: t for t in await client.list_tools()}
-        schema = tools["get_table_config"].inputSchema
+        schema = tools["get_table_config"].input_schema
         # Literal[...] | None renders as an enum (often via anyOf); assert the
         # allowed values appear somewhere in the property schema.
         assert "OFFLINE" in str(schema) and "REALTIME" in str(schema)
@@ -249,7 +273,7 @@ class TestFastMCPServer:
             resources = await client.list_resources()
             templates = await client.list_resource_templates()
         static_uris = {str(r.uri) for r in resources}
-        template_uris = {t.uriTemplate for t in templates}
+        template_uris = {t.uri_template for t in templates}
         assert "pinot://tables" in static_uris
         assert any("pinot://schema/" in u for u in template_uris)
         assert any("pinot://table-config/" in u for u in template_uris)

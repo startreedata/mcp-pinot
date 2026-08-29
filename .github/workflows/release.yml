@@ -10,6 +10,7 @@ env:
   IMAGE_NAME: startreedata/mcp-pinot
   PYTHON_PACKAGE_NAME: mcp-pinot-server
   MCP_REGISTRY_NAME: io.github.startreedata/mcp-pinot
+  FASTMCP_MCP_CAMELCASE_COMPAT: "false"
 
 permissions: {}
 
@@ -70,7 +71,7 @@ jobs:
           type=ref,event=branch
           type=ref,event=pr
           type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
@@ -215,14 +216,14 @@ jobs:
 
           The Helm chart is available from GHCR OCI Registry:
           ```bash
-          helm install mcp-pinot oci://ghcr.io/${{ github.repository }}/charts/mcp-pinot
+          helm install mcp-pinot oci://ghcr.io/${{ github.repository }}/charts/mcp-pinot --version ${{ steps.release_version.outputs.version }}
           ```
 
           ## PyPI Package
 
           The Python package is available at:
           ```bash
-          pip install ${{ env.PYTHON_PACKAGE_NAME }}
+          pip install ${{ env.PYTHON_PACKAGE_NAME }}==${{ steps.release_version.outputs.version }}
           ```
         files: |
           *.mcpb

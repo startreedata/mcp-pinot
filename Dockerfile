@@ -17,7 +17,7 @@ RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 # resolved from the committed lockfile; --frozen prevents implicit lock updates.
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY mcp_pinot ./mcp_pinot
-RUN uv sync --frozen --no-dev --no-editable
+RUN uv lock --check && uv sync --frozen --no-dev --no-editable
 
 FROM ${PYTHON_IMAGE} AS runtime
 

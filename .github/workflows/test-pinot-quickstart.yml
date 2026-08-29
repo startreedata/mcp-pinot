@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FASTMCP_MCP_CAMELCASE_COMPAT: "false"
+
 jobs:
   test-pinot-quickstart:
     runs-on: ubuntu-latest

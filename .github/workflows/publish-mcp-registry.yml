@@ -29,6 +29,7 @@ jobs:
         python-version: '3.12'
 
     - name: Verify release and prepare metadata
+      id: versions
       env:
         PYPI_PACKAGE: mcp-pinot-server
       run: |
@@ -40,7 +41,12 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install packaging
         python scripts/prepare_registry_metadata.py "$RELEASE_TAG"
-        PACKAGE_VERSION="${RELEASE_TAG#v}"
+
+    - name: Verify published PyPI package
+      env:
+        PYPI_PACKAGE: mcp-pinot-server
+        PACKAGE_VERSION: ${{ steps.versions.outputs.package_version }}
+      run: |
         curl --fail --silent --show-error \
           "https://pypi.org/pypi/$PYPI_PACKAGE/$PACKAGE_VERSION/json" >/dev/null
 

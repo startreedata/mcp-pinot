@@ -37,7 +37,7 @@ def prepare_metadata(path: Path, release_tag: str) -> tuple[str, str]:
     for package in metadata.get("packages", []):
         if package.get("registryType") == "oci":
             package["identifier"] = _canonical_oci_identifier(
-                package.get("identifier", ""), package_version
+                package.get("identifier", ""), server_version
             )
             package.pop("registryBaseUrl", None)
             package.pop("version", None)

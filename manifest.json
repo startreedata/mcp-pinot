@@ -3,7 +3,7 @@
   "manifest_version": "0.4",
   "name": "mcp-pinot",
   "display_name": "Apache Pinot MCP Server",
-  "version": "4.1.0",
+  "version": "5.0.0-beta.1",
   "description": "Explore Apache Pinot with read-only SQL, typed metadata tools, and preview-first configuration changes.",
   "long_description": "This Python MCP server exposes agent-oriented tools for Apache Pinot analytics: discover tables, inspect schemas and segments, run read-only SQL, and preview schema or table-config changes before applying them. It runs over STDIO for desktop MCP hosts and supports Streamable HTTP for authenticated remote deployments.",
   "author": {

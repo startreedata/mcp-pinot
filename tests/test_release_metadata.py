@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 import tomllib
 
+from packaging.requirements import Requirement
+from packaging.version import Version
 from scripts.prepare_registry_metadata import prepare_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -149,7 +151,9 @@ def test_release_versions_are_aligned() -> None:
     versioned_packages = [
         package for package in registry["packages"] if package["registryType"] != "oci"
     ]
-    assert {package["version"] for package in versioned_packages} == {version}
+    assert {package["version"] for package in versioned_packages} == {
+        str(Version(version))
+    }
     oci_packages = [
         package for package in registry["packages"] if package["registryType"] == "oci"
     ]
@@ -159,7 +163,30 @@ def test_release_versions_are_aligned() -> None:
     )
     assert chart_version == version
     assert chart_app_version == version
-    assert locked_project["version"] == version
+    assert Version(locked_project["version"]) == Version(version)
+
+
+def test_mcp_2_dependency_contract_is_declared_and_locked() -> None:
+    """Prevent a permissive range from leaving release artifacts on MCP 1.x."""
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    requirements = {
+        requirement.name: requirement
+        for dependency in project["project"]["dependencies"]
+        if (requirement := Requirement(dependency)).name in {"mcp", "fastmcp"}
+    }
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    locked_versions = {
+        package["name"]: Version(package["version"])
+        for package in lock["package"]
+        if package["name"] in {"mcp", "fastmcp"}
+    }
+
+    assert requirements.keys() == {"mcp", "fastmcp"}
+    assert locked_versions.keys() == {"mcp", "fastmcp"}
+    assert locked_versions["mcp"].major == 2
+    assert locked_versions["fastmcp"].major == 4
+    for name in requirements:
+        assert locked_versions[name] in requirements[name].specifier
 
 
 def test_manifest_tools_match_static_server_contract() -> None:
@@ -255,12 +282,12 @@ def test_registry_metadata_preparation_uses_canonical_oci_references(tmp_path) -
         encoding="utf-8",
     )
 
-    prepare_metadata(metadata_path, "v4.0.1")
+    prepare_metadata(metadata_path, "v5.0.0-beta.1")
 
     prepared = json.loads(metadata_path.read_text(encoding="utf-8"))
-    assert prepared["version"] == "4.0.1"
-    assert prepared["packages"][0]["version"] == "4.0.1"
+    assert prepared["version"] == "5.0.0-beta.1"
+    assert prepared["packages"][0]["version"] == "5.0.0b1"
     assert prepared["packages"][1] == {
         "registryType": "oci",
-        "identifier": "ghcr.io/startreedata/mcp-pinot:4.0.1",
+        "identifier": "ghcr.io/startreedata/mcp-pinot:5.0.0-beta.1",
     }

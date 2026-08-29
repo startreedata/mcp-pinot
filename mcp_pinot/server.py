@@ -30,7 +30,6 @@ from fastmcp.server.middleware.rate_limiting import (
     RateLimitError,
     TokenBucketRateLimiter,
 )
-from fastmcp.server.middleware.response_limiting import ResponseLimitingMiddleware
 from mcp.types import ToolAnnotations
 from pydantic import Field
 import requests
@@ -171,6 +170,35 @@ class _ConcurrencyMiddleware(Middleware):
             return await call_next(context)
 
 
+class _SchemaPreservingResponseLimitMiddleware(Middleware):
+    """Reject oversized tool results without invalidating output schemas.
+
+    FastMCP 4 correctly hides a tool's output schema when its built-in response
+    limiter may replace structured output with truncated text. Pinot tools rely on
+    those schemas for safe agent planning, so preserve the advertised contract and
+    return an actionable error when a caller requests more data than the configured
+    response budget can carry.
+    """
+
+    def __init__(self, max_size: int) -> None:
+        self._max_size = max_size
+
+    async def on_call_tool(
+        self, context: MiddlewareContext[Any], call_next: CallNext[Any, Any]
+    ) -> Any:
+        result = await call_next(context)
+        if hasattr(result, "model_dump_json"):
+            serialized = result.model_dump_json(by_alias=True).encode("utf-8")
+        else:  # pragma: no cover - defensive for third-party middleware results
+            serialized = json.dumps(result, default=str).encode("utf-8")
+        if len(serialized) > self._max_size:
+            raise ToolError(
+                f"Tool response exceeds the configured {self._max_size}-byte limit. "
+                "Request a smaller page or narrower result."
+            )
+        return result
+
+
 class _AuditMiddleware(Middleware):
     """Emit payload-free structured audit events for every tool invocation."""
 
@@ -239,7 +267,7 @@ mcp = FastMCP(
             idle_ttl_seconds=_RATE_LIMIT_IDLE_TTL_SECONDS,
         ),
         _ConcurrencyMiddleware(_MAX_CONCURRENCY),
-        ResponseLimitingMiddleware(max_size=_MAX_RESPONSE_BYTES),
+        _SchemaPreservingResponseLimitMiddleware(_MAX_RESPONSE_BYTES),
         _AuditMiddleware(),
     ],
     # Internal exceptions are replaced with a generic message; only ToolError
@@ -757,9 +785,9 @@ def _redact_sensitive(value: Any) -> Any:
     auth=_READ_AUTH,
     annotations=ToolAnnotations(
         title="Test connection",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 def test_connection() -> ConnectionDiagnostics:
@@ -781,10 +809,10 @@ def test_connection() -> ConnectionDiagnostics:
     auth=_ADMIN_AUTH,
     annotations=ToolAnnotations(
         title="Reload table filters",
-        readOnlyHint=False,
-        destructiveHint=True,
-        idempotentHint=True,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=False,
     ),
 )
 def reload_table_filters(
@@ -864,9 +892,9 @@ def reload_table_filters(
     auth=_READ_AUTH,
     annotations=ToolAnnotations(
         title="Read query",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 def read_query(
@@ -940,9 +968,9 @@ def read_query(
     auth=_READ_AUTH,
     annotations=ToolAnnotations(
         title="List tables",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 def list_tables(
@@ -980,9 +1008,9 @@ def list_tables(
     auth=_READ_AUTH,
     annotations=ToolAnnotations(
         title="Table size details",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 def get_table_size(
@@ -1023,9 +1051,9 @@ def get_table_size(
     auth=_READ_AUTH,
     annotations=ToolAnnotations(
         title="List segments",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 def list_segments(
@@ -1090,9 +1118,9 @@ def list_segments(
     auth=_READ_AUTH,
     annotations=ToolAnnotations(
         title="Index/column details",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 def get_segment_index_metadata(
@@ -1145,9 +1173,9 @@ def get_segment_index_metadata(
     auth=_READ_AUTH,
     annotations=ToolAnnotations(
         title="Segment metadata",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 def list_segment_metadata(
@@ -1207,10 +1235,10 @@ def list_segment_metadata(
     auth=_WRITE_AUTH,
     annotations=ToolAnnotations(
         title="Create schema",
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 def create_schema(
@@ -1288,10 +1316,10 @@ def create_schema(
     auth=_WRITE_AUTH,
     annotations=ToolAnnotations(
         title="Update schema",
-        readOnlyHint=False,
-        destructiveHint=True,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 def update_schema(
@@ -1397,9 +1425,9 @@ def update_schema(
     auth=_READ_AUTH,
     annotations=ToolAnnotations(
         title="Get schema",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 def get_schema(
@@ -1434,10 +1462,10 @@ def get_schema(
     auth=_WRITE_AUTH,
     annotations=ToolAnnotations(
         title="Create table config",
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 def create_table_config(
@@ -1522,10 +1550,10 @@ def create_table_config(
     auth=_WRITE_AUTH,
     annotations=ToolAnnotations(
         title="Update table config",
-        readOnlyHint=False,
-        destructiveHint=True,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=True,
     ),
 )
 def update_table_config(
@@ -1640,9 +1668,9 @@ def update_table_config(
     auth=_READ_AUTH,
     annotations=ToolAnnotations(
         title="Get table config",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     ),
 )
 def get_table_config(

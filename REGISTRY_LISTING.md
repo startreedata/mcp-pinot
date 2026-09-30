@@ -27,6 +27,13 @@ marker in [README](README.md) ships in the PyPI long-description.
 curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.startreedata/mcp-pinot"
 ```
 
+**Pulling a version:** run the **Set MCP Registry status** workflow
+([`.github/workflows/mcp-registry-status.yml`](.github/workflows/mcp-registry-status.yml))
+with the version and `deleted` (or `deprecated`, or `active` to restore). Only
+`deleted` changes which version is latest. It runs as this repository through
+GitHub OIDC; a personal `mcp-publisher login github` gets the
+`io.github.startreedata/*` namespace only for org owners, so members get a 403.
+
 > `server.json` now also declares the OCI (Docker) package `ghcr.io/startreedata/mcp-pinot`.
 
 ## 2. Glama — ✅ auto-indexed

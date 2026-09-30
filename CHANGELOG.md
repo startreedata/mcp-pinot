@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- A manual **Set MCP Registry status** workflow that marks one published version
+  `deleted`, `deprecated` or `active` through the repository's GitHub OIDC identity.
+  The registry grants the `io.github.startreedata/*` namespace to a personal login
+  only for org owners, so members could not pull a version from a laptop.
+
 ### Changed
 - Upgraded FastMCP from 4.0.0b5 to stable 4.0.2, including the locked
   `fastmcp-slim` runtime dependency.

@@ -283,6 +283,31 @@ def test_pre_releases_are_never_published_to_the_mcp_registry() -> None:
     assert re.search(r"v\*-\*\)[^\n]*exit 1", manual)
 
 
+def _publisher_pin(workflow_text: str) -> tuple[str, str]:
+    version = re.search(
+        r"releases/download/(v[0-9.]+)/mcp-publisher_linux_amd64", workflow_text
+    )
+    digest = re.search(r"([0-9a-f]{64})  mcp-publisher\.tar\.gz", workflow_text)
+    assert version and digest
+    return version.group(1), digest.group(1)
+
+
+def test_registry_status_workflow_runs_as_the_repository() -> None:
+    # The registry grants io.github.startreedata/* to this repository's OIDC
+    # identity; a personal login gets the org namespace only for org owners.
+    text = (ROOT / ".github/workflows/mcp-registry-status.yml").read_text(
+        encoding="utf-8"
+    )
+    workflow = yaml.safe_load(text)
+    # PyYAML reads the bare `on` key as True.
+    assert set(workflow.get("on", workflow.get(True))) == {"workflow_dispatch"}
+    assert workflow["jobs"]["set-status"]["permissions"]["id-token"] == "write"
+    assert "mcp-publisher login github-oidc" in text
+
+    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert _publisher_pin(text) == _publisher_pin(release)
+
+
 def test_registry_metadata_preparation_uses_canonical_oci_references(tmp_path) -> None:
     metadata_path = tmp_path / "server.json"
     metadata_path.write_text(

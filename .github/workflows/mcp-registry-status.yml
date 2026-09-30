@@ -1,0 +1,75 @@
+name: Set MCP Registry status
+
+# Changes the lifecycle status of one published version, for example to take a
+# pre-release off "latest". The registry picks the highest version that isn't
+# deleted as latest, so only `deleted` moves latest; `deprecated` keeps the
+# version listed with a warning. `active` restores either.
+#
+# Runs as this repository through GitHub OIDC, which the registry grants
+# io.github.startreedata/*. A personal `mcp-publisher login github` only gets the
+# org namespace for org owners, so members can't do this from a laptop.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published version to change, for example 5.0.0-beta.1"
+        required: true
+        type: string
+      status:
+        description: "New status"
+        required: true
+        type: choice
+        options:
+          - deleted
+          - deprecated
+          - active
+      message:
+        description: "Why, shown with a deprecated or deleted version (ignored for active)"
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  set-status:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SERVER_NAME: io.github.startreedata/mcp-pinot
+      VERSION: ${{ inputs.version }}
+      STATUS: ${{ inputs.status }}
+      MESSAGE: ${{ inputs.message }}
+
+    steps:
+    - name: Check the version
+      run: |
+        case "$VERSION" in
+          ""|*[!0-9A-Za-z.+-]*) echo "Version must look like 4.1.0 or 5.0.0-beta.1." >&2; exit 1 ;;
+        esac
+
+    - name: Install pinned MCP publisher
+      run: |
+        curl --fail --location --silent --show-error --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 \
+          --output mcp-publisher.tar.gz \
+          "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.0/mcp-publisher_linux_amd64.tar.gz"
+        echo "1370446bbe74d562608e8005a6ccce02d146a661fbd78674e11cc70b9618d6cf  mcp-publisher.tar.gz" \
+          | sha256sum --check --strict
+        tar xzf mcp-publisher.tar.gz mcp-publisher
+
+    - name: Set status
+      run: |
+        ./mcp-publisher login github-oidc
+        if [ "$STATUS" = "active" ] || [ -z "$MESSAGE" ]; then
+          ./mcp-publisher status --status "$STATUS" "$SERVER_NAME" "$VERSION"
+        else
+          ./mcp-publisher status --status "$STATUS" --message "$MESSAGE" "$SERVER_NAME" "$VERSION"
+        fi
+
+    - name: Show the registry's latest version
+      run: |
+        curl --fail --silent --show-error \
+          "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.startreedata%2Fmcp-pinot/versions/latest" \
+          | python3 -c 'import json, sys; print("latest:", json.load(sys.stdin)["server"]["version"])'

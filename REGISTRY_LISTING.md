@@ -7,8 +7,11 @@ to PyPI.
 ## 1. Official MCP Registry — ✅ automated on release
 
 The `publish-mcp-registry` job in [`.github/workflows/release.yml`](.github/workflows/release.yml)
-already publishes [`server.json`](server.json) on every `v*` tag:
+already publishes [`server.json`](server.json) on every stable `v*` tag:
 
+- skips pre-release tags (anything with a `-` suffix, e.g. `v5.0.0-beta.1`): the
+  registry marks the highest semver as latest, so a beta would become the default
+  version for everyone installing by name,
 - sets the version on all packages from the tag,
 - waits for the PyPI package to be visible,
 - authenticates with `mcp-publisher login github-oidc` (GitHub OIDC — the

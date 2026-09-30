@@ -232,6 +232,12 @@ jobs:
 
   publish-mcp-registry:
     needs: [publish-pypi, create-release]
+    # Pre-releases (any tag with a semver suffix, e.g. v5.0.0-beta.1) stay off the
+    # MCP Registry. It has no pre-release channel: it marks the highest semver as
+    # latest, and 5.0.0-beta.1 sorts above 4.1.0, so a beta would become the default
+    # version for everyone installing by name. PyPI and the GitHub release still
+    # flag the version as a pre-release.
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -310,18 +316,25 @@ jobs:
     permissions: {}
     if: always()
     steps:
+    # A skipped registry job is expected, not a failure, for a pre-release tag.
     - name: Notify on success
-      if: needs.publish-pypi.result == 'success' && needs.build-and-push.result == 'success' && needs.create-release.result == 'success' && needs.publish-mcp-registry.result == 'success'
+      if: needs.publish-pypi.result == 'success' && needs.build-and-push.result == 'success' && needs.create-release.result == 'success' && (needs.publish-mcp-registry.result == 'success' || (needs.publish-mcp-registry.result == 'skipped' && contains(github.ref_name, '-')))
+      env:
+        REGISTRY_RESULT: ${{ needs.publish-mcp-registry.result }}
       run: |
         VERSION="${GITHUB_REF_NAME#v}"
         echo "✅ Release ${{ github.ref_name }} created successfully!"
         echo "🐳 Docker image published to ghcr.io/${{ github.repository }}:$VERSION"
         echo "🐍 PyPI package published to https://pypi.org/project/${{ env.PYTHON_PACKAGE_NAME }}/"
-        echo "🧩 MCP Registry entry published as ${{ env.MCP_REGISTRY_NAME }}"
+        if [ "$REGISTRY_RESULT" = "success" ]; then
+          echo "🧩 MCP Registry entry published as ${{ env.MCP_REGISTRY_NAME }}"
+        else
+          echo "🧩 MCP Registry left unchanged: pre-release versions are not published there"
+        fi
         echo "📦 Release available at https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
 
     - name: Notify on failure
-      if: needs.publish-pypi.result != 'success' || needs.build-and-push.result != 'success' || needs.create-release.result != 'success' || needs.publish-mcp-registry.result != 'success'
+      if: needs.publish-pypi.result != 'success' || needs.build-and-push.result != 'success' || needs.create-release.result != 'success' || !(needs.publish-mcp-registry.result == 'success' || (needs.publish-mcp-registry.result == 'skipped' && contains(github.ref_name, '-')))
       run: |
         echo "❌ Release creation failed!"
         echo "publish-pypi: ${{ needs.publish-pypi.result }}"

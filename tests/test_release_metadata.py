@@ -16,6 +16,7 @@ import tomllib
 from packaging.requirements import Requirement
 from packaging.version import Version
 from scripts.prepare_registry_metadata import prepare_metadata
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -256,6 +257,30 @@ def test_registry_and_release_metadata_are_publishable_and_pinned() -> None:
     )
     assert ">=9.1.2" in pinotdb and "<10" in pinotdb
     assert '"4.0.0"' not in (ROOT / "mcp_pinot/__init__.py").read_text(encoding="utf-8")
+
+
+def test_pre_releases_are_never_published_to_the_mcp_registry() -> None:
+    # The registry marks the highest semver as latest, so publishing 5.0.0-beta.1
+    # made the beta the default version over 4.1.0.
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    )
+    jobs = workflow["jobs"]
+    assert "!contains(github.ref_name, '-')" in jobs["publish-mcp-registry"]["if"]
+
+    # The skip is expected for a pre-release, so the summary must not fail on it.
+    skipped_ok = (
+        "needs.publish-mcp-registry.result == 'skipped' "
+        "&& contains(github.ref_name, '-')"
+    )
+    notify = {step["name"]: step["if"] for step in jobs["notify"]["steps"]}
+    assert skipped_ok in notify["Notify on success"]
+    assert skipped_ok in notify["Notify on failure"]
+
+    manual = (ROOT / ".github/workflows/publish-mcp-registry.yml").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"v\*-\*\)[^\n]*exit 1", manual)
 
 
 def test_registry_metadata_preparation_uses_canonical_oci_references(tmp_path) -> None:

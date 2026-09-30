@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded FastMCP from 4.0.0b5 to stable 4.0.2, including the locked
   `fastmcp-slim` runtime dependency.
 
+### Fixed
+- Pre-release tags are no longer published to the official MCP Registry, from the
+  release workflow or the manual publish workflow. The registry marks the highest
+  semver as latest, so `5.0.0-beta.1` had become the default version over `4.1.0`
+  for every client installing `io.github.startreedata/mcp-pinot` by name.
+
 ## [5.0.0-beta.1] - 2026-08-29
 
 ### Breaking Changes

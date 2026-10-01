@@ -28,8 +28,8 @@
     },
     "token": {
       "type": "string",
-      "title": "Pinot or StarTree API token",
-      "description": "Sent to your cluster as the Authorization header. Leave empty for a cluster without auth or when you use a username and password",
+      "title": "Authorization header value",
+      "description": "Sent verbatim as the Authorization header. For StarTree Cloud, enter Bearer followed by your API token. Leave empty for a cluster without auth or when you use a username and password",
       "sensitive": true,
       "default": ""
     },

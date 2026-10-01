@@ -6,7 +6,7 @@ Ask Claude about the data in your Apache Pinot cluster or StarTree Cloud environ
 
 - A Pinot cluster or StarTree Cloud environment, and its controller and broker URLs. A local [Pinot quickstart](https://docs.pinot.apache.org/basics/getting-started/running-pinot-locally) works for trying it out.
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) installed, because the plugin starts the server with `uvx`.
-- A token, or a username and password, if your cluster requires authentication. On StarTree Cloud you can create an API token in the Data Portal.
+- A token, or a username and password, if your cluster requires authentication. The token is sent exactly as entered in the `Authorization` header, so include its scheme. For a StarTree Cloud API token, created in the Data Portal and shaped like `st-<accessKey>-<secretKey>`, enter `Bearer st-<accessKey>-<secretKey>`.
 
 When you enable the plugin, Claude asks for the controller URL, broker URL and any credentials. Tokens and passwords are stored in your system's secure credential store, not in a settings file.
 
@@ -14,7 +14,7 @@ When you enable the plugin, Claude asks for the controller URL, broker URL and a
 
 - On first use, `uvx` downloads the `mcp-pinot-server` package, pinned to version 4.1.0, from PyPI and runs it on your machine over stdio.
 - The server talks only to the controller and broker URLs you configure, and sends your token or password only to them.
-- Query results come back into your Claude conversation. The plugin stores nothing and sends nothing anywhere else. See [PRIVACY.md](https://github.com/startreedata/mcp-pinot/blob/main/PRIVACY.md).
+- Query results come back into your Claude conversation. The plugin doesn't store your query results or cluster data and sends nothing anywhere else. Your credentials are kept in the system credential store, and uv keeps the downloaded package in its local cache. See [PRIVACY.md](https://github.com/startreedata/mcp-pinot/blob/main/PRIVACY.md).
 
 ## Tools
 
@@ -22,7 +22,7 @@ When you enable the plugin, Claude asks for the controller URL, broker URL and a
 - **Query:** `read_query` runs one read-only `SELECT` (or `WITH ... SELECT`) and returns results a page at a time
 - **Storage:** `get_table_size`, `list_segments`, `list_segment_metadata`, `get_segment_index_metadata`
 - **Diagnose:** `test_connection` checks that the broker and controller are reachable
-- **Change:** `create_schema`, `update_schema`, `create_table_config`, `update_table_config`, `reload_table_filters`
+- **Change:** `create_schema`, `update_schema`, `create_table_config` and `update_table_config` change the cluster. `reload_table_filters` reloads which tables the server exposes from its filter file and doesn't touch the cluster
 
 ## Safety
 

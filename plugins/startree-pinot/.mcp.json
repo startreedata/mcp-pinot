@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "pinot": {
+      "command": "uvx",
+      "args": ["--from", "mcp-pinot-server==4.1.0", "mcp-pinot"],
+      "env": {
+        "MCP_TRANSPORT": "stdio",
+        "PINOT_CONTROLLER_URL": "${user_config.controller_url}",
+        "PINOT_BROKER_URL": "${user_config.broker_url}",
+        "PINOT_TOKEN": "${user_config.token}",
+        "PINOT_USERNAME": "${user_config.username}",
+        "PINOT_PASSWORD": "${user_config.password}",
+        "PINOT_DATABASE": "${user_config.database}"
+      }
+    }
+  }
+}

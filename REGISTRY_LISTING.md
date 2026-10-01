@@ -7,8 +7,11 @@ to PyPI.
 ## 1. Official MCP Registry — ✅ automated on release
 
 The `publish-mcp-registry` job in [`.github/workflows/release.yml`](.github/workflows/release.yml)
-already publishes [`server.json`](server.json) on every `v*` tag:
+already publishes [`server.json`](server.json) on every stable `v*` tag:
 
+- skips pre-release tags (anything with a `-` suffix, e.g. `v5.0.0-beta.1`): the
+  registry marks the highest semver as latest, so a beta would become the default
+  version for everyone installing by name,
 - sets the version on all packages from the tag,
 - waits for the PyPI package to be visible,
 - authenticates with `mcp-publisher login github-oidc` (GitHub OIDC — the
@@ -23,6 +26,13 @@ marker in [README](README.md) ships in the PyPI long-description.
 ```bash
 curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.startreedata/mcp-pinot"
 ```
+
+**Pulling a version:** run the **Set MCP Registry status** workflow
+([`.github/workflows/mcp-registry-status.yml`](.github/workflows/mcp-registry-status.yml))
+with the version and `deleted` (or `deprecated`, or `active` to restore). Only
+`deleted` changes which version is latest. It runs as this repository through
+GitHub OIDC; a personal `mcp-publisher login github` gets the
+`io.github.startreedata/*` namespace only for org owners, so members get a 403.
 
 > `server.json` now also declares the OCI (Docker) package `ghcr.io/startreedata/mcp-pinot`.
 

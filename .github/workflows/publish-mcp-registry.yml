@@ -33,7 +33,10 @@ jobs:
       env:
         PYPI_PACKAGE: mcp-pinot-server
       run: |
+        # Same rule as release.yml: the registry marks the highest semver as latest,
+        # so a pre-release would become the default version for everyone.
         case "$RELEASE_TAG" in
+          v*-*) echo "Pre-release tags are not published to the MCP Registry." >&2; exit 1 ;;
           v*) ;;
           *) echo "Release tag must start with v." >&2; exit 1 ;;
         esac

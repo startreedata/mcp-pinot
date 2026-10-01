@@ -16,6 +16,7 @@ import tomllib
 from packaging.requirements import Requirement
 from packaging.version import Version
 from scripts.prepare_registry_metadata import prepare_metadata
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -256,6 +257,55 @@ def test_registry_and_release_metadata_are_publishable_and_pinned() -> None:
     )
     assert ">=9.1.2" in pinotdb and "<10" in pinotdb
     assert '"4.0.0"' not in (ROOT / "mcp_pinot/__init__.py").read_text(encoding="utf-8")
+
+
+def test_pre_releases_are_never_published_to_the_mcp_registry() -> None:
+    # The registry marks the highest semver as latest, so publishing 5.0.0-beta.1
+    # made the beta the default version over 4.1.0.
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    )
+    jobs = workflow["jobs"]
+    assert "!contains(github.ref_name, '-')" in jobs["publish-mcp-registry"]["if"]
+
+    # The skip is expected for a pre-release, so the summary must not fail on it.
+    skipped_ok = (
+        "needs.publish-mcp-registry.result == 'skipped' "
+        "&& contains(github.ref_name, '-')"
+    )
+    notify = {step["name"]: step["if"] for step in jobs["notify"]["steps"]}
+    assert skipped_ok in notify["Notify on success"]
+    assert skipped_ok in notify["Notify on failure"]
+
+    manual = (ROOT / ".github/workflows/publish-mcp-registry.yml").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"v\*-\*\)[^\n]*exit 1", manual)
+
+
+def _publisher_pin(workflow_text: str) -> tuple[str, str]:
+    version = re.search(
+        r"releases/download/(v[0-9.]+)/mcp-publisher_linux_amd64", workflow_text
+    )
+    digest = re.search(r"([0-9a-f]{64})  mcp-publisher\.tar\.gz", workflow_text)
+    assert version and digest
+    return version.group(1), digest.group(1)
+
+
+def test_registry_status_workflow_runs_as_the_repository() -> None:
+    # The registry grants io.github.startreedata/* to this repository's OIDC
+    # identity; a personal login gets the org namespace only for org owners.
+    text = (ROOT / ".github/workflows/mcp-registry-status.yml").read_text(
+        encoding="utf-8"
+    )
+    workflow = yaml.safe_load(text)
+    # PyYAML reads the bare `on` key as True.
+    assert set(workflow.get("on", workflow.get(True))) == {"workflow_dispatch"}
+    assert workflow["jobs"]["set-status"]["permissions"]["id-token"] == "write"
+    assert "mcp-publisher login github-oidc" in text
+
+    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert _publisher_pin(text) == _publisher_pin(release)
 
 
 def test_registry_metadata_preparation_uses_canonical_oci_references(tmp_path) -> None:

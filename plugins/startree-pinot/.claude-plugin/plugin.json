@@ -1,0 +1,56 @@
+{
+  "name": "startree-pinot",
+  "displayName": "StarTree Pinot",
+  "version": "4.1.0",
+  "description": "Query and inspect Apache Pinot and StarTree Cloud: explore tables, schemas and segments, run validated read-only SQL, and preview schema and table-config changes before applying them.",
+  "author": {
+    "name": "StarTree",
+    "url": "https://startree.ai"
+  },
+  "homepage": "https://github.com/startreedata/mcp-pinot/tree/main/plugins/startree-pinot",
+  "repository": "https://github.com/startreedata/mcp-pinot",
+  "license": "Apache-2.0",
+  "keywords": ["pinot", "apache-pinot", "startree", "analytics", "olap", "sql"],
+  "userConfig": {
+    "controller_url": {
+      "type": "string",
+      "title": "Pinot controller URL",
+      "description": "Used for table, schema and segment metadata, for example http://localhost:9000 or your StarTree Cloud controller URL",
+      "required": true,
+      "default": "http://localhost:9000"
+    },
+    "broker_url": {
+      "type": "string",
+      "title": "Pinot broker URL",
+      "description": "Used for SQL queries, for example http://localhost:8000 or your StarTree Cloud broker URL",
+      "required": true,
+      "default": "http://localhost:8000"
+    },
+    "token": {
+      "type": "string",
+      "title": "Authorization header value",
+      "description": "Sent verbatim as the Authorization header. For StarTree Cloud, enter Bearer followed by your API token. Leave empty for a cluster without auth or when you use a username and password",
+      "sensitive": true,
+      "default": ""
+    },
+    "username": {
+      "type": "string",
+      "title": "Username",
+      "description": "Basic auth username. Leave empty when you use a token or the cluster has no auth",
+      "default": ""
+    },
+    "password": {
+      "type": "string",
+      "title": "Password",
+      "description": "Basic auth password. Leave empty when you use a token or the cluster has no auth",
+      "sensitive": true,
+      "default": ""
+    },
+    "database": {
+      "type": "string",
+      "title": "Database",
+      "description": "For clusters with several databases. Leave empty for the default database",
+      "default": ""
+    }
+  }
+}

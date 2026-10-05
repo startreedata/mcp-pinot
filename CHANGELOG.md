@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   user confirms.
 - `read_query` retains native execution completeness, server counts, IDs,
   query hashes, and bounded statistics; missing metadata stays unknown.
+- Optional Helm `mcp.oauth.persistence.existingClaim` retains OAuth registrations
+  and token state across pod replacements using FastMCP's encrypted disk store.
 - A manual **Set MCP Registry status** workflow that marks one published version
   `deleted`, `deprecated` or `active` through the repository's GitHub OIDC identity.
   The registry grants the `io.github.startreedata/*` namespace to a personal login

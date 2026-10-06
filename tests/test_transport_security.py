@@ -180,7 +180,7 @@ def test_main_rejects_partial_tls_configuration(keyfile, certfile):
             patch("mcp_pinot.server.uvicorn.run") as uvicorn_run,
             pytest.raises(SystemExit, match="partial TLS configuration"),
         ):
-            main()
+            main([])
 
     run.assert_not_called()
     uvicorn_run.assert_not_called()

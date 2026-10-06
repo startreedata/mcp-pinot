@@ -113,7 +113,7 @@ class TestFastMCPServer:
         # Exact names are maintained once in test_release_metadata, which also
         # checks the manifest and static decorators. This runtime test only needs
         # to prove that registration produced the expected count without duplicates.
-        assert len(tool_names) == 14
+        assert len(tool_names) == 18
         assert len(set(tool_names)) == len(tool_names)
 
     @pytest.mark.asyncio
@@ -1031,7 +1031,7 @@ class TestMainFunction:
                 patch("mcp_pinot.server._create_http_app", return_value=guarded_app),
                 patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run,
             ):
-                main()
+                main([])
 
                 mock_uvicorn_run.assert_called_once()
                 args, kwargs = mock_uvicorn_run.call_args
@@ -1059,7 +1059,7 @@ class TestMainFunction:
                 patch("mcp_pinot.server._create_http_app", return_value=guarded_app),
                 patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run,
             ):
-                main()
+                main([])
 
                 mock_uvicorn_run.assert_called_once()
                 call_args = mock_uvicorn_run.call_args
@@ -1086,7 +1086,7 @@ class TestMainFunction:
                 patch("mcp_pinot.server._create_http_app", return_value=guarded_app),
                 patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run,
             ):
-                main()
+                main([])
 
                 mock_uvicorn_run.assert_called_once()
                 assert mock_uvicorn_run.call_args.args[0] is guarded_app
@@ -1103,7 +1103,7 @@ class TestMainFunction:
             mock_server_config.oauth_enabled = False
 
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
-                main()
+                main([])
 
                 mock_mcp_run.assert_called_once()
                 call_args = mock_mcp_run.call_args
@@ -1122,7 +1122,7 @@ class TestMainFunction:
 
             with patch("mcp_pinot.server.mcp.run") as mock_mcp_run:
                 with pytest.raises(SystemExit, match="Refusing to start"):
-                    main()
+                    main([])
 
                 mock_mcp_run.assert_not_called()
 
@@ -1139,7 +1139,7 @@ class TestMainFunction:
 
             with patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run:
                 with pytest.raises(SystemExit, match="without authentication"):
-                    main()
+                    main([])
 
                 mock_uvicorn_run.assert_not_called()
 
@@ -1159,7 +1159,7 @@ class TestMainFunction:
                 patch("mcp_pinot.server.uvicorn.run") as mock_uvicorn_run,
             ):
                 with pytest.raises(SystemExit, match="only valid with an HTTP"):
-                    main()
+                    main([])
 
                 mock_mcp_run.assert_not_called()
                 mock_uvicorn_run.assert_not_called()

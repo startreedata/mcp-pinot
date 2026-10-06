@@ -61,7 +61,11 @@
     { "name": "get_schema",                   "description": "Get one Pinot schema and its column definitions." },
     { "name": "create_table_config",          "description": "Preview or create a Pinot table configuration." },
     { "name": "update_table_config",          "description": "Preview or update an existing Pinot table configuration." },
-    { "name": "get_table_config",             "description": "Get indexing, retention, tenant, and ingestion configuration for one table." }
+    { "name": "get_table_config",             "description": "Get indexing, retention, tenant, and ingestion configuration for one table." },
+    {"name": "begin_investigation", "description": "Open an owner-bound budgeted run using a server-owned incident profile."},
+    {"name": "query_incident", "description": "Collect scoped baseline, incident, watermark, change or onset evidence."},
+    {"name": "get_trace", "description": "Fetch scoped trace rows with actual span and parent-span identifiers."},
+    {"name": "finish_investigation", "description": "Close a run once with immutable evidence citations and an unvalidated outcome."}
   ],
   "keywords": ["pinot", "database", "analytics", "mcp", "python"],
   "license": "Apache-2.0",

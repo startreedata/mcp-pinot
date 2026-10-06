@@ -5,6 +5,7 @@
 FastMCP-based implementation for the Apache Pinot MCP Server.
 """
 
+import argparse
 import base64
 import binascii
 from collections import Counter, OrderedDict
@@ -14,6 +15,7 @@ import hmac
 from ipaddress import ip_address
 import json
 import os
+from pathlib import Path
 import secrets
 from threading import Lock
 import time
@@ -46,11 +48,20 @@ from mcp_pinot.config import (
     load_server_config,
     setup_logging,
 )
+from mcp_pinot.incidents import (
+    IncidentEvidence,
+    IncidentFinish,
+    IncidentHypothesis,
+    IncidentProfile,
+    IncidentRun,
+    IncidentService,
+)
 from mcp_pinot.models import (
     ConnectionDiagnostics,
     FilterReloadResult,
     OperationResult,
     PinotSchema,
+    QueryExecutionResult,
     QueryResult,
     SchemaInput,
     SegmentIndexDetails,
@@ -860,6 +871,201 @@ def reload_table_filters(
         require_expected=True,
     )
     return FilterReloadResult.model_validate(results)
+
+
+_incident_service: IncidentService | None = None
+
+
+def _incident_principal() -> str:
+    """Derive run ownership from verified auth, never from a tool argument."""
+    token = get_access_token()
+    if token is not None:
+        subject = (getattr(token, "claims", {}) or {}).get("sub")
+        if isinstance(subject, str) and subject:
+            return "subject:" + subject
+        if token.client_id:
+            return "client:" + token.client_id
+        raise ToolError("Incident tools require an authenticated principal.")
+    if _auth is not None:
+        raise ToolError("Incident tools require an authenticated principal.")
+    return "local"
+
+
+def _incidents() -> IncidentService:
+    if _incident_service is None:
+        raise ToolError(
+            "Incident tools are disabled. Configure server-owned profiles with "
+            "--incident-profiles before starting the server."
+        )
+    return _incident_service
+
+
+def _execute_incident_query(
+    sql: str, *, max_rows: int, timeout_seconds: float
+) -> QueryExecutionResult:
+    return pinot_client.execute_query_with_metadata(
+        sql,
+        max_rows=max_rows,
+        timeout_seconds=timeout_seconds,
+        request_id=query_request_id(),
+        application_name="mcp-pinot-incident",
+    )
+
+
+def _load_incident_profiles(path: str) -> IncidentService:
+    """Load one immutable startup policy; report no private file contents."""
+    try:
+        profile_file = Path(path)
+        if profile_file.stat().st_size > 1048576:
+            raise ValueError("Profile file too large.")
+        raw = json.loads(profile_file.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("Profiles must be an object.")
+        profiles = {
+            name: IncidentProfile.model_validate(policy) for name, policy in raw.items()
+        }
+        return IncidentService(profiles, _execute_incident_query)
+    except (OSError, ValueError, TypeError) as exc:
+        raise SystemExit(
+            "Invalid incident profile file; configure a bounded JSON object of "
+            "strict profiles with explicit authorized_principals."
+        ) from exc
+
+
+@mcp.tool(
+    auth=_READ_AUTH,
+    annotations=ToolAnnotations(
+        title="Begin investigation",
+        read_only_hint=True,
+        idempotent_hint=False,
+        open_world_hint=True,
+    ),
+)
+def begin_investigation(
+    profile_id: Annotated[str, Field(min_length=1, max_length=256)],
+    service: Annotated[str, Field(min_length=1, max_length=256)],
+    baseline_start_ms: Annotated[int, Field(ge=0)],
+    start_ms: Annotated[int, Field(ge=0)],
+    end_ms: Annotated[int, Field(ge=0)],
+) -> IncidentRun:
+    """Open an owner-bound, budgeted evidence run using a server-owned profile.
+
+    Supply closed baseline/incident windows in epoch milliseconds. The server
+    checks scope, windows, and authorization before issuing an opaque run ID.
+    Failure recovery:
+        Correct invalid scope/window inputs; expired runs require a new investigation.
+    """
+    return _call(
+        "begin_investigation",
+        "Use an authorized profile and closed bounded windows.",
+        _incidents().begin,
+        profile_id,
+        service,
+        baseline_start_ms,
+        start_ms,
+        end_ms,
+        principal=_incident_principal(),
+    )
+
+
+@mcp.tool(
+    auth=_READ_AUTH,
+    annotations=ToolAnnotations(
+        title="Query incident",
+        read_only_hint=True,
+        idempotent_hint=False,
+        open_world_hint=True,
+    ),
+)
+def query_incident(
+    run_id: Annotated[str, Field(min_length=1, max_length=128)],
+    kind: Literal["baseline", "incident", "watermark", "changes", "onset"],
+    candidate: IncidentHypothesis | None = None,
+) -> IncidentEvidence:
+    """Collect bounded evidence with fixed tenant/time predicates and citations.
+
+    The server generates SQL for the selected kind. Candidate filters apply only
+    to onset queries. Failed, unknown, partial, truncated, or late execution is
+    retained as incomplete evidence; it cannot support a qualified finish.
+    Failure recovery:
+        Query attempts consume budget even on failure. Inspect evidence before retrying.
+    """
+    return _call(
+        "query_incident",
+        "Inspect evidence status and remaining run scope before retrying.",
+        _incidents().query,
+        run_id,
+        kind,
+        candidate,
+        principal=_incident_principal(),
+    )
+
+
+@mcp.tool(
+    auth=_READ_AUTH,
+    annotations=ToolAnnotations(
+        title="Get trace",
+        read_only_hint=True,
+        idempotent_hint=False,
+        open_world_hint=True,
+    ),
+)
+def get_trace(
+    run_id: Annotated[str, Field(min_length=1, max_length=128)],
+    trace_id: Annotated[str, Field(min_length=1, max_length=256)],
+) -> IncidentEvidence:
+    """Retrieve scoped trace rows with actual span and parent-span identifiers.
+
+    Configure both span columns in the server profile. This fetches recorded
+    relationships and does not infer causality or validate instrumentation coverage.
+    Failure recovery:
+        Use an exact scoped trace ID; inspect completeness before citing.
+    """
+    return _call(
+        "get_trace",
+        "Use a scoped trace ID and configure actual span/parent-span columns.",
+        _incidents().get_trace,
+        run_id,
+        trace_id,
+        principal=_incident_principal(),
+    )
+
+
+@mcp.tool(
+    auth=_READ_AUTH,
+    annotations=ToolAnnotations(
+        title="Finish investigation",
+        read_only_hint=True,
+        idempotent_hint=False,
+        open_world_hint=False,
+    ),
+)
+def finish_investigation(
+    run_id: Annotated[str, Field(min_length=1, max_length=128)],
+    citations: Annotated[list[str], Field(max_length=64)],
+    hypothesis: IncidentHypothesis | None = None,
+    status: Literal["proposed", "abstained", "incomplete"] = "proposed",
+    reason: Annotated[str | None, Field(max_length=4096)] = None,
+) -> IncidentFinish:
+    """Close a run once with authentic citations and an unverified outcome.
+
+    Proposed requires a hypothesis; proposed/abstained require complete citations.
+    Incomplete requires a reason. Pending work blocks finishing. Hypotheses and
+    dataset coverage remain unvalidated even when cited execution is complete.
+    Failure recovery:
+        Correct citation/status errors; a closed run cannot be reused.
+    """
+    return _call(
+        "finish_investigation",
+        "Use same-run evidence IDs and an explicit valid outcome.",
+        _incidents().finish,
+        run_id,
+        citations,
+        hypothesis,
+        status,
+        reason,
+        principal=_incident_principal(),
+    )
 
 
 @mcp.tool(
@@ -1844,8 +2050,19 @@ def _create_http_app() -> ASGIApp:
         raise SystemExit(f"Invalid MCP HTTP allowlist: {exc}") from exc
 
 
-def main():
-    """Main entry point for FastMCP Pinot Server"""
+def main(argv: list[str] | None = None) -> None:
+    """Main entry point for FastMCP Pinot Server."""
+    global _incident_service
+    parser = argparse.ArgumentParser(description="Apache Pinot MCP server")
+    parser.add_argument(
+        "--incident-profiles", help="Server-owned JSON incident profile policy file"
+    )
+    args = parser.parse_args(argv)
+    _incident_service = (
+        _load_incident_profiles(args.incident_profiles)
+        if args.incident_profiles
+        else None
+    )
     setup_logging()
     key_configured = bool(server_config.ssl_keyfile)
     cert_configured = bool(server_config.ssl_certfile)

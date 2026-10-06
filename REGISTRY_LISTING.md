@@ -67,16 +67,23 @@ Prefer the **Docker-built** tier for signed images + SBOM + provenance.
 Add an entry via PR to <https://github.com/punkpeye/awesome-mcp-servers> (and any
 other curated lists) for SEO/discovery.
 
-## 8. Anthropic Claude Connectors Directory — manual, highest reach
+## 8. Anthropic Claude directory — plugin bundle via the developer portal
 
-In-product across Claude. Requirements:
+In-product across Claude (claude.ai, the desktop app, Cowork and Claude Code). The
+directory no longer accepts desktop extensions (`.mcpb`); a local server is listed as
+a **plugin bundle**, which is [`plugins/startree-pinot/`](plugins/startree-pinot/):
+the server pinned to an exact PyPI version through `uvx`, credentials asked for through
+`userConfig`, and a `pinot-analytics` skill. Bump the plugin's `version` and the pinned
+`mcp-pinot-server==` version together on each release.
 
-- **Remote, internet-hosted** server (HTTPS) using **OAuth 2.0** — supported via
-  `AUTH_PROVIDER` + HTTP transport.
-- Every tool annotated with `title` + `readOnlyHint`/`destructiveHint` — ✅ done.
-- A **Privacy Policy** at a stable HTTPS URL — see [PRIVACY.md](PRIVACY.md) (draft;
-  needs legal review + hosting).
-- Submit from **Claude.ai → admin settings** (needs a **Team/Enterprise** org).
+- Check locally with `claude plugin validate ./plugins/startree-pinot`.
+- Submit at [claude.ai/directory/manage](https://claude.ai/directory/manage): **Submit
+  new** → **Plugin bundle**, repository `startreedata/mcp-pinot`, plugin path
+  `plugins/startree-pinot`, then **Validate**. It needs a paid Claude plan, an Owner
+  role on Team/Enterprise, and a GitHub account connected on claude.ai with push
+  access to this repo. The listing belongs to the organization that submits it.
+- The separate **MCP connector** listing needs one public HTTPS endpoint, which we
+  don't have: each StarTree Cloud environment serves its own `mcp.<domain>` URL.
 
 ## Visibility multipliers
 

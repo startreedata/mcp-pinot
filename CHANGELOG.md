@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A Claude plugin, `plugins/startree-pinot`, for the Claude directory, which no
+  longer accepts `.mcpb` desktop extensions. It runs `mcp-pinot-server==4.1.0` through
+  `uvx`, asks for the controller and broker URLs and credentials through `userConfig`
+  (tokens and passwords go to the system credential store), and adds a
+  `pinot-analytics` skill for exploring tables and applying changes only after the
+  user confirms.
 - A manual **Set MCP Registry status** workflow that marks one published version
   `deleted`, `deprecated` or `active` through the repository's GitHub OIDC identity.
   The registry grants the `io.github.startreedata/*` namespace to a personal login

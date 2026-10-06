@@ -935,32 +935,36 @@ def read_query(
     the ``has_more`` flag to page through large result sets.
 
     Returns ``QueryResult`` with the page of rows, the column list, fetched row
-    count, and a ``has_more`` flag.
+    count, a ``has_more`` flag, and native execution metadata. Missing native
+    metadata is unknown; complete execution does not establish dataset coverage.
 
     Failure recovery:
         SQL/allow-list/permission failures require correcting the query or access;
         do not retry unchanged. A timeout or connection failure can be retried after
-        ``test_connection`` succeeds. Zero rows is a successful result.
+        ``test_connection`` succeeds. Check ``metadata.completeness`` even for
+        zero rows; no response is promoted to healthy empty evidence.
     """
     fetch_bound = offset + limit + 1
-    rows = _call(
+    execution = _call(
         "read_query",
         _HINT_READ,
-        pinot_client.execute_query,
+        pinot_client.execute_query_with_metadata,
         query=query,
         max_rows=fetch_bound,
+        application_name="mcp-pinot",
     )
+    rows = execution.rows
     total = len(rows)
     page = rows[offset : offset + limit]
-    columns = list(page[0].keys()) if page else (list(rows[0].keys()) if rows else [])
     return QueryResult(
-        columns=columns,
+        columns=execution.columns,
         rows=page,
         row_count=len(page),
         total_rows=total,
         offset=offset,
         has_more=offset + len(page) < total,
         truncated=total >= fetch_bound,
+        metadata=execution.metadata,
     )
 
 

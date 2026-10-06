@@ -11,6 +11,7 @@ from mcp.types import TextContent
 from mcp.types.version import LATEST_PROTOCOL_VERSION
 import pytest
 
+from mcp_pinot.models import QueryExecutionMetadata, QueryExecutionResult
 from mcp_pinot.server import (
     _CONFIRMATION_TTL_SECONDS,
     _is_loopback_host,
@@ -41,8 +42,9 @@ def mock_pinot_client():
             "tables_count": 1,
             "sample_tables": ["test_table"],
         }
-        # execute_query returns a list of row dicts (matches the real client).
-        mock_client.execute_query.return_value = [{"col1": "test", "col2": "data"}]
+        mock_client.execute_query_with_metadata.return_value = QueryExecutionResult(
+            columns=["col1", "col2"], rows=[{"col1": "test", "col2": "data"}]
+        )
         mock_client.reload_table_filters.side_effect = lambda dry_run=True, **_kwargs: {
             "status": "preview" if dry_run else "success",
             "message": (
@@ -350,18 +352,27 @@ class TestFastMCPServer:
         assert sc["has_more"] is False
         assert sc["columns"] == ["col1", "col2"]
         assert sc["rows"][0]["col1"] == "test"
-        mock_pinot_client.execute_query.assert_called_once_with(
-            query="SELECT * FROM test_table", max_rows=101
+        mock_pinot_client.execute_query_with_metadata.assert_called_once_with(
+            query="SELECT * FROM test_table",
+            max_rows=101,
+            application_name="mcp-pinot",
         )
 
     @pytest.mark.asyncio
     async def test_tool_read_query_paginates(self, mock_pinot_client):
         """read_query honors limit/offset and reports has_more."""
-        mock_pinot_client.execute_query.return_value = [
-            {"n": 1},
-            {"n": 2},
-            {"n": 3},
-        ]
+        mock_pinot_client.execute_query_with_metadata.return_value = (
+            QueryExecutionResult(
+                columns=["n"],
+                rows=[{"n": 1}, {"n": 2}, {"n": 3}],
+                metadata=QueryExecutionMetadata(
+                    completeness="partial",
+                    servers_queried=3,
+                    servers_responded=2,
+                    row_limit_reached=True,
+                ),
+            )
+        )
         async with Client(mcp) as client:
             result = await client.call_tool(
                 "read_query",
@@ -371,10 +382,35 @@ class TestFastMCPServer:
         sc = result.structured_content
         assert sc["row_count"] == 2
         assert sc["total_rows"] == 3
+        assert sc["metadata"]["completeness"] == "partial"
+        assert sc["metadata"]["servers_responded"] == 2
+        assert sc["truncated"] is True
         assert sc["has_more"] is True
-        mock_pinot_client.execute_query.assert_called_once_with(
-            query="SELECT n FROM t", max_rows=3
+        mock_pinot_client.execute_query_with_metadata.assert_called_once_with(
+            query="SELECT n FROM t",
+            max_rows=3,
+            application_name="mcp-pinot",
         )
+
+    @pytest.mark.asyncio
+    async def test_read_query_empty_retains_schema_and_unknown_evidence(
+        self, mock_pinot_client
+    ):
+        mock_pinot_client.execute_query_with_metadata.return_value = (
+            QueryExecutionResult(
+                columns=["count"],
+                metadata=QueryExecutionMetadata(
+                    unknown_reasons=["result_table_missing"]
+                ),
+            )
+        )
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "read_query", {"query": "SELECT count(*) FROM t"}
+            )
+        assert result.structured_content["columns"] == ["count"]
+        assert result.structured_content["rows"] == []
+        assert result.structured_content["metadata"]["completeness"] == "unknown"
 
     @pytest.mark.asyncio
     async def test_tool_read_query_rejects_out_of_range_limit(self, mock_pinot_client):
@@ -386,14 +422,14 @@ class TestFastMCPServer:
                 raise_on_error=False,
             )
         assert result.is_error is True
-        mock_pinot_client.execute_query.assert_not_called()
+        mock_pinot_client.execute_query_with_metadata.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_tool_read_query_invalid_passes_message_through(
         self, mock_pinot_client
     ):
         """Validation ValueErrors surface verbatim so the model can self-correct."""
-        mock_pinot_client.execute_query.side_effect = ValueError(
+        mock_pinot_client.execute_query_with_metadata.side_effect = ValueError(
             "Only read-only SELECT queries are allowed for read-query"
         )
 
@@ -408,7 +444,9 @@ class TestFastMCPServer:
     @pytest.mark.asyncio
     async def test_tool_read_query_error_is_masked(self, mock_pinot_client):
         """Non-validation errors are masked behind an actionable message."""
-        mock_pinot_client.execute_query.side_effect = Exception("secret-host:7000")
+        mock_pinot_client.execute_query_with_metadata.side_effect = Exception(
+            "secret-host:7000"
+        )
 
         async with Client(mcp) as client:
             with pytest.raises(ToolError) as exc_info:

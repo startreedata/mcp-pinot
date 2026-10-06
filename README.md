@@ -98,6 +98,14 @@ call `execute_query_with_metadata(..., timeout_seconds=5)` to bound native and
 HTTP timeouts without modifying shared configuration. HTTP timeouts are
 inactivity limits; late results are rejected, but this is not native cancellation.
 
+Tool audit events use the same server-generated `request_id` as the query
+metadata/native `clientQueryId`. They record `queue_wait_ms`, `execution_ms`, total
+`duration_ms`, admission, and success/error/cancellation status. The audit scope
+includes rate-limit rejection, semaphore waiting, and response-limit failures;
+execution time covers admitted tool work. Logs contain no tool arguments, SQL,
+rows, or bearer tokens, and principal identifiers are hashed. These timings do
+not measure model reasoning or first-token latency.
+
 ## Pinot MCP in Action
 
 See Pinot MCP in action below:

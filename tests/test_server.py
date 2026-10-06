@@ -1,6 +1,6 @@
 import json
 from types import SimpleNamespace
-from unittest.mock import call, patch
+from unittest.mock import ANY, call, patch
 
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
@@ -357,6 +357,7 @@ class TestFastMCPServer:
             query="SELECT * FROM test_table",
             max_rows=101,
             application_name="mcp-pinot",
+            request_id=ANY,
         )
 
     @pytest.mark.asyncio
@@ -391,6 +392,7 @@ class TestFastMCPServer:
             query="SELECT n FROM t",
             max_rows=3,
             application_name="mcp-pinot",
+            request_id=ANY,
         )
 
     @pytest.mark.asyncio

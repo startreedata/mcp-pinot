@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (tokens and passwords go to the system credential store), and adds a
   `pinot-analytics` skill for exploring tables and applying changes only after the
   user confirms.
+- Payload-free tool audit events separate queue wait from admitted execution
+  and correlate each invocation with native query IDs.
 - `read_query` retains native execution completeness, server counts, IDs,
   query hashes, and bounded statistics; missing metadata stays unknown.
 - A manual **Set MCP Registry status** workflow that marks one published version

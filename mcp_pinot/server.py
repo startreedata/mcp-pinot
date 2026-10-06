@@ -5,7 +5,6 @@
 FastMCP-based implementation for the Apache Pinot MCP Server.
 """
 
-import asyncio
 import base64
 import binascii
 from collections import Counter, OrderedDict
@@ -62,6 +61,15 @@ from mcp_pinot.models import (
     TableConfigResult,
     TableList,
     TableSizeDetails,
+)
+from mcp_pinot.observability import (
+    AuditMiddleware as _AuditMiddleware,
+)
+from mcp_pinot.observability import (
+    ConcurrencyMiddleware as _ConcurrencyMiddleware,
+)
+from mcp_pinot.observability import (
+    query_request_id,
 )
 from mcp_pinot.pinot_client import (
     MAX_QUERY_ROWS,
@@ -158,19 +166,6 @@ class _ToolRateLimitMiddleware(Middleware):
         return await call_next(context)
 
 
-class _ConcurrencyMiddleware(Middleware):
-    """Bound concurrent tool work so slow Pinot calls cannot exhaust the process."""
-
-    def __init__(self, limit: int) -> None:
-        self._semaphore = asyncio.Semaphore(limit)
-
-    async def on_call_tool(
-        self, context: MiddlewareContext[Any], call_next: CallNext[Any, Any]
-    ) -> Any:
-        async with self._semaphore:
-            return await call_next(context)
-
-
 class _SchemaPreservingResponseLimitMiddleware(Middleware):
     """Reject oversized tool results without invalidating output schemas.
 
@@ -198,32 +193,6 @@ class _SchemaPreservingResponseLimitMiddleware(Middleware):
                 "Request a smaller page or narrower result."
             )
         return result
-
-
-class _AuditMiddleware(Middleware):
-    """Emit payload-free structured audit events for every tool invocation."""
-
-    async def on_call_tool(
-        self, context: MiddlewareContext[Any], call_next: CallNext[Any, Any]
-    ) -> Any:
-        started = time.monotonic()
-        token = get_access_token()
-        principal = token.client_id if token and token.client_id else "local"
-        tool_name = context.message.name
-        status = "success"
-        try:
-            return await call_next(context)
-        except Exception:
-            status = "error"
-            raise
-        finally:
-            logger.info(
-                "mcp_audit principal=%s tool=%s status=%s duration_ms=%d",
-                principal,
-                tool_name,
-                status,
-                int((time.monotonic() - started) * 1000),
-            )
 
 
 _RATE_LIMIT_RPS = float(os.getenv("MCP_RATE_LIMIT_RPS", "10"))
@@ -261,6 +230,7 @@ mcp = FastMCP(
     ),
     auth=_auth,
     middleware=[
+        _AuditMiddleware(),
         _ToolRateLimitMiddleware(
             _RATE_LIMIT_RPS,
             _RATE_LIMIT_BURST,
@@ -269,7 +239,6 @@ mcp = FastMCP(
         ),
         _ConcurrencyMiddleware(_MAX_CONCURRENCY),
         _SchemaPreservingResponseLimitMiddleware(_MAX_RESPONSE_BYTES),
-        _AuditMiddleware(),
     ],
     # Internal exceptions are replaced with a generic message; only ToolError
     # messages (which we craft to be safe and actionable) reach the client.
@@ -956,6 +925,7 @@ def read_query(
         query=query,
         max_rows=fetch_bound,
         application_name="mcp-pinot",
+        request_id=query_request_id(),
     )
     rows = execution.rows
     total = len(rows)

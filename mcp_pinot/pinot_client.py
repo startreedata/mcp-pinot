@@ -1,5 +1,4 @@
 import base64
-from decimal import Decimal, InvalidOperation
 from fnmatch import fnmatch
 import hashlib
 import json
@@ -7,12 +6,13 @@ import math
 import re
 from threading import Lock
 import time
-from typing import Any, Literal
+from typing import Any
 import unicodedata
 from urllib.parse import quote, unquote
 from uuid import uuid4
 
-from pinotdb import connect
+import httpx
+from pinotdb import DataError, NativeQueryResult, connect
 import requests
 import sqlglot
 from sqlglot import exp
@@ -21,7 +21,6 @@ from sqlglot.errors import ParseError
 from .config import PinotConfig, get_logger, reload_table_filters_from_file
 from .models import (
     QueryEarlyTerminationReason,
-    QueryExecutionLimitName,
     QueryExecutionMetadata,
     QueryExecutionResult,
 )
@@ -29,19 +28,6 @@ from .models import (
 logger = get_logger()
 
 MAX_QUERY_ROWS = 10_501
-_QUERY_PRIMITIVE_TYPES = frozenset(
-    {
-        "INT",
-        "LONG",
-        "FLOAT",
-        "DOUBLE",
-        "BOOLEAN",
-        "STRING",
-        "BYTES",
-        "TIMESTAMP",
-        "BIG_DECIMAL",
-    }
-)
 _QUERY_STAT_FIELDS = (
     "timeUsedMs",
     "numDocsScanned",
@@ -62,46 +48,11 @@ _QUERY_STAT_FIELDS = (
     "realtimeResponseSerializationCpuTimeNs",
     "brokerReduceTimeMs",
 )
-_QUERY_LIMIT_FLAGS: tuple[QueryExecutionLimitName, ...] = (
-    "numGroupsLimitReached",
-    "maxRowsInJoinReached",
-    "maxRowsInWindowReached",
-    "mseLiteLeafStageLimitReached",
-)
 _EARLY_TERMINATION_REASONS: dict[str, QueryEarlyTerminationReason] = {
     "DISTINCT_MAX_ROWS": "DISTINCT_MAX_ROWS",
     "DISTINCT_MAX_ROWS_WITHOUT_CHANGE": "DISTINCT_MAX_ROWS_WITHOUT_CHANGE",
     "DISTINCT_MAX_EXECUTION_TIME": "DISTINCT_MAX_EXECUTION_TIME",
 }
-
-
-def _native_value_matches(value: Any, data_type: str) -> bool:
-    """Reject cells that contradict the broker's declared primitive column type."""
-    if value is None:
-        return True
-    if data_type.endswith("_ARRAY"):
-        return isinstance(value, list) and all(
-            _native_value_matches(item, data_type.removesuffix("_ARRAY"))
-            for item in value
-        )
-    if data_type in {"INT", "LONG"}:
-        return type(value) is int
-    if data_type in {"FLOAT", "DOUBLE"}:
-        return type(value) in (int, float)
-    if data_type == "BOOLEAN":
-        return type(value) is bool
-    if data_type in {"STRING", "BYTES"}:
-        return isinstance(value, str)
-    if data_type == "TIMESTAMP":
-        return type(value) in (str, int)
-    if data_type == "BIG_DECIMAL":
-        if type(value) not in (str, int, float):
-            return False
-        try:
-            return Decimal(str(value)).is_finite()
-        except InvalidOperation:
-            return False
-    return True  # Unrecognized types retain JSON values but cannot qualify as complete.
 
 
 def get_auth_credentials(config: PinotConfig) -> tuple[str | None, str | None]:
@@ -659,7 +610,7 @@ class PinotClient:
     def _request_timeouts(self, timeout_seconds: float | None) -> tuple[float, float]:
         """Cap connection/read thresholds without changing shared configuration.
 
-        Requests timeouts bound network inactivity, not native cancellation or a
+        HTTP timeouts bound network inactivity, not native cancellation or a
         wall-clock limit against a peer that continuously streams response bytes.
         """
         if timeout_seconds is None:
@@ -863,196 +814,113 @@ class PinotClient:
         remaining = deadline - time.monotonic() if deadline is not None else None
         if remaining is not None and remaining < 0.002:
             raise requests.Timeout("Query budget expired before submission.")
-        _, read_timeout = self._request_timeouts(remaining)
-        native_timeout_ms = int(min(self.config.query_timeout, read_timeout) * 1000)
-        options = [f"timeoutMs={native_timeout_ms}", f"clientQueryId={request_id}"]
-        if self.config.use_msqe:
-            options.append("useMultiStageEngine=true")
-        if application_name is not None:
-            options.append(f"applicationName={application_name}")
-        broker_url = (
-            f"{self.config.broker_scheme}://{self.config.broker_host}:"
-            f"{self.config.broker_port}/{PinotEndpoints.QUERY_SQL}"
-        )
-        response = self.http_request(
-            broker_url,
-            "POST",
-            {"sql": query, "queryOptions": ";".join(options)},
-            timeout_seconds=remaining,
-        )
+        # The SDK owns submission and native decoding. Use request-local state so
+        # concurrent calls cannot change credentials/options or probe the broker.
+        with httpx.Client(headers=self._create_auth_headers(), verify=True) as session:
+            with connect(
+                host=self.config.broker_host,
+                port=self.config.broker_port,
+                scheme=self.config.broker_scheme,
+                path="/query/sql",
+                session=session,
+            ) as cursor:
+                # Session/TLS setup consumes the same call budget as SQL work.
+                remaining = (
+                    deadline - time.monotonic() if deadline is not None else None
+                )
+                if remaining is not None and remaining < 0.002:
+                    raise requests.Timeout("Query budget expired before submission.")
+                connect_timeout, read_timeout = self._request_timeouts(remaining)
+                native_timeout_ms = int(
+                    min(self.config.query_timeout, read_timeout) * 1000
+                )
+                options = [
+                    f"timeoutMs={native_timeout_ms}",
+                    f"clientQueryId={request_id}",
+                ]
+                if self.config.use_msqe:
+                    options.append("useMultiStageEngine=true")
+                if application_name is not None:
+                    options.append(f"applicationName={application_name}")
+                timeout = httpx.Timeout(
+                    read_timeout,
+                    connect=connect_timeout,
+                    write=read_timeout,
+                    pool=connect_timeout,
+                )
+                try:
+                    native = cursor.execute_native(
+                        query,
+                        query_options=";".join(options),
+                        allow_partial=True,
+                        timeout=timeout,
+                    )
+                except DataError as exc:
+                    raise ValueError(
+                        "Pinot returned malformed query execution evidence."
+                    ) from exc
         if deadline is not None and time.monotonic() >= deadline:
             raise requests.Timeout("Query budget expired before response validation.")
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise ValueError("Pinot returned malformed query JSON.") from exc
         bound = int(
             sqlglot.parse_one(query, read="trino").args["limit"].expression.this
         )
-        result = self._query_execution_result(data, query, request_id, bound)
+        result = self._project_native_result(native, request_id, bound)
         if deadline is not None and time.monotonic() >= deadline:
             raise requests.Timeout("Query budget expired during response validation.")
         return result
 
     @staticmethod
-    def _query_execution_result(
-        data: Any, query: str, request_id: str, row_bound: int
+    def _project_native_result(
+        native: NativeQueryResult, request_id: str, row_bound: int
     ) -> QueryExecutionResult:
-        """Validate broker data without promoting missing metadata to success."""
-        malformed = "Pinot returned malformed query execution evidence."
-        if not isinstance(data, dict):
-            raise ValueError(malformed)
-        unknown = []
-        exceptions = data.get("exceptions")
-        if exceptions is None:
-            unknown.append("exceptions_metadata_missing")
-        elif not isinstance(exceptions, list):
-            raise ValueError(malformed)
-        elif exceptions:
+        """Project SDK evidence into a bounded, payload-safe MCP response."""
+        if native.exceptions:
             raise ValueError(
                 "Pinot rejected the SQL query. Check table and column names, "
                 "function arguments, and query syntax."
             )
-        servers = []
-        for key in ("numServersQueried", "numServersResponded"):
-            value = data.get(key)
-            if value is None:
-                unknown.append(key + "_missing")
-            elif type(value) is not int or value < 0:
-                raise ValueError(malformed)
-            servers.append(value)
-        queried, responded = servers
-        if queried is not None and responded is not None and responded > queried:
-            raise ValueError(malformed)
-        if queried == 0:
-            unknown.append("no_server_execution_attested")
-        flags: dict[str, bool | None] = {}
-        for key in (*_QUERY_LIMIT_FLAGS, "partialResult", "isPartialResult"):
-            value = data.get(key)
-            if value is not None and type(value) is not bool:
-                raise ValueError(malformed)
-            flags[key] = value
-        group_limit = flags["numGroupsLimitReached"]
-        if group_limit is None:
-            unknown.append("group_limit_metadata_missing")
-        partial_values = [flags[key] for key in ("partialResult", "isPartialResult")]
-        partial = any(value is True for value in partial_values)
-        partial_flag = (
-            partial if any(value is not None for value in partial_values) else None
-        )
-        limit_flags: dict[QueryExecutionLimitName, bool] = {}
-        for key in _QUERY_LIMIT_FLAGS:
-            value = flags[key]
-            if value is not None:
-                limit_flags[key] = value
-        # These are enum names on the native wire, not free-form error messages.
-        # Unknown future names still prove partial execution, but are not echoed.
-        raw_reasons = data.get("earlyTerminationReasons", [])
-        if (
-            not isinstance(raw_reasons, list)
-            or len(raw_reasons) > 16
-            or not all(isinstance(reason, str) and reason for reason in raw_reasons)
+        if len(native.rows) > row_bound:
+            raise ValueError("Pinot exceeded the bounded query row limit.")
+        if len(set(native.columns)) != len(native.columns):
+            raise ValueError("Use unique SQL column aliases for the MCP row objects.")
+        metadata = native.metadata
+        native_id = metadata.native_query_id
+        if native_id is not None and (
+            len(str(native_id)) > 128 or any(ord(char) < 32 for char in str(native_id))
         ):
-            raise ValueError(malformed)
-        termination_reasons = sorted(
+            raise ValueError("Pinot returned malformed query execution evidence.")
+        safe_reasons = sorted(
             {
                 _EARLY_TERMINATION_REASONS.get(reason, "UNRECOGNIZED_NATIVE_REASON")
-                for reason in raw_reasons
+                for reason in metadata.early_termination_reasons
             }
         )
-        execution_limit = any(limit_flags.values()) or bool(raw_reasons)
-        columns = []
-        rows = []
-        table = data.get("resultTable")
-        if table is None:
-            unknown.append("result_table_missing")
-        else:
-            if not isinstance(table, dict) or not isinstance(
-                table.get("dataSchema"), dict
-            ):
-                raise ValueError(malformed)
-            schema = table["dataSchema"]
-            columns = schema.get("columnNames")
-            raw_rows = table.get("rows")
-            if (
-                not isinstance(columns, list)
-                or not columns
-                or not all(isinstance(name, str) and name for name in columns)
-                or len(set(columns)) != len(columns)
-                or not isinstance(raw_rows, list)
-                or len(raw_rows) > row_bound
-                or any(
-                    not isinstance(row, list) or len(row) != len(columns)
-                    for row in raw_rows
-                )
-            ):
-                raise ValueError(malformed)
-            types = schema.get("columnDataTypes")
-            if types is None:
-                unknown.append("column_types_missing")
-            elif (
-                not isinstance(types, list)
-                or len(types) != len(columns)
-                or not all(isinstance(value, str) and value for value in types)
-            ):
-                raise ValueError(malformed)
-            if types is not None and any(
-                not _native_value_matches(value, data_type)
-                for row in raw_rows
-                for value, data_type in zip(row, types, strict=True)
-            ):
-                raise ValueError(malformed)
-            if types is not None and any(
-                data_type.removesuffix("_ARRAY") not in _QUERY_PRIMITIVE_TYPES
-                for data_type in types
-            ):
-                unknown.append("column_type_not_validated")
-            try:
-                json.dumps(raw_rows, allow_nan=False)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(malformed) from exc
-            rows = [dict(zip(columns, row, strict=True)) for row in raw_rows]
-        stats = {}
-        for key in _QUERY_STAT_FIELDS:
-            if key in data:
-                value = data[key]
+        # The SDK retains full statistics; agent context gets a bounded projection.
+        statistics = {}
+        for key, value in native.query_statistics.items():
+            if key in _QUERY_STAT_FIELDS:
                 if type(value) not in (int, float) or not math.isfinite(value):
-                    raise ValueError(malformed)
-                stats[key] = value
-        native_id = data.get("requestId")
-        if native_id is not None and (
-            type(native_id) not in (int, str)
-            or len(str(native_id)) > 128
-            or any(ord(char) < 32 for char in str(native_id))
-        ):
-            raise ValueError(malformed)
-        incomplete = (
-            partial
-            or execution_limit
-            or (queried is not None and responded is not None and responded < queried)
-        )
-        completeness: Literal["complete", "partial", "unknown"] = (
-            "partial" if incomplete else "unknown" if unknown else "complete"
-        )
+                    raise ValueError(
+                        "Pinot returned malformed query execution evidence."
+                    )
+                statistics[key] = value
         return QueryExecutionResult(
-            columns=columns,
-            rows=rows,
+            columns=native.columns,
+            rows=[dict(zip(native.columns, row, strict=True)) for row in native.rows],
             metadata=QueryExecutionMetadata(
-                completeness=completeness,
+                completeness=metadata.completeness,
                 request_id=request_id,
-                native_query_id=native_id,
-                query_sha256=hashlib.sha256(query.encode()).hexdigest(),
-                servers_queried=queried,
-                servers_responded=responded,
-                partial_result=partial_flag,
-                execution_limit_reached=(
-                    execution_limit if limit_flags or raw_reasons else None
-                ),
-                execution_limit_flags=limit_flags,
-                early_termination_reasons=termination_reasons,
-                row_limit_reached=len(rows) >= row_bound,
-                native_stats=stats,
-                unknown_reasons=unknown,
+                native_query_id=metadata.native_query_id,
+                query_sha256=metadata.query_sha256,
+                servers_queried=metadata.servers_queried,
+                servers_responded=metadata.servers_responded,
+                partial_result=metadata.partial_result,
+                execution_limit_reached=metadata.execution_limit_reached,
+                execution_limit_flags=metadata.execution_limit_flags,
+                early_termination_reasons=safe_reasons,
+                row_limit_reached=len(native.rows) >= row_bound,
+                native_stats=statistics,
+                unknown_reasons=metadata.unknown_reasons,
             ),
         )
 

@@ -117,6 +117,9 @@ QueryExecutionLimitName = Literal[
     "maxRowsInJoinReached",
     "maxRowsInWindowReached",
     "mseLiteLeafStageLimitReached",
+    "maxRowsInDistinctReached",
+    "maxRowsWithoutChangeInDistinctReached",
+    "maxExecutionTimeInDistinctReached",
 ]
 QueryEarlyTerminationReason = Literal[
     "DISTINCT_MAX_ROWS",
@@ -143,7 +146,7 @@ class QueryExecutionMetadata(BaseModel):
         description="Any reported native execution limit or early termination.",
     )
     execution_limit_flags: dict[QueryExecutionLimitName, bool] = Field(
-        default_factory=dict, max_length=4
+        default_factory=dict, max_length=7
     )
     early_termination_reasons: list[QueryEarlyTerminationReason] = Field(
         default_factory=list, max_length=4

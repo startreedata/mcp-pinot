@@ -7,6 +7,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.server.middleware.rate_limiting import RateLimitError
 from fastmcp.tools import ToolResult
+import httpx
 from mcp.types import TextContent
 from mcp.types.version import LATEST_PROTOCOL_VERSION
 import pytest
@@ -457,6 +458,70 @@ class TestFastMCPServer:
         message = str(exc_info.value)
         assert "read_query failed" in message
         assert "secret-host" not in message
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("failure", "code", "category", "retryable", "retry_after"),
+        [
+            ("timeout", "PINOT_TIMEOUT", "transient", True, None),
+            ("network", "PINOT_UNAVAILABLE", "transient", True, None),
+            (401, "PINOT_AUTHENTICATION_REQUIRED", "authentication", False, None),
+            (403, "PINOT_PERMISSION_DENIED", "authorization", False, None),
+            (429, "PINOT_RATE_LIMITED", "transient", True, 7),
+            (500, "PINOT_SERVER_ERROR", "transient", True, None),
+        ],
+    )
+    async def test_read_query_httpx_errors_are_classified_without_private_details(
+        self, mock_pinot_client, failure, code, category, retryable, retry_after
+    ):
+        request = httpx.Request(
+            "POST",
+            "https://private-host.invalid/query/sql?sql=private-query-text",
+            headers={"Authorization": "Bearer private-auth-text"},
+        )
+        private_details = (
+            f"{request.url}: SELECT private-query-text; "
+            "Authorization: Bearer private-auth-text"
+        )
+        if failure == "timeout":
+            error = httpx.ReadTimeout(private_details, request=request)
+        elif failure == "network":
+            error = httpx.ConnectError(private_details, request=request)
+        else:
+            response = httpx.Response(
+                failure,
+                request=request,
+                headers={"Retry-After": "7"},
+                text=private_details,
+            )
+            error = httpx.HTTPStatusError(
+                private_details, request=request, response=response
+            )
+        mock_pinot_client.execute_query_with_metadata.side_effect = error
+
+        async with Client(mcp) as client:
+            with pytest.raises(ToolError) as raised:
+                await client.call_tool(
+                    "read_query", {"query": "SELECT 'private-query-text' FROM t"}
+                )
+
+        message = str(raised.value)
+        classification = json.loads(message)
+        assert classification["code"] == code
+        assert classification["category"] == category
+        assert classification["retryable"] is retryable
+        assert classification["retry_after_seconds"] == retry_after
+        assert classification["message"]
+        assert classification["recovery_steps"]
+        for private_value in (
+            "private-host",
+            "private-query-text",
+            "private-auth-text",
+            "Authorization",
+        ):
+            assert private_value not in message
+        mock_pinot_client.execute_query_with_metadata.assert_called_once()
+        mock_pinot_client.test_connection.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_tool_list_tables(self, mock_pinot_client):

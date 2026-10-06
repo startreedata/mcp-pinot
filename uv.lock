@@ -1014,7 +1014,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.2" },
     { name = "mcp", extras = ["cli"], specifier = ">=2.1.1,<3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
-    { name = "pinotdb", specifier = ">=9.1.2,<10" },
+    { name = "pinotdb", specifier = ">=9.2.0,<10" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
@@ -1178,7 +1178,7 @@ wheels = [
 
 [[package]]
 name = "pinotdb"
-version = "9.1.2"
+version = "9.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ciso8601" },
@@ -1186,9 +1186,9 @@ dependencies = [
     { name = "httpx" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8f/bf/d7680cbd98f336104510ff2c23b4f1416936f89f6496741ca120848f5a73/pinotdb-9.1.2.tar.gz", hash = "sha256:8a5d50566fa949d3d15d36a5a68290171b86310a3229e1150ef80522f9bb50c7", size = 27014, upload-time = "2026-05-25T13:44:32.549Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6c/0e/4d42ab507ea6dff56adfac2a5500950a849989996fe0aafc1d746e5d51dd/pinotdb-9.2.0.tar.gz", hash = "sha256:521a7f3d48b40bfa3efa6d35cad09fba76e70ddf3bde61a889191a5f45b9eda5", size = 31925, upload-time = "2026-10-06T23:42:20.647Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/09/ea/59db52b31af943a5b207615f8bda5c9747aa118d8a682a8017731b190954/pinotdb-9.1.2-py3-none-any.whl", hash = "sha256:49a28f60d2a916bde3ce4caadc635744e20d51c42ae06bff35a657537c283bcf", size = 22474, upload-time = "2026-05-25T13:44:33.434Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/76/8461fd07413a929d15dd020d9c890dd95a5b4fb69d66e6c7c2aff0489edf/pinotdb-9.2.0-py3-none-any.whl", hash = "sha256:542874596dd0044859ced9b0ecbf3df7b933e4f3fbb91d260659fb605c78158b", size = 26971, upload-time = "2026-10-06T23:42:21.547Z" },
 ]
 
 [[package]]
@@ -1820,11 +1820,11 @@ wheels = [
 
 [[package]]
 name = "urllib3"
-version = "2.7.0"
+version = "2.8.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/53/0c/06f8b233b8fd13b9e5ee11424ef85419ba0d8ba0b3138bf360be2ff56953/urllib3-2.7.0.tar.gz", hash = "sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c", size = 433602, upload-time = "2026-05-07T16:13:18.596Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/05/b17359e1cefb4f909b5e40b1b90a496d987258916dbbf88e842c729f510e/urllib3-2.8.0.tar.gz", hash = "sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63", size = 458972, upload-time = "2026-09-15T19:29:36.253Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7f/3e/5db95bcf282c52709639744ca2a8b149baccf648e39c8cc87553df9eae0c/urllib3-2.7.0-py3-none-any.whl", hash = "sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897", size = 131087, upload-time = "2026-05-07T16:13:17.151Z" },
+    { url = "https://files.pythonhosted.org/packages/92/9d/c4e665119135114480843e7ab388fa94d8480650450e6f8e26b70d323a4c/urllib3-2.8.0-py3-none-any.whl", hash = "sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3", size = 135717, upload-time = "2026-09-15T19:29:34.577Z" },
 ]
 
 [[package]]

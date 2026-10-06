@@ -30,6 +30,7 @@ from fastmcp.server.middleware.rate_limiting import (
     RateLimitError,
     TokenBucketRateLimiter,
 )
+import httpx
 from mcp.types import ToolAnnotations
 from pydantic import Field
 import requests
@@ -484,7 +485,7 @@ def _fail(action: str, exc: Exception, hint: str = "") -> ToolError:
     message = f"{action} failed."
     recovery_steps = [hint] if hint else ["Check server logs and configuration."]
 
-    if isinstance(exc, requests.exceptions.Timeout):
+    if isinstance(exc, (requests.exceptions.Timeout, httpx.TimeoutException)):
         code = "PINOT_TIMEOUT"
         category = "transient"
         retryable = True
@@ -493,13 +494,16 @@ def _fail(action: str, exc: Exception, hint: str = "") -> ToolError:
             "Call test_connection before retrying.",
             "Reduce query or page complexity if connectivity is healthy.",
         ]
-    elif isinstance(exc, requests.exceptions.ConnectionError):
+    elif isinstance(exc, (requests.exceptions.ConnectionError, httpx.NetworkError)):
         code = "PINOT_UNAVAILABLE"
         category = "transient"
         retryable = True
         message = "The Pinot endpoint is unavailable."
         recovery_steps = ["Call test_connection and retry after connectivity returns."]
-    elif isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+    elif (
+        isinstance(exc, (requests.exceptions.HTTPError, httpx.HTTPStatusError))
+        and exc.response is not None
+    ):
         status = exc.response.status_code
         if status == 401:
             code, category = "PINOT_AUTHENTICATION_REQUIRED", "authentication"

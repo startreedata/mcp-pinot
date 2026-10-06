@@ -88,8 +88,11 @@ healthy telemetry. Native `complete` describes this bounded SQL execution, not
 coverage of the incident window or the entire dataset. `row_limit_reached` is
 separate from execution completeness and paging.
 
-The MCP query path submits once over HTTP and does not switch transports after
-an ambiguous failure. Its unique `clientQueryId` and `applicationName=mcp-pinot`
+The MCP query path uses `pinotdb>=9.2.0` through `cursor.execute_native()` for
+submission and decoding. The SDK exposes full structured `query_statistics`;
+MCP projects bounded counters and safe execution evidence into the tool response.
+The path submits once and does not switch transports after an ambiguous failure.
+Its unique `clientQueryId` and `applicationName=mcp-pinot`
 allow correlation with supported Pinot broker query logs. Python integrations can
 call `execute_query_with_metadata(..., timeout_seconds=5)` to bound native and
 HTTP timeouts without modifying shared configuration. HTTP timeouts are

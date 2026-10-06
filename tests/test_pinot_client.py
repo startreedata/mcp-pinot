@@ -1,7 +1,10 @@
 import hashlib
+import json
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 import requests
 
@@ -57,6 +60,43 @@ def mock_requests():
         mock_req.post.return_value = mock_response
         mock_req.put.return_value = mock_response
         yield mock_req
+
+
+@pytest.fixture(autouse=True)
+def mock_native_http(monkeypatch):
+    """Use the real SDK with a request-local HTTPX mock transport."""
+    state = SimpleNamespace(
+        requests=[],
+        error=None,
+        clients=[],
+        setup_hook=None,
+        payload={
+            "resultTable": {
+                "dataSchema": {
+                    "columnNames": ["test_column"],
+                    "columnDataTypes": ["INT"],
+                },
+                "rows": [[1]],
+            }
+        },
+    )
+    original_client = httpx.Client
+
+    def handle(request):
+        state.requests.append(request)
+        if state.error is not None:
+            raise state.error
+        return httpx.Response(200, json=state.payload)
+
+    class NativeTestClient(original_client):
+        def __init__(self, **kwargs):
+            state.clients.append(kwargs.copy())
+            if state.setup_hook is not None:
+                state.setup_hook()
+            super().__init__(transport=httpx.MockTransport(handle), **kwargs)
+
+    monkeypatch.setattr("mcp_pinot.pinot_client.httpx.Client", NativeTestClient)
+    return state
 
 
 class TestPinotClient:
@@ -256,10 +296,10 @@ class TestPinotClient:
         assert result["query_result"] == [{"test_column": 1}]
 
     def test_connection_does_not_report_legacy_fallback_as_http_success(
-        self, mock_pinot_config, mock_requests, mock_connection
+        self, mock_pinot_config, mock_native_http, mock_connection
     ):
         pinot = PinotClient(mock_pinot_config)
-        mock_requests.post.side_effect = requests.ConnectionError("HTTP unavailable")
+        mock_native_http.error = httpx.ConnectError("HTTP unavailable")
         with (
             patch.object(
                 pinot, "execute_query", return_value=[{"test_column": 1}]
@@ -272,13 +312,13 @@ class TestPinotClient:
         assert result["dbapi_test"] is True
         assert "broker query" in result["error"]
         legacy_query.assert_not_called()
-        assert mock_requests.post.call_count == 1
+        assert len(mock_native_http.requests) == 1
 
     @pytest.mark.parametrize("rows", [[], [[0]]])
     def test_connection_requires_the_actual_probe_result(
-        self, mock_pinot_config, mock_requests, rows
+        self, mock_pinot_config, mock_native_http, rows
     ):
-        mock_requests.post.return_value.json.return_value = {
+        mock_native_http.payload = {
             "resultTable": {
                 "dataSchema": {
                     "columnNames": ["test_column"],
@@ -1450,7 +1490,7 @@ class TestPinotClient:
 
 
 @pytest.fixture
-def native_query_response(mock_requests):
+def native_query_response(mock_native_http):
     response = {
         "resultTable": {
             "dataSchema": {"columnNames": ["id"], "columnDataTypes": ["LONG"]},
@@ -1464,7 +1504,7 @@ def native_query_response(mock_requests):
         "timeUsedMs": 9,
         "numDocsScanned": 13,
     }
-    mock_requests.post.return_value.json.return_value = response
+    mock_native_http.payload = response
     return response
 
 
@@ -1472,9 +1512,11 @@ class TestQueryExecutionEvidence:
     """The evidence path must not turn missing or partial execution into success."""
 
     def test_bounded_request_preserves_evidence_and_correlation(
-        self, mock_pinot_config, mock_requests, native_query_response
+        self, mock_pinot_config, mock_native_http, native_query_response
     ):
         client = PinotClient(mock_pinot_config)
+        native_query_response["stageStats"] = {"1": {"private": "detail"}}
+        native_query_response["serverStats"] = "private-server"
         result = client.execute_query_with_metadata(
             "SELECT id FROM test_table",
             max_rows=7,
@@ -1482,10 +1524,11 @@ class TestQueryExecutionEvidence:
             application_name="incident-reader",
         )
 
-        payload = mock_requests.post.call_args.kwargs["json"]
+        payload = json.loads(mock_native_http.requests[0].content)
         assert payload["sql"] == "SELECT id FROM test_table LIMIT 7"
         assert "clientQueryId=run-123" in payload["queryOptions"]
         assert "applicationName=incident-reader" in payload["queryOptions"]
+        assert len(mock_native_http.requests) == 1
         assert result.columns == ["id"]
         assert result.rows == [{"id": 7}]
         assert result.metadata.completeness == "complete"
@@ -1496,6 +1539,7 @@ class TestQueryExecutionEvidence:
             == hashlib.sha256(payload["sql"].encode()).hexdigest()
         )
         assert result.metadata.native_stats == {"timeUsedMs": 9, "numDocsScanned": 13}
+        assert "private" not in result.model_dump_json()
 
     def test_complete_empty_result_retains_schema(
         self, mock_pinot_config, native_query_response
@@ -1528,23 +1572,15 @@ class TestQueryExecutionEvidence:
         assert result.rows == [{"id": 7}]
         assert result.metadata.completeness == "partial"
 
-    def test_known_partial_proof_is_not_masked_by_missing_metadata(
-        self, mock_pinot_config, native_query_response
-    ):
-        native_query_response["numServersResponded"] = 1
-        native_query_response.pop("numGroupsLimitReached")
-        result = PinotClient(mock_pinot_config).execute_query_with_metadata(
-            "SELECT id FROM test_table"
-        )
-        assert result.metadata.completeness == "partial"
-        assert "group_limit_metadata_missing" in result.metadata.unknown_reasons
-
     @pytest.mark.parametrize(
         "field,value",
         [
             ("maxRowsInJoinReached", True),
             ("maxRowsInWindowReached", True),
             ("mseLiteLeafStageLimitReached", True),
+            ("maxRowsInDistinctReached", True),
+            ("maxRowsWithoutChangeInDistinctReached", True),
+            ("maxExecutionTimeInDistinctReached", True),
             ("earlyTerminationReasons", ["DISTINCT_MAX_EXECUTION_TIME"]),
         ],
     )
@@ -1584,140 +1620,85 @@ class TestQueryExecutionEvidence:
         ]
         assert "private server detail" not in result.model_dump_json()
 
-    @pytest.mark.parametrize(
-        "missing",
-        [
-            "resultTable",
-            "exceptions",
-            "numServersQueried",
-            "numServersResponded",
-            "numGroupsLimitReached",
-        ],
-    )
-    def test_missing_evidence_stays_unknown(
-        self, mock_pinot_config, native_query_response, missing
-    ):
-        native_query_response.pop(missing)
-        result = PinotClient(mock_pinot_config).execute_query_with_metadata(
-            "SELECT id FROM test_table"
-        )
-        assert result.metadata.completeness == "unknown"
-        assert result.metadata.unknown_reasons
-        if missing == "resultTable":
-            assert result.rows == []
-
-    def test_missing_column_types_or_no_servers_cannot_attest_execution(
+    def test_sdk_unknown_evidence_survives_projection(
         self, mock_pinot_config, native_query_response
     ):
-        native_query_response["resultTable"]["dataSchema"].pop("columnDataTypes")
-        native_query_response["numServersQueried"] = 0
-        native_query_response["numServersResponded"] = 0
+        native_query_response.pop("numGroupsLimitReached")
         result = PinotClient(mock_pinot_config).execute_query_with_metadata(
             "SELECT id FROM test_table"
         )
+        assert result.rows == [{"id": 7}]
         assert result.metadata.completeness == "unknown"
-        assert "column_types_missing" in result.metadata.unknown_reasons
-        assert "no_server_execution_attested" in result.metadata.unknown_reasons
+        assert "group_limit_metadata_missing" in result.metadata.unknown_reasons
 
     def test_row_bound_is_not_execution_completeness(
-        self, mock_pinot_config, mock_requests, native_query_response
+        self, mock_pinot_config, mock_native_http, native_query_response
     ):
         result = PinotClient(mock_pinot_config).execute_query_with_metadata(
             "SELECT id FROM test_table LIMIT 1", max_rows=7
         )
-        assert mock_requests.post.call_args.kwargs["json"]["sql"].endswith("LIMIT 1")
+        assert json.loads(mock_native_http.requests[0].content)["sql"].endswith(
+            "LIMIT 1"
+        )
         assert result.metadata.row_limit_reached is True
         assert result.metadata.completeness == "complete"
 
-    @pytest.mark.parametrize(
-        "field,value",
-        [
-            ("numServersQueried", True),
-            ("numServersResponded", "2"),
-            ("numServersResponded", 3),
-            ("numGroupsLimitReached", 0),
-            ("partialResult", "false"),
-            ("maxRowsInJoinReached", "true"),
-            ("maxRowsInWindowReached", 1),
-            ("mseLiteLeafStageLimitReached", 0),
-            ("earlyTerminationReasons", "DISTINCT_MAX_ROWS"),
-            ("earlyTerminationReasons", [0]),
-            ("earlyTerminationReasons", None),
-            ("exceptions", {}),
-            ("timeUsedMs", float("inf")),
-            ("requestId", ["wrong"]),
-        ],
-    )
-    def test_malformed_native_metadata_fails_closed(
-        self, mock_pinot_config, native_query_response, field, value
+    @pytest.mark.parametrize("duplicate_aliases", [False, True])
+    def test_mcp_rejects_lossy_or_unbounded_projection(
+        self, mock_pinot_config, native_query_response, duplicate_aliases
     ):
-        native_query_response[field] = value
-        with pytest.raises(ValueError, match="malformed query execution"):
+        if duplicate_aliases:
+            native_query_response["resultTable"] = {
+                "dataSchema": {
+                    "columnNames": ["id", "id"],
+                    "columnDataTypes": ["LONG", "LONG"],
+                },
+                "rows": [[7, 8]],
+            }
+            message = "unique SQL column aliases"
+        else:
+            native_query_response["resultTable"]["rows"] = [[7], [8]]
+            message = "bounded query row limit"
+        with pytest.raises(ValueError, match=message):
             PinotClient(mock_pinot_config).execute_query_with_metadata(
-                "SELECT id FROM test_table"
+                "SELECT id FROM test_table", max_rows=1
             )
 
-    @pytest.mark.parametrize("rows", [[[]], [[7, 8]], [{"id": 7}], [[float("nan")]]])
-    def test_malformed_result_rows_fail_closed(
-        self, mock_pinot_config, native_query_response, rows
-    ):
-        native_query_response["resultTable"]["rows"] = rows
-        with pytest.raises(ValueError, match="malformed query execution"):
-            PinotClient(mock_pinot_config).execute_query_with_metadata(
-                "SELECT id FROM test_table"
-            )
-
-    @pytest.mark.parametrize(
-        "data_type,value",
-        [("LONG", "7"), ("STRING", 7), ("BOOLEAN", 1), ("LONG_ARRAY", ["7"])],
-    )
-    def test_cells_cannot_contradict_declared_column_type(
-        self, mock_pinot_config, native_query_response, data_type, value
-    ):
-        native_query_response["resultTable"]["dataSchema"]["columnDataTypes"] = [
-            data_type
-        ]
-        native_query_response["resultTable"]["rows"] = [[value]]
-        with pytest.raises(ValueError, match="malformed query execution"):
-            PinotClient(mock_pinot_config).execute_query_with_metadata(
-                "SELECT id FROM test_table"
-            )
-
-    @pytest.mark.parametrize(
-        "data_type,value",
-        [
-            ("TIMESTAMP", "2026-10-01 00:00:00.000"),
-            ("BYTES", "cafe"),
-            ("BIG_DECIMAL", "123.456"),
-            ("BIG_DECIMAL", 123.456),
-            ("LONG_ARRAY", [7, None]),
-        ],
-    )
-    def test_valid_native_values_are_preserved_without_conversion(
-        self, mock_pinot_config, native_query_response, data_type, value
-    ):
-        native_query_response["resultTable"]["dataSchema"]["columnDataTypes"] = [
-            data_type
-        ]
-        native_query_response["resultTable"]["rows"] = [[value]]
-        result = PinotClient(mock_pinot_config).execute_query_with_metadata(
-            "SELECT id FROM test_table"
-        )
-        assert result.rows == [{"id": value}]
-        assert result.metadata.completeness == "complete"
-
-    def test_unvalidated_extension_type_remains_unknown(
+    def test_sdk_decoder_error_is_sanitized(
         self, mock_pinot_config, native_query_response
     ):
-        native_query_response["resultTable"]["dataSchema"]["columnDataTypes"] = [
-            "OBJECT"
-        ]
-        native_query_response["resultTable"]["rows"] = [[{"key": "value"}]]
-        result = PinotClient(mock_pinot_config).execute_query_with_metadata(
+        native_query_response["resultTable"]["rows"] = [[7, "private"]]
+        with pytest.raises(ValueError, match="malformed query execution") as error:
+            PinotClient(mock_pinot_config).execute_query_with_metadata(
+                "SELECT id FROM test_table"
+            )
+        assert "private" not in str(error.value)
+
+    def test_sdk_request_preserves_broker_auth_database_and_tls(
+        self, mock_pinot_config, mock_native_http, native_query_response
+    ):
+        mock_pinot_config.token = "Bearer broker-token"
+        mock_pinot_config.controller_token = "Bearer controller-token"
+        mock_pinot_config.database = "incident_db"
+        mock_pinot_config.use_msqe = True
+        PinotClient(mock_pinot_config).execute_query_with_metadata(
             "SELECT id FROM test_table"
         )
-        assert result.rows == [{"id": {"key": "value"}}]
-        assert result.metadata.completeness == "unknown"
+        request = mock_native_http.requests[0]
+        assert request.headers["authorization"] == "Bearer broker-token"
+        assert request.headers["database"] == "incident_db"
+        assert mock_native_http.clients[0]["verify"] is True
+        assert "useMultiStageEngine=true" in json.loads(request.content)["queryOptions"]
+
+    @pytest.mark.parametrize("value", ["broken", True, {"private": "detail"}])
+    def test_displayed_statistics_keep_numeric_validation(
+        self, mock_pinot_config, native_query_response, value
+    ):
+        native_query_response["numDocsScanned"] = value
+        with pytest.raises(ValueError, match="malformed query execution"):
+            PinotClient(mock_pinot_config).execute_query_with_metadata(
+                "SELECT id FROM test_table"
+            )
 
     def test_native_errors_stay_sanitized(
         self, mock_pinot_config, native_query_response
@@ -1739,28 +1720,33 @@ class TestQueryExecutionEvidence:
         ],
     )
     def test_evidence_path_preserves_read_and_table_authorization(
-        self, mock_pinot_config, mock_requests, query
+        self, mock_pinot_config, mock_native_http, query
     ):
         mock_pinot_config.included_tables = ["allowed_table"]
         with pytest.raises(ValueError):
             PinotClient(mock_pinot_config).execute_query_with_metadata(query)
-        mock_requests.post.assert_not_called()
+        assert mock_native_http.requests == []
 
     def test_request_budget_caps_every_threshold_without_changing_config(
-        self, mock_pinot_config, mock_requests, native_query_response
+        self, mock_pinot_config, mock_native_http, native_query_response
     ):
         with patch("mcp_pinot.pinot_client.time.monotonic", return_value=10):
             PinotClient(mock_pinot_config).execute_query_with_metadata(
                 "SELECT id FROM test_table", timeout_seconds=10
             )
-        kwargs = mock_requests.post.call_args.kwargs
-        assert kwargs["timeout"] == (5, 5)
-        assert "timeoutMs=5000" in kwargs["json"]["queryOptions"]
+        request = mock_native_http.requests[0]
+        assert request.extensions["timeout"] == {
+            "connect": 5,
+            "read": 5,
+            "write": 5,
+            "pool": 5,
+        }
+        assert "timeoutMs=5000" in json.loads(request.content)["queryOptions"]
         assert mock_pinot_config.connection_timeout == 60
         assert mock_pinot_config.request_timeout == 60
         assert mock_pinot_config.query_timeout == 60
 
-    def test_expired_budget_does_not_submit(self, mock_pinot_config, mock_requests):
+    def test_expired_budget_does_not_submit(self, mock_pinot_config, mock_native_http):
         with (
             patch("mcp_pinot.pinot_client.time.monotonic", side_effect=[10, 13]),
             pytest.raises(requests.Timeout, match="before submission"),
@@ -1768,43 +1754,81 @@ class TestQueryExecutionEvidence:
             PinotClient(mock_pinot_config).execute_query_with_metadata(
                 "SELECT id FROM test_table", timeout_seconds=2
             )
-        mock_requests.post.assert_not_called()
+        assert mock_native_http.requests == []
 
-    def test_late_response_is_not_promoted(self, mock_pinot_config, mock_requests):
+    @pytest.mark.parametrize("setup_elapsed", [4.0, 11.0])
+    def test_client_setup_consumes_the_submission_budget(
+        self, mock_pinot_config, mock_native_http, native_query_response, setup_elapsed
+    ):
+        now = [10.0]
+        mock_native_http.setup_hook = lambda: now.__setitem__(0, 10.0 + setup_elapsed)
+        with patch("mcp_pinot.pinot_client.time.monotonic", side_effect=lambda: now[0]):
+            if setup_elapsed > 10:
+                with pytest.raises(requests.Timeout, match="before submission"):
+                    PinotClient(mock_pinot_config).execute_query_with_metadata(
+                        "SELECT id FROM test_table", timeout_seconds=10
+                    )
+                assert mock_native_http.requests == []
+            else:
+                PinotClient(mock_pinot_config).execute_query_with_metadata(
+                    "SELECT id FROM test_table", timeout_seconds=10
+                )
+                request = mock_native_http.requests[0]
+                assert request.extensions["timeout"] == {
+                    "connect": 3,
+                    "read": 3,
+                    "write": 3,
+                    "pool": 3,
+                }
+                assert "timeoutMs=3000" in json.loads(request.content)["queryOptions"]
+
+    @pytest.mark.parametrize("native_id", ["bad\nid", "x" * 129])
+    def test_sdk_ids_still_obey_mcp_presentation_bounds(
+        self, mock_pinot_config, native_query_response, native_id
+    ):
+        native_query_response["requestId"] = native_id
+        with pytest.raises(ValueError, match="malformed query execution"):
+            PinotClient(mock_pinot_config).execute_query_with_metadata(
+                "SELECT id FROM test_table"
+            )
+
+    def test_late_response_is_not_promoted(self, mock_pinot_config, mock_native_http):
         with (
-            patch("mcp_pinot.pinot_client.time.monotonic", side_effect=[10, 10, 12]),
+            patch(
+                "mcp_pinot.pinot_client.time.monotonic", side_effect=[10, 10, 10, 12]
+            ),
             pytest.raises(requests.Timeout, match="before response validation"),
         ):
             PinotClient(mock_pinot_config).execute_query_with_metadata(
                 "SELECT id FROM test_table", timeout_seconds=1
             )
-        mock_requests.post.assert_called_once()
+        assert len(mock_native_http.requests) == 1
 
     @pytest.mark.parametrize(
-        "error", [requests.ReadTimeout("late"), requests.ConnectionError("lost")]
+        "error", [httpx.ReadTimeout("late"), httpx.ConnectError("lost")]
     )
     def test_ambiguous_http_failure_never_retries_or_falls_back(
-        self, mock_pinot_config, error
+        self, mock_pinot_config, mock_native_http, error
     ):
         client = PinotClient(mock_pinot_config)
+        mock_native_http.error = error
         with (
-            patch("mcp_pinot.pinot_client.requests.post", side_effect=error) as post,
             patch.object(client, "execute_query_pinotdb") as fallback,
             pytest.raises(type(error)),
         ):
             client.execute_query_with_metadata("SELECT id FROM test_table")
-        post.assert_called_once()
+        assert len(mock_native_http.requests) == 1
         fallback.assert_not_called()
 
     @pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan"), True])
     def test_invalid_budget_is_rejected_before_http(
-        self, mock_pinot_config, mock_requests, timeout
+        self, mock_pinot_config, mock_native_http, timeout
     ):
         with pytest.raises(ValueError, match="positive finite"):
             PinotClient(mock_pinot_config).execute_query_with_metadata(
                 "SELECT id FROM test_table", timeout_seconds=timeout
             )
-        mock_requests.post.assert_not_called()
+        assert mock_native_http.requests == []
 
     def test_legacy_page_constructor_has_unknown_metadata(self):
         result = QueryResult(

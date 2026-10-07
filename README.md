@@ -76,6 +76,28 @@ write can still fail after a successful preview.
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@startreedata/mcp-pinot/badge" alt="StarTree Server for Apache Pinot MCP server" />
 </a>
 
+## Query execution evidence
+
+`read_query` returns the existing page fields plus `metadata`. For example,
+`{"query":"SELECT service, count(*) FROM events GROUP BY service","limit":20}`
+returns `metadata.completeness` as `complete`, `partial`, or `unknown`, along with
+native server counts, query ID, query SHA-256, and bounded execution statistics.
+Missing `resultTable` or required execution flags remains `unknown`. A partial
+server response or group limit remains `partial`; an empty page is not proof of
+healthy telemetry. Native `complete` describes this bounded SQL execution, not
+coverage of the incident window or the entire dataset. `row_limit_reached` is
+separate from execution completeness and paging.
+
+The MCP query path uses `pinotdb>=9.2.1` through `cursor.execute_native()` for
+submission and decoding. The SDK exposes full structured `query_statistics`;
+MCP projects bounded counters and safe execution evidence into the tool response.
+The path submits once and does not switch transports after an ambiguous failure.
+Its unique `clientQueryId` and `applicationName=mcp-pinot`
+allow correlation with supported Pinot broker query logs. Python integrations can
+call `execute_query_with_metadata(..., timeout_seconds=5)` to bound native and
+HTTP timeouts without modifying shared configuration. HTTP timeouts are
+inactivity limits; late results are rejected, but this is not native cancellation.
+
 ## Pinot MCP in Action
 
 See Pinot MCP in action below:

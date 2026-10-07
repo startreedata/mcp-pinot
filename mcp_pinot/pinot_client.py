@@ -2,23 +2,57 @@ import base64
 from fnmatch import fnmatch
 import hashlib
 import json
+import math
 import re
 from threading import Lock
+import time
 from typing import Any
 import unicodedata
 from urllib.parse import quote, unquote
+from uuid import uuid4
 
-from pinotdb import connect
+import httpx
+from pinotdb import DataError, NativeQueryResult, connect
 import requests
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
 from .config import PinotConfig, get_logger, reload_table_filters_from_file
+from .models import (
+    QueryEarlyTerminationReason,
+    QueryExecutionMetadata,
+    QueryExecutionResult,
+)
 
 logger = get_logger()
 
 MAX_QUERY_ROWS = 10_501
+_QUERY_STAT_FIELDS = (
+    "timeUsedMs",
+    "numDocsScanned",
+    "totalDocs",
+    "numEntriesScannedInFilter",
+    "numEntriesScannedPostFilter",
+    "numSegmentsQueried",
+    "numSegmentsProcessed",
+    "numSegmentsMatched",
+    "numConsumingSegmentsQueried",
+    "minConsumingFreshnessTimeMs",
+    "numRowsResultSet",
+    "offlineThreadCpuTimeNs",
+    "realtimeThreadCpuTimeNs",
+    "offlineSystemActivitiesCpuTimeNs",
+    "realtimeSystemActivitiesCpuTimeNs",
+    "offlineResponseSerializationCpuTimeNs",
+    "realtimeResponseSerializationCpuTimeNs",
+    "brokerReduceTimeMs",
+)
+_EARLY_TERMINATION_REASONS: dict[str, QueryEarlyTerminationReason] = {
+    "DISTINCT_MAX_ROWS": "DISTINCT_MAX_ROWS",
+    "DISTINCT_MAX_ROWS_WITHOUT_CHANGE": "DISTINCT_MAX_ROWS_WITHOUT_CHANGE",
+    "DISTINCT_MAX_EXECUTION_TIME": "DISTINCT_MAX_EXECUTION_TIME",
+}
 
 
 def get_auth_credentials(config: PinotConfig) -> tuple[str | None, str | None]:
@@ -538,12 +572,15 @@ class PinotClient:
         url: str,
         method: str = "GET",
         json_data: dict[str, Any] | None = None,
+        *,
+        timeout_seconds: float | None = None,
     ) -> requests.Response:
         """Make HTTP request with authentication headers and timeout handling"""
         is_controller = url.rstrip("/").startswith(
             self.config.controller_url.rstrip("/") + "/"
         )
         headers = self._create_auth_headers(controller=is_controller)
+        timeout = self._request_timeouts(timeout_seconds)
 
         try:
             if method.upper() == "POST":
@@ -551,20 +588,14 @@ class PinotClient:
                     url,
                     headers=headers,
                     json=json_data,
-                    timeout=(
-                        self.config.connection_timeout,
-                        self.config.request_timeout,
-                    ),
+                    timeout=timeout,
                     verify=True,
                 )
             else:
                 response = requests.get(
                     url,
                     headers=headers,
-                    timeout=(
-                        self.config.connection_timeout,
-                        self.config.request_timeout,
-                    ),
+                    timeout=timeout,
                     verify=True,
                 )
             response.raise_for_status()
@@ -575,6 +606,24 @@ class PinotClient:
         except Exception as e:
             logger.error(f"HTTP request failed for {url}: {e}")
             raise
+
+    def _request_timeouts(self, timeout_seconds: float | None) -> tuple[float, float]:
+        """Cap connection/read thresholds without changing shared configuration.
+
+        HTTP timeouts bound network inactivity, not native cancellation or a
+        wall-clock limit against a peer that continuously streams response bytes.
+        """
+        if timeout_seconds is None:
+            return self.config.connection_timeout, self.config.request_timeout
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("timeout_seconds must be a positive finite number.")
+        connect = min(self.config.connection_timeout, timeout_seconds / 2)
+        read = min(self.config.request_timeout, timeout_seconds - connect)
+        return connect, read
 
     def get_connection(self):
         """Get or create a reusable connection"""
@@ -594,7 +643,7 @@ class PinotClient:
         """Test connectivity the way the tools use it and return diagnostics.
 
         Each check runs independently and through the same code path as the tool it
-        stands in for — the query check via :meth:`execute_query` (what
+        stands in for — the query check via :meth:`execute_query_with_metadata` (what
         ``read_query`` uses) and the listing check via :meth:`get_tables` (what
         ``list_tables`` uses). An earlier version probed through the pinotdb DB-API
         connection instead, which no tool uses: against a broker whose response
@@ -634,9 +683,16 @@ class PinotClient:
         # proves the broker connection, so connection_test is derived from it
         # rather than from a separate client the tools never use.
         try:
-            result["query_result"] = self.execute_query(
+            execution = self.execute_query_with_metadata(
                 "SELECT 1 AS test_column", max_rows=1
             )
+            if (
+                execution.columns != ["test_column"]
+                or execution.rows != [{"test_column": 1}]
+                or type(execution.rows[0]["test_column"]) is not int
+            ):
+                raise ValueError("Pinot did not return the connection probe result.")
+            result["query_result"] = execution.rows
             result["connection_test"] = True
             result["query_test"] = True
         except Exception as e:
@@ -720,6 +776,153 @@ class PinotClient:
         else:
             logger.warning("No resultTable in response, returning empty result")
             return []
+
+    def execute_query_with_metadata(
+        self,
+        query: str,
+        max_rows: int = 501,
+        *,
+        timeout_seconds: float | None = None,
+        request_id: str | None = None,
+        application_name: str | None = None,
+    ) -> QueryExecutionResult:
+        """Execute bounded read-only SQL once, retaining native evidence.
+
+        Missing execution metadata remains unknown, and partial execution remains
+        partial even when rows exist. Complete execution is not proof that the SQL
+        covered an entire dataset or that its LIMIT did not omit rows. This path
+        never retries or falls back after an ambiguous submission.
+        """
+        self._request_timeouts(timeout_seconds)
+        deadline = (
+            time.monotonic() + timeout_seconds if timeout_seconds is not None else None
+        )
+        query = self.validate_read_query(query)
+        if type(max_rows) is not int or not 1 <= max_rows <= MAX_QUERY_ROWS:
+            raise ValueError(f"max_rows must be between 1 and {MAX_QUERY_ROWS}")
+        query = self._bound_read_query(query, max_rows)
+        self._validate_table_access(query)
+        request_id = request_id if request_id is not None else uuid4().hex
+        for value in (request_id, application_name):
+            if value is not None and (
+                not isinstance(value, str)
+                or re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", value) is None
+            ):
+                raise ValueError(
+                    "Query correlation values require 1-128 safe characters."
+                )
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining < 0.002:
+            raise requests.Timeout("Query budget expired before submission.")
+        # The SDK owns submission and native decoding. Use request-local state so
+        # concurrent calls cannot change credentials/options or probe the broker.
+        with httpx.Client(headers=self._create_auth_headers(), verify=True) as session:
+            with connect(
+                host=self.config.broker_host,
+                port=self.config.broker_port,
+                scheme=self.config.broker_scheme,
+                path="/query/sql",
+                session=session,
+            ) as cursor:
+                # Session/TLS setup consumes the same call budget as SQL work.
+                remaining = (
+                    deadline - time.monotonic() if deadline is not None else None
+                )
+                if remaining is not None and remaining < 0.002:
+                    raise requests.Timeout("Query budget expired before submission.")
+                connect_timeout, read_timeout = self._request_timeouts(remaining)
+                native_timeout_ms = int(
+                    min(self.config.query_timeout, read_timeout) * 1000
+                )
+                options = [
+                    f"timeoutMs={native_timeout_ms}",
+                    f"clientQueryId={request_id}",
+                ]
+                if self.config.use_msqe:
+                    options.append("useMultiStageEngine=true")
+                if application_name is not None:
+                    options.append(f"applicationName={application_name}")
+                timeout = httpx.Timeout(
+                    read_timeout,
+                    connect=connect_timeout,
+                    write=read_timeout,
+                    pool=connect_timeout,
+                )
+                try:
+                    native = cursor.execute_native(
+                        query,
+                        query_options=";".join(options),
+                        allow_partial=True,
+                        timeout=timeout,
+                    )
+                except DataError as exc:
+                    raise ValueError(
+                        "Pinot returned malformed query execution evidence."
+                    ) from exc
+        if deadline is not None and time.monotonic() >= deadline:
+            raise requests.Timeout("Query budget expired before response validation.")
+        bound = int(
+            sqlglot.parse_one(query, read="trino").args["limit"].expression.this
+        )
+        result = self._project_native_result(native, request_id, bound)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise requests.Timeout("Query budget expired during response validation.")
+        return result
+
+    @staticmethod
+    def _project_native_result(
+        native: NativeQueryResult, request_id: str, row_bound: int
+    ) -> QueryExecutionResult:
+        """Project SDK evidence into a bounded, payload-safe MCP response."""
+        if native.exceptions:
+            raise ValueError(
+                "Pinot rejected the SQL query. Check table and column names, "
+                "function arguments, and query syntax."
+            )
+        if len(native.rows) > row_bound:
+            raise ValueError("Pinot exceeded the bounded query row limit.")
+        if len(set(native.columns)) != len(native.columns):
+            raise ValueError("Use unique SQL column aliases for the MCP row objects.")
+        metadata = native.metadata
+        native_id = metadata.native_query_id
+        if native_id is not None and (
+            len(str(native_id)) > 128 or any(ord(char) < 32 for char in str(native_id))
+        ):
+            raise ValueError("Pinot returned malformed query execution evidence.")
+        safe_reasons = sorted(
+            {
+                _EARLY_TERMINATION_REASONS.get(reason, "UNRECOGNIZED_NATIVE_REASON")
+                for reason in metadata.early_termination_reasons
+            }
+        )
+        # The SDK retains full statistics; agent context gets a bounded projection.
+        statistics = {}
+        for key, value in native.query_statistics.items():
+            if key in _QUERY_STAT_FIELDS:
+                if type(value) not in (int, float) or not math.isfinite(value):
+                    raise ValueError(
+                        "Pinot returned malformed query execution evidence."
+                    )
+                statistics[key] = value
+        return QueryExecutionResult(
+            columns=native.columns,
+            rows=[dict(zip(native.columns, row, strict=True)) for row in native.rows],
+            metadata=QueryExecutionMetadata(
+                completeness=metadata.completeness,
+                request_id=request_id,
+                native_query_id=metadata.native_query_id,
+                query_sha256=metadata.query_sha256,
+                servers_queried=metadata.servers_queried,
+                servers_responded=metadata.servers_responded,
+                partial_result=metadata.partial_result,
+                execution_limit_reached=metadata.execution_limit_reached,
+                execution_limit_flags=metadata.execution_limit_flags,
+                early_termination_reasons=safe_reasons,
+                row_limit_reached=len(native.rows) >= row_bound,
+                native_stats=statistics,
+                unknown_reasons=metadata.unknown_reasons,
+            ),
+        )
 
     def execute_query(
         self,

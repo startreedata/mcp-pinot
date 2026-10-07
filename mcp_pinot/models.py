@@ -112,6 +112,61 @@ class TableConfigInput(BaseModel):
     )
 
 
+QueryExecutionLimitName = Literal[
+    "numGroupsLimitReached",
+    "maxRowsInJoinReached",
+    "maxRowsInWindowReached",
+    "mseLiteLeafStageLimitReached",
+    "maxRowsInDistinctReached",
+    "maxRowsWithoutChangeInDistinctReached",
+    "maxExecutionTimeInDistinctReached",
+]
+QueryEarlyTerminationReason = Literal[
+    "DISTINCT_MAX_ROWS",
+    "DISTINCT_MAX_ROWS_WITHOUT_CHANGE",
+    "DISTINCT_MAX_EXECUTION_TIME",
+    "UNRECOGNIZED_NATIVE_REASON",
+]
+
+
+class QueryExecutionMetadata(BaseModel):
+    """Native execution evidence, independently of paging or dataset coverage."""
+
+    model_config = ConfigDict(strict=True)
+
+    completeness: Literal["complete", "partial", "unknown"] = "unknown"
+    request_id: str | None = None
+    native_query_id: int | str | None = None
+    query_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    servers_queried: int | None = Field(default=None, ge=0)
+    servers_responded: int | None = Field(default=None, ge=0)
+    partial_result: bool | None = None
+    execution_limit_reached: bool | None = Field(
+        default=None,
+        description="Any reported native execution limit or early termination.",
+    )
+    execution_limit_flags: dict[QueryExecutionLimitName, bool] = Field(
+        default_factory=dict, max_length=7
+    )
+    early_termination_reasons: list[QueryEarlyTerminationReason] = Field(
+        default_factory=list, max_length=4
+    )
+    row_limit_reached: bool = Field(
+        default=False,
+        description="The bounded SQL returned its row limit; not proof of more rows.",
+    )
+    native_stats: dict[str, int | float] = Field(default_factory=dict, max_length=32)
+    unknown_reasons: list[str] = Field(default_factory=list)
+
+
+class QueryExecutionResult(BaseModel):
+    """Validated bounded rows and the broker's execution evidence."""
+
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: QueryExecutionMetadata = Field(default_factory=QueryExecutionMetadata)
+
+
 class QueryResult(BaseModel):
     """A page of rows produced by a read-only SQL query."""
 
@@ -136,6 +191,12 @@ class QueryResult(BaseModel):
     truncated: bool = Field(
         default=False,
         description="True when the server-enforced fetch bound truncated the result.",
+    )
+    metadata: QueryExecutionMetadata = Field(
+        default_factory=QueryExecutionMetadata,
+        description=(
+            "Execution evidence; complete execution does not imply dataset coverage."
+        ),
     )
 
 

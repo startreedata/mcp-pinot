@@ -28,7 +28,7 @@ startCommand:
   commandFunction: |-
     (config) => ({
       command: "uvx",
-      args: ["--from", "mcp-pinot-server", "mcp-pinot"],
+      args: ["--python", "3.12", "--from", "mcp-pinot-server", "mcp-pinot"],
       env: {
         MCP_TRANSPORT: "stdio",
         PINOT_CONTROLLER_URL: config.pinotControllerUrl,

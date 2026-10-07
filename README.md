@@ -88,7 +88,7 @@ healthy telemetry. Native `complete` describes this bounded SQL execution, not
 coverage of the incident window or the entire dataset. `row_limit_reached` is
 separate from execution completeness and paging.
 
-The MCP query path uses `pinotdb>=9.2.0` through `cursor.execute_native()` for
+The MCP query path uses `pinotdb>=9.2.1` through `cursor.execute_native()` for
 submission and decoding. The SDK exposes full structured `query_statistics`;
 MCP projects bounded counters and safe execution evidence into the tool response.
 The path submits once and does not switch transports after an ambiguous failure.

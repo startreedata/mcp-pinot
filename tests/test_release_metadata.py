@@ -255,7 +255,7 @@ def test_registry_and_release_metadata_are_publishable_and_pinned() -> None:
         for dependency in project["project"]["dependencies"]
         if dependency.startswith("pinotdb")
     )
-    assert ">=9.2.0" in pinotdb and "<10" in pinotdb
+    assert ">=9.2.1" in pinotdb and "<10" in pinotdb
     assert '"4.0.0"' not in (ROOT / "mcp_pinot/__init__.py").read_text(encoding="utf-8")
 
 

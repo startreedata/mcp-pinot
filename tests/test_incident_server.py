@@ -7,11 +7,14 @@ from unittest.mock import patch
 
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+import httpx
 import pytest
 import sqlglot
 
+from mcp_pinot.config import PinotConfig
 from mcp_pinot.incidents import IncidentProfile, IncidentService
 from mcp_pinot.models import QueryExecutionMetadata, QueryExecutionResult
+from mcp_pinot.pinot_client import PinotClient
 import mcp_pinot.server as server
 
 
@@ -284,4 +287,115 @@ def test_incident_callback_passes_remaining_budget_and_native_correlation():
             timeout_seconds=3.5,
             request_id="abc123",
             application_name="mcp-pinot-incident",
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response_kind,completeness,complete",
+    [
+        ("complete", "complete", True),
+        ("partial", "partial", False),
+        ("unknown", "unknown", False),
+        ("timeout", "unknown", False),
+    ],
+)
+async def test_native_incident_evidence_matches_tool_request_metadata(
+    monkeypatch, response_kind, completeness, complete
+):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        if response_kind == "timeout":
+            raise httpx.ReadTimeout("private transport failure", request=request)
+        body = json.loads(request.content)
+        columns = sqlglot.parse_one(body["sql"], read="trino").named_selects
+        payload = {
+            "resultTable": {
+                "dataSchema": {
+                    "columnNames": columns,
+                    "columnDataTypes": ["STRING"] * len(columns),
+                },
+                "rows": [],
+            },
+            "exceptions": [],
+            "numServersQueried": 2 if response_kind == "partial" else 1,
+            "numServersResponded": 1,
+            "numGroupsLimitReached": False,
+            "requestId": "broker-17",
+        }
+        if response_kind == "unknown":
+            payload.pop("numGroupsLimitReached")
+        return httpx.Response(200, json=payload)
+
+    original_client = httpx.Client
+
+    class NativeTestClient(original_client):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(handle), **kwargs)
+
+    monkeypatch.setattr("mcp_pinot.pinot_client.httpx.Client", NativeTestClient)
+    native = PinotClient(
+        PinotConfig(
+            controller_url="http://controller",
+            broker_host="broker",
+            broker_port=8099,
+            broker_scheme="http",
+            username=None,
+            password=None,
+            token=None,
+            database="",
+            use_msqe=False,
+        )
+    )
+    configured = IncidentService(
+        {
+            "demo": IncidentProfile(
+                table="events",
+                tenant_value="tenant-a",
+                authorized_principals=["local"],
+            )
+        },
+        server._execute_incident_query,
+        wall_clock=lambda: 1000,
+    )
+    monkeypatch.setattr(server, "pinot_client", native)
+    monkeypatch.setattr(server, "_incident_service", configured)
+    async with Client(server.mcp) as client:
+        opened = await client.call_tool(
+            "begin_investigation",
+            {
+                "profile_id": "demo",
+                "service": "api",
+                "baseline_start_ms": 100,
+                "start_ms": 200,
+                "end_ms": 300,
+            },
+        )
+        result = await client.call_tool(
+            "query_incident",
+            {"run_id": opened.structured_content["run_id"], "kind": "incident"},
+        )
+
+    assert len(requests) == 1
+    body = json.loads(requests[0].content)
+    options = dict(part.split("=", 1) for part in body["queryOptions"].split(";"))
+    envelope = result.meta["io.github.startreedata/mcp-pinot"]
+    assert options["clientQueryId"] == envelope["request_id"]
+    assert options["applicationName"] == "mcp-pinot-incident"
+    evidence = result.structured_content
+    # The tool successfully retains evidence even when native execution failed.
+    assert result.is_error is False
+    assert envelope["status"] == "success"
+    assert evidence["complete"] is complete
+    assert evidence["metadata"]["completeness"] == completeness
+    assert bool(evidence["error"]) is not complete
+    assert "private transport failure" not in json.dumps(evidence)
+    if response_kind != "timeout":
+        assert evidence["metadata"]["request_id"] == envelope["request_id"]
+        assert evidence["metadata"]["native_query_id"] == "broker-17"
+        assert (
+            evidence["metadata"]["query_sha256"]
+            == hashlib.sha256(body["sql"].encode()).hexdigest()
         )

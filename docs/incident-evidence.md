@@ -36,7 +36,7 @@ import time
 
 from fastmcp import Client
 
-async def collect(client: Client):
+async def collect(client: Client, trace_id: str | None = None):
     end = int(time.time() * 1000)
     opened = await client.call_tool("begin_investigation", {
         "profile_id": "local-demo", "service": "checkout",
@@ -44,32 +44,60 @@ async def collect(client: Client):
         "start_ms": end - 10 * 60_000, "end_ms": end,
     })
     run_id = opened.structured_content["run_id"]
-    evidence = await client.call_tool("query_incident", {
-        "run_id": run_id, "kind": "incident",
+    requests = [("query_incident", {"kind": kind})
+                for kind in ("baseline", "incident", "watermark", "changes")]
+    if trace_id is not None:  # An exact trace ID already observed in scoped telemetry.
+        requests.append(("get_trace", {"trace_id": trace_id}))
+    records, timings = [], []
+    for tool, arguments in requests:
+        response = await client.call_tool(tool, {"run_id": run_id, **arguments})
+        record = response.structured_content
+        records.append(record)
+        timings.append(response.meta["io.github.startreedata/mcp-pinot"])
+        if not record["complete"]:
+            break
+    incomplete = any(not record["complete"] for record in records)
+    finished = await client.call_tool("finish_investigation", {
+        "run_id": run_id,
+        "citations": [record["evidence_id"] for record in records],
+        "status": "incomplete" if incomplete else "abstained",
+        "reason": ("Evidence execution was incomplete, unknown, or truncated."
+                   if incomplete else "Coverage and cause remain unvalidated."),
     })
-    record = evidence.structured_content
-    if not record["complete"]:
-        return await client.call_tool("finish_investigation", {
-            "run_id": run_id, "citations": [record["evidence_id"]],
-            "status": "incomplete", "reason": "Native execution was incomplete.",
-        })
-    # This is an explicitly unverified hypothesis, even with complete execution.
-    return await client.call_tool("finish_investigation", {
-        "run_id": run_id, "citations": [record["evidence_id"]],
-        "status": "proposed", "hypothesis": {
-            "kind": "deployment", "service": "checkout", "version": "candidate-v2",
-        },
-    })
+    return {"finish": finished.structured_content,
+            "evidence": records, "timings": timings}
 ```
 
-Additional queries use `kind=baseline|watermark|changes|onset`; onset requires
-candidate `service` and `version` and accepts an optional `zone`. Call `get_trace`
-with `run_id` and a scoped `trace_id` to retrieve recorded span/parent-span rows.
+Call `collect` inside an existing FastMCP `Client` session. This example collects
+execution evidence and abstains from a causal claim. `complete=true` qualifies
+only that bounded SQL execution; an empty watermark result or a recent watermark
+alone does not prove continuous coverage of every service in the incident window.
+The baseline and incident aggregations cover services in the tenant/window;
+the service passed to `begin_investigation` identifies the investigation target.
+
+An additional `kind="onset"` query requires a `candidate` with hypothesis `kind`,
+`service`, and `version`, and accepts an optional `zone`. Choose these from actual
+evidence. `get_trace` uses `run_id` and an exact scoped `trace_id` to retrieve
+recorded span/parent-span rows; it does not discover trace IDs or infer causality.
 Every query uses fixed tenant/time predicates and produces an immutable evidence
 ID and SHA-256. `finish_investigation` accepts only authentic citations from the
 same run and owner. Complete citations are required for `proposed`/`abstained`;
-`incomplete` requires a reason. Pending queries prevent finish, and finish closes
-once. Failed attempts consume query budget and remain visible as failed evidence.
+`proposed` also requires an explicitly unverified `hypothesis`, while `incomplete`
+requires a reason. Pending queries prevent finish, and finish closes once. Failed
+attempts consume query budget and remain visible as failed evidence. An expired
+run cannot be finished; preserve received evidence rather than retrying it blindly.
+
+All four tools expose the response timing envelope through `response.meta`
+(wire `_meta`). For `query_incident` and `get_trace`, its `request_id` is submitted
+as the native `clientQueryId` and matches `metadata.request_id` when native
+execution metadata is retained. Query failures can leave native IDs unknown;
+use the envelope ID for optional history lookup. The query uses
+`applicationName=mcp-pinot-incident` for correlation where history/logs are configured.
+Inspect MCP `queue_wait_ms` separately from `metadata.native_stats.timeUsedMs`
+when present. Admitted `execution_ms` includes SDK HTTP work and validation;
+`status="success"` does not imply `record["complete"]` or dataset coverage.
+Forward timings and evidence to the agent if its host hides protocol metadata;
+query-history/log access is optional. See the [response timing guide](../README.md#query-execution-evidence).
 
 Runs have a monotonic total deadline plus inflight, query, per-response and total
 retained row/byte limits. SQL requests use the remaining deadline, and late
@@ -77,8 +105,10 @@ responses cannot qualify. HTTP timeouts are inactivity limits, not cancellation;
 inflight permits remain held until native callbacks return. A runaway broker can
 therefore still occupy a process worker after expiry. Overflow evidence is
 marked incomplete and its rows are discarded. Global MCP response limits also
-apply to the serialized tool envelope; choose profile byte limits below that
-limit to leave room for MCP text and structured copies.
+apply to the serialized tool payload before the bounded timing metadata is added;
+choose profile byte limits below that limit to leave room for MCP text and
+structured copies. The example uses a 64 KiB per-evidence and 256 KiB total
+retention budget; adapt these and the row limits to your deployment.
 
 State is bounded, in memory, and local to one process. Restart invalidates run
 IDs; multiple replicas require sticky routing and still lose runs on restart.

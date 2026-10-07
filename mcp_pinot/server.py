@@ -173,7 +173,8 @@ class _SchemaPreservingResponseLimitMiddleware(Middleware):
     limiter may replace structured output with truncated text. Pinot tools rely on
     those schemas for safe agent planning, so preserve the advertised contract and
     return an actionable error when a caller requests more data than the configured
-    response budget can carry.
+    response budget can carry. The limit applies before the bounded timing envelope
+    is added by the outer audit middleware.
     """
 
     def __init__(self, max_size: int) -> None:

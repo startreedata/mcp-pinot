@@ -9,12 +9,17 @@ import time
 from typing import Any
 from uuid import uuid4
 
+from fastmcp.exceptions import DisabledError, FastMCPError, NotFoundError
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.server.middleware.rate_limiting import RateLimitError
+from fastmcp.tools import ToolResult
+from mcp.types import CallToolResult, TextContent
 
 from mcp_pinot.config import get_logger
 
 logger = get_logger()
+_META_KEY = "io.github.startreedata/mcp-pinot"
 
 
 @dataclass
@@ -58,7 +63,7 @@ class ConcurrencyMiddleware(Middleware):
 
 
 class AuditMiddleware(Middleware):
-    """Measure the entire tool pipeline without logging arguments or results."""
+    """Expose safe tool timings and audit the pipeline without logging payloads."""
 
     async def on_call_tool(
         self, context: MiddlewareContext[Any], call_next: CallNext[Any, Any]
@@ -66,6 +71,7 @@ class AuditMiddleware(Middleware):
         record = _Invocation(request_id=uuid4().hex, started=time.monotonic())
         context_token = _invocation.set(record)
         principal_id, tool_name, status = "unknown", "unknown", "success"
+        rate_error: RateLimitError | None = None
         try:
             access_token = get_access_token()
             claims = getattr(access_token, "claims", {}) or {}
@@ -77,10 +83,30 @@ class AuditMiddleware(Middleware):
             result = await call_next(context)
             if getattr(result, "is_error", False) is True:
                 status = "error"
-            return result
         except asyncio.CancelledError:
             status = "cancelled"
             raise
+        except RateLimitError as exc:
+            status = "error"
+            rate_error = exc
+            raise
+        except (DisabledError, NotFoundError):
+            status = "error"
+            result = ToolResult(
+                content=[
+                    TextContent(
+                        type="text", text=f"Unknown tool: {context.message.name!r}"
+                    )
+                ],
+                is_error=True,
+            )
+        except FastMCPError as exc:
+            # FastMCP has already masked internal tool errors. Preserve the same
+            # error content as its protocol adapter while adding response metadata.
+            status = "error"
+            result = ToolResult(
+                content=[TextContent(type="text", text=str(exc))], is_error=True
+            )
         except Exception:
             status = "error"
             raise
@@ -98,7 +124,21 @@ class AuditMiddleware(Middleware):
                 if record.admitted is not None
                 else 0
             )
+            metadata = {
+                "request_id": record.request_id,
+                "status": status,
+                "duration_ms": int((ended - record.started) * 1000),
+                "queue_wait_ms": int(queue_wait * 1000),
+                "execution_ms": int(execution * 1000),
+                "admitted": record.admitted is not None,
+            }
             _invocation.reset(context_token)
+            if rate_error is not None:
+                # Preserve the JSON-RPC rate-limit error instead of changing it
+                # into a tool result. The client receives the same timing envelope.
+                rate_error.error = rate_error.error.model_copy(
+                    update={"data": {"_meta": {_META_KEY: metadata}}}
+                )
             logger.info(
                 "mcp_audit request_id=%s principal_id=%s tool=%s status=%s "
                 "duration_ms=%d queue_wait_ms=%d execution_ms=%d admitted=%s",
@@ -106,8 +146,22 @@ class AuditMiddleware(Middleware):
                 principal_id,
                 tool_name,
                 status,
-                int((ended - record.started) * 1000),
-                int(queue_wait * 1000),
-                int(execution * 1000),
+                metadata["duration_ms"],
+                metadata["queue_wait_ms"],
+                metadata["execution_ms"],
                 str(record.admitted is not None).lower(),
             )
+        if isinstance(result, ToolResult):
+            wire_result = result.to_mcp_result()
+            if isinstance(wire_result, CallToolResult):
+                return ToolResult.from_mcp_result(
+                    wire_result.model_copy(
+                        update={
+                            "meta": {**(wire_result.meta or {}), _META_KEY: metadata}
+                        }
+                    )
+                )
+            return result.model_copy(
+                update={"meta": {**(result.meta or {}), _META_KEY: metadata}}
+            )
+        return result

@@ -92,19 +92,70 @@ The MCP query path uses `pinotdb>=9.2.1` through `cursor.execute_native()` for
 submission and decoding. The SDK exposes full structured `query_statistics`;
 MCP projects bounded counters and safe execution evidence into the tool response.
 The path submits once and does not switch transports after an ambiguous failure.
-Its unique `clientQueryId` and `applicationName=mcp-pinot`
-allow correlation with supported Pinot broker query logs. Python integrations can
+Its unique `clientQueryId` and `applicationName=mcp-pinot` support optional
+correlation with query history or broker logs when available. Python integrations can
 call `execute_query_with_metadata(..., timeout_seconds=5)` to bound native and
 HTTP timeouts without modifying shared configuration. HTTP timeouts are
 inactivity limits; late results are rejected, but this is not native cancellation.
 
-Tool audit events use the same server-generated `request_id` as the query
-metadata/native `clientQueryId`. They record `queue_wait_ms`, `execution_ms`, total
-`duration_ms`, admission, and success/error/cancellation status. The audit scope
-includes rate-limit rejection, semaphore waiting, and response-limit failures;
-execution time covers admitted tool work. Logs contain no tool arguments, SQL,
-rows, or bearer tokens, and principal identifiers are hashed. These timings do
-not measure model reasoning or first-token latency.
+Tool results, including tool errors, include timing evidence in the standard
+MCP response `_meta["io.github.startreedata/mcp-pinot"]`. Existing tool data and
+output schemas are preserved. For example, this response metadata fragment
+requires no log access:
+
+```json
+{
+  "_meta": {
+    "io.github.startreedata/mcp-pinot": {
+      "request_id": "38cb1444b20c446a96bc272531f34518",
+      "status": "success",
+      "admitted": true,
+      "queue_wait_ms": 12,
+      "execution_ms": 84,
+      "duration_ms": 97
+    }
+  }
+}
+```
+
+MCP rate-limit protocol errors preserve their JSON-RPC code and message and carry
+the same envelope in `error.data._meta["io.github.startreedata/mcp-pinot"]`.
+Other transport/protocol failures or cancellation may not produce a tool result.
+
+With `MCP_TRANSPORT=http` on the default port 8080, a FastMCP Python client reads
+wire `_meta` through `result.meta`. `call_tool_mcp` also returns tool errors:
+
+```python
+from fastmcp import Client
+async def read_timing():
+    async with Client("http://localhost:8080/mcp") as client:
+        result = await client.call_tool_mcp("read_query", {"query": "SELECT 1"})
+        return result.meta["io.github.startreedata/mcp-pinot"]
+```
+
+Orchestrators should read `.meta` and forward this evidence to the agent when the
+host does not automatically surface protocol metadata.
+
+`queue_wait_ms` measures only waiting for the MCP concurrency semaphore.
+`execution_ms` measures the admitted MCP tool pipeline, including SDK HTTP work
+and validation; `admitted=false` means that pipeline never started. `duration_ms`
+covers the server's tool invocation, including admission checks, and excludes
+model reasoning and client delivery. `status` is `success` or `error` for the MCP
+outcome; for `read_query`, separately inspect `metadata.completeness`.
+
+An agent can use `queue_wait_ms` to identify MCP admission delay, then inspect
+`read_query`'s `metadata.native_stats.timeUsedMs` for Pinot's native query duration
+when present. Native query time overlaps `execution_ms`; their different timer
+boundaries do not support exact network-overhead subtraction. The shared
+`request_id` also appears in query metadata and native `clientQueryId`, enabling
+optional history/log correlation when more context is needed.
+
+Response timing metadata contains no secrets, principal identifiers, tool
+arguments, SQL, or rows. Audit logs record the same timings with hashed principal
+identifiers. `MCP_MAX_RESPONSE_BYTES` limits the tool payload before this bounded
+timing envelope is added; it excludes the added observability metadata.
+Cancellation is audit-only when no response is returned and does not prove that
+Pinot execution stopped.
 
 ## Pinot MCP in Action
 

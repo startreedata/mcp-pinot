@@ -15,6 +15,8 @@ Profile configuration is read once at startup, validates unknown fields and
 identifiers, and is never supplied by a tool caller. Existing Pinot table filters
 and service-credential authorization still apply. These profiles scope incident
 tools; they do not change the authorization of general-purpose `read_query`.
+Table components may include hyphens or start with digits, such as
+`checkout-events` or `observability.2026_events`; generated SQL quotes each component.
 
 For Docker, build the current checkout, mount the policy read-only, and pass its
 container path after the image. The entrypoint preserves paths with spaces:
@@ -154,7 +156,14 @@ configured profile's mandatory failure evidence, including full SQL and the
 maximum bounded candidate/trace values. Each admitted query reserves space for
 its failure record before Pinot submission; when the remaining budget cannot
 hold that record, admission fails without executing or charging another query.
-Closed or expired runs release capacity once their in-flight work has returned.
+Closed or expired runs release capacity after their pending queries and finish
+verification have returned.
+The service also caps retained evidence and in-flight failure reservations across
+all runs at 64 MiB per process. When this shared budget is exhausted, queries are
+rejected before Pinot submission or their returned rows are discarded to retain
+a bounded incomplete record. Finishing verifies evidence outside the service
+lock; queries and duplicate finishes on that same run are rejected during
+verification, while other runs can continue.
 SQL requests use the remaining deadline, and late
 responses cannot qualify. HTTP timeouts are inactivity limits, not cancellation;
 inflight permits remain held until native callbacks return. A runaway broker can

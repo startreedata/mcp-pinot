@@ -101,6 +101,11 @@ def begin(s: IncidentService, **kwargs: Any) -> str:
     [
         {"table": "x; DROP TABLE y"},
         {"table": "a.b.c"},
+        {"table": "a."},
+        {"table": "a b"},
+        {"table": 'a"b'},
+        {"table": "a" * 129},
+        {"table": "a." + "b" * 129},
         {"service_column": 'service" OR TRUE'},
         {"tenant_value": "\x00"},
         {"authorized_principals": ["*"]},
@@ -118,6 +123,13 @@ def begin(s: IncidentService, **kwargs: Any) -> str:
 def test_profile_rejects_unsafe_or_unbounded_policy(updates: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         profile(**updates)
+
+
+@pytest.mark.parametrize(
+    "table", ["1" + "a" * 127, "obs-" + "a" * 124 + "." + "9" + "b" * 127]
+)
+def test_profile_accepts_supported_table_components_at_length_bound(table: str) -> None:
+    assert profile(table=table).table == table
 
 
 def test_profile_snapshot_is_not_mutated_by_owner() -> None:
@@ -582,3 +594,265 @@ def test_detailed_native_limits_override_contradictory_aggregate(
     }
     evidence = s.query(begin(s), "incident", principal="alice")
     assert not evidence.complete and evidence.error
+
+
+def test_finish_integrity_scan_does_not_block_other_run_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native_entered, release_native = Event(), Event()
+    scan_entered, release_scan = Event(), Event()
+
+    def query(
+        sql: str, *, max_rows: int, timeout_seconds: float
+    ) -> QueryExecutionResult:
+        if '"eventTs" < 5000' in sql:
+            native_entered.set()
+            assert release_native.wait(timeout=5)
+        return result(sql)
+
+    s = IncidentService(
+        {"checkout": profile()}, query, clock=Clock(), wall_clock=lambda: 10.0
+    )
+    run, other = begin(s), begin(s)
+    evidence = s.query(run, "incident", principal="alice")
+    serialize = IncidentEvidence.model_dump
+
+    def blocked_scan(self: IncidentEvidence, *args: Any, **kwargs: Any) -> Any:
+        if self.run_id == run:
+            scan_entered.set()
+            assert release_scan.wait(timeout=5)
+        return serialize(self, *args, **kwargs)
+
+    monkeypatch.setattr(IncidentEvidence, "model_dump", blocked_scan)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        other_query = pool.submit(s.query, other, "baseline", principal="alice")
+        try:
+            assert native_entered.wait(timeout=5)
+            finish = pool.submit(
+                s.finish,
+                run,
+                [evidence.evidence_id],
+                status="abstained",
+                principal="alice",
+            )
+            assert scan_entered.wait(timeout=5)
+            release_native.set()
+            assert other_query.result(timeout=2).complete
+            with pytest.raises(ValueError, match="finishing"):
+                s.query(run, "incident", principal="alice")
+            with pytest.raises(ValueError, match="finishing"):
+                s.finish(
+                    run, [evidence.evidence_id], status="abstained", principal="alice"
+                )
+        finally:
+            release_native.set()
+            release_scan.set()
+        assert finish.result(timeout=5).query_count == 1
+    with pytest.raises(ValueError, match="closed"):
+        s.finish(run, [evidence.evidence_id], status="abstained", principal="alice")
+
+
+@pytest.mark.parametrize("limit", [True, 1023, 67108865])
+def test_global_byte_budget_requires_a_bounded_integer(limit: Any) -> None:
+    with pytest.raises(ValueError, match="max_retained_bytes"):
+        service(max_retained_bytes=limit)
+
+
+def test_global_byte_budget_must_fit_enabled_query_failures() -> None:
+    with pytest.raises(ValueError, match="byte budgets"):
+        service(max_retained_bytes=1024)
+
+
+def test_global_byte_budget_bounds_multiple_runs_before_native_submission() -> None:
+    s, broker, _ = service(max_retained_bytes=8192)
+    broker.rows = [
+        {
+            "service": "x" * 5000,
+            "version": "v",
+            "zone": "z",
+            "errorClass": "ok",
+            "count": 1,
+        }
+    ]
+    first = s.query(begin(s), "incident", principal="alice")
+    second = s.query(begin(s), "incident", principal="alice")
+    assert first.complete and not second.complete
+    assert (
+        sum(len(record.model_dump_json().encode()) for record in (first, second))
+        <= 8192
+    )
+    run = begin(s)
+    before = len(broker.calls)
+    with pytest.raises(ValueError, match="retained-evidence budget"):
+        s.query(run, "incident", principal="alice")
+    assert len(broker.calls) == before
+    finished = s.finish(
+        run, [], status="incomplete", reason="global byte budget", principal="alice"
+    )
+    assert finished.query_count == 0
+
+
+def test_global_concurrent_queries_reserve_failure_evidence_across_runs() -> None:
+    entered = Barrier(3)
+
+    def query(
+        sql: str, *, max_rows: int, timeout_seconds: float
+    ) -> QueryExecutionResult:
+        entered.wait(timeout=5)
+        return result(
+            sql,
+            [
+                {
+                    "service": "x" * 6500,
+                    "version": "v",
+                    "zone": "z",
+                    "errorClass": "ok",
+                    "count": 1,
+                }
+            ],
+        )
+
+    s = IncidentService(
+        {"checkout": profile()},
+        query,
+        max_retained_bytes=8192,
+        clock=Clock(),
+        wall_clock=lambda: 10.0,
+    )
+    runs = [begin(s), begin(s)]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(s.query, run, "incident", principal="alice") for run in runs
+        ]
+        entered.wait(timeout=5)
+        evidence = [future.result(timeout=5) for future in futures]
+    assert any(not record.complete for record in evidence)
+    assert sum(len(record.model_dump_json().encode()) for record in evidence) <= 8192
+    for run, record in zip(runs, evidence, strict=True):
+        finished = s.finish(
+            run,
+            [record.evidence_id],
+            status="incomplete",
+            reason="global byte budget",
+            principal="alice",
+        )
+        assert finished.query_count == 1
+        assert finished.citations == {record.evidence_id: record.sha256}
+
+
+@pytest.mark.parametrize("closed", [False, True])
+def test_global_byte_budget_cleanup_releases_closed_or_expired_runs(
+    closed: bool,
+) -> None:
+    s, broker, clock = service(max_retained_bytes=8192)
+    broker.rows = [
+        {
+            "service": "x" * 6500,
+            "version": "v",
+            "zone": "z",
+            "errorClass": "ok",
+            "count": 1,
+        }
+    ]
+    first = begin(s)
+    evidence = s.query(first, "incident", principal="alice")
+    assert evidence.complete
+    clock.now += 10
+    other = begin(s)
+    before = len(broker.calls)
+    with pytest.raises(ValueError, match="retained-evidence budget"):
+        s.query(other, "incident", principal="alice")
+    assert len(broker.calls) == before
+    if closed:
+        s.finish(first, [evidence.evidence_id], status="abstained", principal="alice")
+    else:
+        clock.now = 155.0
+    assert s.query(other, "incident", principal="alice").complete
+
+
+def test_global_byte_budget_preserves_expired_run_during_finish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    s, broker, clock = service(max_retained_bytes=8192)
+    broker.rows = [
+        {
+            "service": "x" * 6500,
+            "version": "v",
+            "zone": "z",
+            "errorClass": "ok",
+            "count": 1,
+        }
+    ]
+    run = begin(s)
+    evidence = s.query(run, "incident", principal="alice")
+    entered, release = Event(), Event()
+    serialize = IncidentEvidence.model_dump
+
+    def blocked_scan(self: IncidentEvidence, *args: Any, **kwargs: Any) -> Any:
+        if self.evidence_id == evidence.evidence_id:
+            entered.set()
+            assert release.wait(timeout=5)
+        return serialize(self, *args, **kwargs)
+
+    monkeypatch.setattr(IncidentEvidence, "model_dump", blocked_scan)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        finish = pool.submit(
+            s.finish, run, [evidence.evidence_id], status="abstained", principal="alice"
+        )
+        try:
+            assert entered.wait(timeout=5)
+            clock.now += 55
+            other = begin(s)
+            before = len(broker.calls)
+            with pytest.raises(ValueError, match="retained-evidence budget"):
+                s.query(other, "incident", principal="alice")
+            assert len(broker.calls) == before
+        finally:
+            release.set()
+        with pytest.raises(ValueError, match="expired"):
+            finish.result(timeout=5)
+    assert s.query(other, "incident", principal="alice").complete
+
+
+def test_global_reservation_releases_after_snapshot_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    returned = Event()
+
+    def query(
+        sql: str, *, max_rows: int, timeout_seconds: float
+    ) -> QueryExecutionResult:
+        returned.set()
+        return result(
+            sql,
+            [
+                {
+                    "service": "x" * 6500,
+                    "version": "v",
+                    "zone": "z",
+                    "errorClass": "ok",
+                    "count": 1,
+                }
+            ],
+        )
+
+    s = IncidentService(
+        {"checkout": profile()},
+        query,
+        max_retained_bytes=8192,
+        clock=Clock(),
+        wall_clock=lambda: 10.0,
+    )
+    run, other = begin(s), begin(s)
+    serialize = IncidentEvidence.model_dump_json
+
+    def failed_snapshot(self: IncidentEvidence, *args: Any, **kwargs: Any) -> str:
+        if returned.is_set():
+            raise RuntimeError("snapshot unavailable")
+        return serialize(self, *args, **kwargs)
+
+    with monkeypatch.context() as context:
+        context.setattr(IncidentEvidence, "model_dump_json", failed_snapshot)
+        with pytest.raises(RuntimeError, match="snapshot unavailable"):
+            s.query(run, "incident", principal="alice")
+    assert s.query(other, "incident", principal="alice").complete

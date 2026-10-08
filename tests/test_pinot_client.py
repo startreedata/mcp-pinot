@@ -1535,6 +1535,11 @@ class TestQueryExecutionEvidence:
             ("events", "events", True),
             ("observability.events", "events", True),
             ("observability.events", "observability", False),
+            ("checkout-events", "checkout-events", True),
+            ("123events", "123events", True),
+            ("observability.checkout-events", "checkout-events", True),
+            ("123-observability.123events", "123events", True),
+            ("observability.checkout-events", "observability", False),
         ],
     )
     def test_incident_query_applies_actual_table_allowlist_before_native_submission(

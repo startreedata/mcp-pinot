@@ -23,6 +23,7 @@ from .models import QueryExecutionMetadata, QueryExecutionResult
 
 QueryKind = Literal["baseline", "incident", "watermark", "changes", "onset"]
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_TABLE_COMPONENT = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _BUDGET_ERROR = "Retained evidence row/byte budget exceeded."
 
 
@@ -67,7 +68,7 @@ class IncidentProfile(BaseModel):
     @model_validator(mode="after")
     def validate_policy(self) -> "IncidentProfile":
         if (
-            not all(_IDENTIFIER.fullmatch(part) for part in self.table.split("."))
+            not all(_TABLE_COMPONENT.fullmatch(part) for part in self.table.split("."))
             or len(self.table.split(".")) > 2
         ):
             raise ValueError("table requires one or two validated identifiers.")
@@ -167,6 +168,7 @@ class _Run:
     retained_bytes: int = 0
     reserved_failure_bytes: int = 0
     closed: bool = False
+    finishing: bool = False
     evidence: dict[str, str] = field(default_factory=dict)
 
 
@@ -180,6 +182,7 @@ class IncidentService:
         *,
         ttl_seconds: int = 3600,
         max_runs: int = 1000,
+        max_retained_bytes: int = 67108864,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
     ) -> None:
@@ -187,6 +190,11 @@ class IncidentService:
             raise ValueError("ttl_seconds requires 1..86400.")
         if type(max_runs) is not int or not 1 <= max_runs <= 1000:
             raise ValueError("max_runs requires 1..1000.")
+        if (
+            type(max_retained_bytes) is not int
+            or not 1024 <= max_retained_bytes <= 67108864
+        ):
+            raise ValueError("max_retained_bytes requires 1024..67108864.")
         if not profiles or len(profiles) > 128:
             raise ValueError("Configure 1..128 incident profiles.")
         self._profiles = {}
@@ -195,6 +203,9 @@ class IncidentService:
             self._profiles[key] = IncidentProfile.model_validate(profile.model_dump())
         self._execute_query = execute_query
         self._ttl, self._max_runs = ttl_seconds, max_runs
+        self._max_retained_bytes = max_retained_bytes
+        self._retained_bytes = 0
+        self._reserved_failure_bytes = 0
         self._clock, self._wall_clock = clock, wall_clock
         self._lock = Lock()
         self._runs: dict[str, _Run] = {}
@@ -228,7 +239,9 @@ class IncidentService:
             for kind in kinds:
                 sql = self._sql(run, kind, candidate, bounded_value)
                 if self._failure_bytes(sql, kind) > min(
-                    profile.max_response_bytes, profile.max_total_response_bytes
+                    profile.max_response_bytes,
+                    profile.max_total_response_bytes,
+                    self._max_retained_bytes,
                 ):
                     raise ValueError(
                         "Incident profile byte budgets cannot retain "
@@ -283,6 +296,18 @@ class IncidentService:
             raise ValueError("Investigation already closed.")
         return run
 
+    def _prune(self, now: float) -> None:
+        """Release inactive runs and their byte accounting under the service lock."""
+        expired = [
+            key
+            for key, run in self._runs.items()
+            if not run.inflight
+            and not run.finishing
+            and (run.closed or now >= min(run.deadline, run.created + self._ttl))
+        ]
+        for key in expired:
+            self._retained_bytes -= self._runs.pop(key).retained_bytes
+
     def begin(
         self,
         profile_id: str,
@@ -316,12 +341,7 @@ class IncidentService:
         )
         with self._lock:
             now = self._clock()
-            self._runs = {
-                key: run
-                for key, run in self._runs.items()
-                if run.inflight
-                or (not run.closed and now < min(run.deadline, run.created + self._ttl))
-            }
+            self._prune(now)
             if len(self._runs) >= self._max_runs:
                 raise ValueError("Investigation capacity reached.")
             self._runs[public.run_id] = _Run(
@@ -474,6 +494,9 @@ class IncidentService:
     ) -> IncidentEvidence:
         with self._lock:
             run = self._get(run_id, principal)
+            if run.finishing:
+                raise ValueError("Investigation is finishing.")
+            self._prune(self._clock())
             p = run.profile
             if run.queries >= p.max_queries or run.inflight >= p.max_inflight:
                 raise ValueError("Investigation query admission budget exhausted.")
@@ -488,20 +511,23 @@ class IncidentService:
                 failure_bytes > p.max_response_bytes
                 or run.retained_bytes + run.reserved_failure_bytes + failure_bytes
                 > p.max_total_response_bytes
+                or self._retained_bytes + self._reserved_failure_bytes + failure_bytes
+                > self._max_retained_bytes
             ):
                 raise ValueError("Investigation retained-evidence budget exhausted.")
             remaining = min(run.deadline, run.created + self._ttl) - self._clock()
             if remaining <= 0:
                 raise ValueError("Investigation expired before query submission.")
+            evidence = IncidentEvidence(
+                evidence_id="ev_" + secrets.token_hex(16),
+                run_id=run_id,
+                kind=kind,
+                sql=sql,
+            )
             run.queries += 1
             run.inflight += 1
             run.reserved_failure_bytes += failure_bytes
-        evidence = IncidentEvidence(
-            evidence_id="ev_" + secrets.token_hex(16),
-            run_id=run_id,
-            kind=kind,
-            sql=sql,
-        )
+            self._reserved_failure_bytes += failure_bytes
         try:
             result = self._execute_query(
                 sql, max_rows=p.max_rows + 1, timeout_seconds=remaining
@@ -553,6 +579,9 @@ class IncidentService:
                     p.max_total_response_bytes
                     - run.retained_bytes
                     - (run.reserved_failure_bytes - failure_bytes),
+                    self._max_retained_bytes
+                    - self._retained_bytes
+                    - (self._reserved_failure_bytes - failure_bytes),
                 )
                 stored, delivery, stored_bytes = self._snapshot(evidence, byte_limit)
                 # Hashing/serialization/validation are part of the deadline, too.
@@ -568,9 +597,11 @@ class IncidentService:
                 run.evidence[evidence.evidence_id] = stored
                 run.retained_rows += len(evidence.rows)
                 run.retained_bytes += stored_bytes
+                self._retained_bytes += stored_bytes
             finally:
                 run.inflight -= 1
                 run.reserved_failure_bytes -= failure_bytes
+                self._reserved_failure_bytes -= failure_bytes
         return delivery
 
     def finish(
@@ -604,13 +635,19 @@ class IncidentService:
             raise ValueError("Citations must be unique actual evidence IDs.")
         with self._lock:
             run = self._get(run_id, principal)
+            if run.finishing:
+                raise ValueError("Investigation is finishing.")
             if run.inflight:
                 raise ValueError("Pending queries prevent finish.")
             if not citations and status != "incomplete":
                 raise ValueError("Complete evidence citations are required.")
+            snapshot = tuple(run.evidence.items())
+            query_count = run.queries
+            run.finishing = True
+        try:
             selected = {}
             failures = []
-            for key, raw in run.evidence.items():
+            for key, raw in snapshot:
                 evidence = IncidentEvidence.model_validate_json(raw)
                 digest = hashlib.sha256(
                     json.dumps(
@@ -637,10 +674,15 @@ class IncidentService:
                 hypothesis=hypothesis,
                 citations=selected,
                 reason=reason,
-                query_count=run.queries,
+                query_count=query_count,
                 failed_evidence_ids=failures,
             )
             # A potentially lengthy evidence-integrity scan cannot outlive its run.
-            self._get(run_id, principal)
-            run.closed = True
+            with self._lock:
+                if self._get(run_id, principal) is not run:
+                    raise ValueError("Unknown or unauthorized investigation.")
+                run.closed = True
             return finished
+        finally:
+            with self._lock:
+                run.finishing = False

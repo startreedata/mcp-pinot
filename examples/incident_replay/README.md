@@ -5,7 +5,9 @@ This example exercises `begin_investigation`, `query_incident`, `get_trace`, and
 It compares a scripted investigation with a real Codex host using the same public
 alerts. The scorer reads private synthetic labels after prediction and independently
 checks the recorded finish, evidence hashes, public scope, and host qualification.
-See [the scored report](REPORT.md) for measured results and remaining gaps.
+See [the original scored report](REPORT.md) and the
+[terminal-decision follow-up](TERMINAL-STATUS-REPORT.md) for measured results and
+remaining gaps.
 
 The fixture has deployment, unrelated-change, confounded, and missing-watermark
 cases. It generates unique event/span IDs, real parent references, and at least

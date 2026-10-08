@@ -17,6 +17,7 @@ import requests
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
+from sqlglot.optimizer.scope import traverse_scope
 
 from .config import PinotConfig, get_logger, reload_table_filters_from_file
 from .models import (
@@ -1104,46 +1105,24 @@ class PinotClient:
         return bool(self._included_tables)
 
     def _extract_sql_table_names(self, query: str) -> list[str]:
-        """Extract table names from a SQL query.
+        """Extract physical source table names using the read-query dialect.
 
-        Handles table references in FROM, JOIN, and subquery clauses.
-        Supports quoted identifiers (double quotes, backticks).
-
-        Args:
-            query: SQL query string
-
-        Returns:
-            list[str]: Unique list of table names found in the query
+        Scope resolution distinguishes CTE references from physical tables,
+        including qualified tables and nested CTEs that shadow an outer name.
+        Preserve the existing allowlist policy on unqualified base table names.
         """
-        # Remove comments and normalize whitespace
-        query = _strip_sql_comments(query)
-        query = " ".join(query.split())
-
-        matches = []
-
-        # Pattern 1: Unquoted tables (after FROM/JOIN or comma-separated)
-        # Matches: FROM table, JOIN table, table1, table2
-        # Uses negative lookahead to exclude SQL keywords (LEFT, RIGHT, INNER, etc.)
-        unquoted_pattern = (
-            r"(?:\b(?:FROM|JOIN)\s+|,\s*)"
-            r"(?:[\w.]+\.)?"
-            r"(?!(?:LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|WHERE|GROUP|ORDER|"
-            r"HAVING|LIMIT)\b)"
-            r"(\w+)"
+        try:
+            expression = sqlglot.parse_one(query, read="trino")
+        except ParseError as exc:
+            raise ValueError("Cannot validate table access for invalid SQL.") from exc
+        return sorted(
+            {
+                source.name
+                for scope in traverse_scope(expression)
+                for source in scope.sources.values()
+                if isinstance(source, exp.Table)
+            }
         )
-        matches.extend(re.findall(unquoted_pattern, query, re.IGNORECASE))
-
-        # Pattern 2: Double-quoted tables (after FROM/JOIN or comma-separated)
-        # Matches: FROM "table name", "quoted_table", "another table"
-        double_quoted_pattern = r'(?:\b(?:FROM|JOIN)\s+|,\s*)(?:[\w.]+\.)?"([^"]+)"'
-        matches.extend(re.findall(double_quoted_pattern, query, re.IGNORECASE))
-
-        # Pattern 3: Backtick-quoted tables (after FROM/JOIN or comma-separated)
-        # Matches: FROM `table_name`, `quoted table`, `another table`
-        backtick_pattern = r"(?:\b(?:FROM|JOIN)\s+|,\s*)(?:[\w.]+\.)?`([^`]+)`"
-        matches.extend(re.findall(backtick_pattern, query, re.IGNORECASE))
-
-        return list(set(matches))
 
     def _validate_table_name_access(
         self, table_name: str, component_name: str = "table name"

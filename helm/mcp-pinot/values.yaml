@@ -132,6 +132,9 @@ mcp:
   host: "127.0.0.1"
   port: 8000
   path: "/mcp"
+  # Optional server-owned JSON policy mounted through volumes/volumeMounts.additional.
+  # Empty leaves incident tools disabled.
+  incidentProfilesFile: ""
   # Exact Host authorities accepted at the MCP endpoint (MCP_ALLOWED_HOSTS).
   # REQUIRED whenever mcp.host is a wildcard bind such as 0.0.0.0: the server has
   # no way to infer its public authority and exits at startup rather than accepting

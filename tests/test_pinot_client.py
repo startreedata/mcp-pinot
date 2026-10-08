@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from mcp_pinot.config import PinotConfig
+from mcp_pinot.incidents import IncidentProfile, IncidentService
 from mcp_pinot.models import QueryExecutionResult, QueryResult
 from mcp_pinot.pinot_client import PinotClient
 
@@ -1159,8 +1160,34 @@ class TestPinotClient:
 
         result = pinot._extract_sql_table_names(query)
 
-        # Should find both the CTE source table and the CTE itself
-        assert "unauthorized_table" in result
+        assert result == ["unauthorized_table"]
+
+    @pytest.mark.parametrize(
+        "query,expected",
+        [
+            (
+                "WITH cte AS (SELECT * FROM allowed_table) "
+                'SELECT * FROM "observability"."cte"',
+                {"allowed_table", "cte"},
+            ),
+            (
+                "WITH cte AS (SELECT * FROM allowed_table) SELECT * FROM cte "
+                "JOIN (WITH cte AS (SELECT * FROM forbidden_table) "
+                "SELECT * FROM cte) nested ON 1 = 1",
+                {"allowed_table", "forbidden_table"},
+            ),
+            (
+                "WITH cte AS (SELECT * FROM allowed_table) "
+                "SELECT * FROM (SELECT * FROM forbidden_table AS cte) nested",
+                {"allowed_table", "forbidden_table"},
+            ),
+        ],
+    )
+    def test_extract_table_names_preserves_scoped_physical_sources(
+        self, mock_pinot_config, query, expected
+    ):
+        pinot = PinotClient(mock_pinot_config)
+        assert set(pinot._extract_sql_table_names(query)) == expected
 
     def test_extract_table_names_nested_subquery(self, mock_pinot_config):
         """Test extracting table names from nested subquery"""
@@ -1260,7 +1287,7 @@ class TestPinotClient:
         assert "quoted_table" in result3
 
     def test_extract_table_names_backtick_quoted(self, mock_pinot_config):
-        """Test extracting table names with backticks (MySQL style)"""
+        """Reject syntax that the existing read-query Trino parser rejects."""
         pinot = PinotClient(mock_pinot_config)
         queries = [
             "SELECT * FROM `table_name`",
@@ -1268,26 +1295,22 @@ class TestPinotClient:
             "SELECT * FROM t1 JOIN `quoted_table` ON t1.id = quoted_table.id",
         ]
 
-        result1 = pinot._extract_sql_table_names(queries[0])
-        assert "table_name" in result1
-
-        result2 = pinot._extract_sql_table_names(queries[1])
-        assert "table with spaces" in result2
-
-        result3 = pinot._extract_sql_table_names(queries[2])
-        assert "t1" in result3
-        assert "quoted_table" in result3
+        for query in queries:
+            with pytest.raises(ValueError):
+                pinot._extract_sql_table_names(query)
+            with pytest.raises(ValueError):
+                pinot.validate_read_query(query)
 
     def test_extract_table_names_mixed_quoted_unquoted(self, mock_pinot_config):
         """Test extracting mix of quoted and unquoted table names"""
         pinot = PinotClient(mock_pinot_config)
-        query = 'SELECT * FROM normal_table, "quoted table", `backtick_table`'
+        query = 'SELECT * FROM normal_table, "quoted table", "another_table"'
 
         result = pinot._extract_sql_table_names(query)
 
         assert "normal_table" in result
         assert "quoted table" in result
-        assert "backtick_table" in result
+        assert "another_table" in result
 
     def test_validate_table_name_access_integration(
         self, mock_pinot_config, mock_requests
@@ -1362,22 +1385,17 @@ class TestPinotClient:
         assert result == {"status": "success"}
 
     def test_extract_table_names_excludes_join_keywords(self, mock_pinot_config):
-        """Test that SQL JOIN keywords are not captured as table names.
-
-        The regex should not capture keywords like LEFT, RIGHT, INNER, OUTER, CROSS
-        when they appear in positions where table names are expected.
-        This test validates edge cases with malformed or unusual SQL syntax.
-        """
+        """Actual JOIN keywords are not physical table sources."""
         pinot = PinotClient(mock_pinot_config)
         join_keywords = ["LEFT", "RIGHT", "INNER", "OUTER", "CROSS", "FULL"]
 
         for keyword in join_keywords:
-            query = f"SELECT * FROM {keyword} JOIN table1 ON table1.id = 1"  # noqa: S608
+            query = (
+                f"SELECT table1.id, table2.name FROM table1 {keyword} JOIN table2 "  # noqa: S608
+                "ON table1.id = table2.id"
+            )
             result = pinot._extract_sql_table_names(query)
-
-            # This test should FAIL with current implementation, proving the bug
-            assert keyword not in result, f"{keyword} should not be captured"
-            assert "table1" in result, "table1 should be captured"
+            assert set(result) == {"table1", "table2"}
 
     def test_reload_table_filters_success(self, mock_pinot_config, tmp_path):
         """Test successful reload of table filters."""
@@ -1510,6 +1528,55 @@ def native_query_response(mock_native_http):
 
 class TestQueryExecutionEvidence:
     """The evidence path must not turn missing or partial execution into success."""
+
+    @pytest.mark.parametrize(
+        "table,allowed,complete",
+        [
+            ("events", "events", True),
+            ("observability.events", "events", True),
+            ("observability.events", "observability", False),
+        ],
+    )
+    def test_incident_query_applies_actual_table_allowlist_before_native_submission(
+        self,
+        mock_pinot_config,
+        mock_native_http,
+        native_query_response,
+        table,
+        allowed,
+        complete,
+    ):
+        mock_pinot_config.included_tables = [allowed]
+        columns = ["service", "version", "zone", "errorClass", "count"]
+        native_query_response["resultTable"] = {
+            "dataSchema": {
+                "columnNames": columns,
+                "columnDataTypes": ["STRING"] * 4 + ["LONG"],
+            },
+            "rows": [],
+        }
+        investigations = IncidentService(
+            {
+                "demo": IncidentProfile(
+                    table=table,
+                    tenant_value="tenant-a",
+                    authorized_principals=["alice"],
+                )
+            },
+            PinotClient(mock_pinot_config).execute_query_with_metadata,
+            wall_clock=lambda: 1000,
+        )
+        run = investigations.begin("demo", "api", 100, 200, 300, principal="alice")
+        evidence = investigations.query(run.run_id, "incident", principal="alice")
+        assert evidence.complete is complete
+        assert len(mock_native_http.requests) == int(complete)
+        if complete:
+            assert evidence.columns == columns
+            assert evidence.error is None
+            submitted = json.loads(mock_native_http.requests[0].content)
+            assert evidence.sql == submitted["sql"]
+        else:
+            assert evidence.error == "Query execution failed: ValueError"
 
     def test_bounded_request_preserves_evidence_and_correlation(
         self, mock_pinot_config, mock_native_http, native_query_response

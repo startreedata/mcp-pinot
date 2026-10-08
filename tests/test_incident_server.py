@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from fastmcp.server.auth.auth import AccessToken
 import httpx
 import pytest
 import sqlglot
@@ -127,6 +128,25 @@ async def test_incident_round_trip_has_unvalidated_hypothesis_and_actual_citatio
     "token,expected",
     [
         (
+            AccessToken(
+                token="test-token",
+                client_id="shared-client",
+                scopes=["pinot:read"],
+                subject="alice",
+            ),
+            "subject:alice",
+        ),
+        (
+            AccessToken(
+                token="test-token",
+                client_id="shared-client",
+                scopes=["pinot:read"],
+                subject="alice",
+                claims={"sub": "different-subject"},
+            ),
+            "subject:alice",
+        ),
+        (
             SimpleNamespace(client_id="shared-client", claims={"sub": "alice"}),
             "subject:alice",
         ),
@@ -159,7 +179,7 @@ def test_missing_identity_is_rejected_when_auth_is_enabled():
 
 
 @pytest.mark.asyncio
-async def test_same_oauth_client_cannot_access_another_users_run(service):
+async def test_same_oauth_client_cannot_access_another_users_run():
     profile = IncidentProfile(
         table="events",
         tenant_value="a",
@@ -175,7 +195,12 @@ async def test_same_oauth_client_cannot_access_another_users_run(service):
         patch.object(
             server,
             "get_access_token",
-            return_value=SimpleNamespace(client_id="shared", claims={"sub": "alice"}),
+            return_value=AccessToken(
+                token="alice-token",
+                client_id="shared",
+                scopes=["pinot:read"],
+                subject="alice",
+            ),
         ),
     ):
         async with Client(server.mcp) as client:
@@ -192,7 +217,12 @@ async def test_same_oauth_client_cannot_access_another_users_run(service):
             with patch.object(
                 server,
                 "get_access_token",
-                return_value=SimpleNamespace(client_id="shared", claims={"sub": "bob"}),
+                return_value=AccessToken(
+                    token="bob-token",
+                    client_id="shared",
+                    scopes=["pinot:read"],
+                    subject="bob",
+                ),
             ):
                 with pytest.raises(ToolError, match="unauthorized"):
                     await client.call_tool(
@@ -200,6 +230,16 @@ async def test_same_oauth_client_cannot_access_another_users_run(service):
                         {
                             "run_id": run.structured_content["run_id"],
                             "kind": "incident",
+                        },
+                    )
+                with pytest.raises(ToolError, match="unauthorized"):
+                    await client.call_tool(
+                        "finish_investigation",
+                        {
+                            "run_id": run.structured_content["run_id"],
+                            "citations": [],
+                            "status": "incomplete",
+                            "reason": "Foreign run",
                         },
                     )
 

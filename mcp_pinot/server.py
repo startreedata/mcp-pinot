@@ -880,7 +880,9 @@ def _incident_principal() -> str:
     """Derive run ownership from verified auth, never from a tool argument."""
     token = get_access_token()
     if token is not None:
-        subject = (getattr(token, "claims", {}) or {}).get("sub")
+        subject = getattr(token, "subject", None)
+        if not isinstance(subject, str) or not subject:
+            subject = (getattr(token, "claims", {}) or {}).get("sub")
         if isinstance(subject, str) and subject:
             return "subject:" + subject
         if token.client_id:

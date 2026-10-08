@@ -3,7 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
-from threading import Event
+from threading import Barrier, Event
 from typing import Any
 
 from pydantic import ValidationError
@@ -295,6 +295,94 @@ def test_failed_attempt_charged_before_retry_and_no_details_leaked() -> None:
     assert finished.failed_evidence_ids == [evidence.evidence_id]
 
 
+@pytest.mark.parametrize("budget", ["max_response_bytes", "max_total_response_bytes"])
+def test_startup_rejects_budgets_that_cannot_retain_bounded_query_failures(
+    budget: str,
+) -> None:
+    p = profile(
+        table="T" * 128 + "." + "U" * 128,
+        tenant_column="N" * 128,
+        service_column="S" * 128,
+        time_column="D" * 128,
+        event_column="E" * 128,
+        error_column="R" * 128,
+        version_column="V" * 128,
+        zone_column="Z" * 128,
+        tenant_value="n" * 256,
+        **{budget: 1024},
+    )
+    with pytest.raises(ValueError, match="byte budgets"):
+        service(p)
+
+
+def test_remaining_byte_budget_rejects_before_native_submission() -> None:
+    s, broker, _ = service(profile(max_total_response_bytes=8192))
+    run = begin(s)
+    for _ in range(16):
+        before = len(broker.calls)
+        try:
+            s.query(run, "incident", principal="alice")
+        except ValueError as error:
+            assert "retained-evidence budget" in str(error)
+            assert before == len(broker.calls)
+            break
+    else:
+        pytest.fail("Expected the retained byte budget to reject further queries.")
+    finished = s.finish(
+        run, [], status="incomplete", reason="byte budget exhausted", principal="alice"
+    )
+    assert finished.query_count == len(broker.calls) > 0
+
+
+def test_concurrent_queries_reserve_room_for_failure_evidence() -> None:
+    entered = Barrier(3)
+
+    def query(
+        sql: str, *, max_rows: int, timeout_seconds: float
+    ) -> QueryExecutionResult:
+        entered.wait(timeout=5)
+        return result(
+            sql,
+            [
+                {
+                    "service": "x" * 6500,
+                    "version": "v",
+                    "zone": "z",
+                    "errorClass": "ok",
+                    "count": 1,
+                }
+            ],
+        )
+
+    clock = Clock()
+    s = IncidentService(
+        {"checkout": profile(max_response_bytes=8192, max_total_response_bytes=8192)},
+        query,
+        clock=clock,
+        wall_clock=lambda: 10.0,
+    )
+    run = begin(s)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(s.query, run, "incident", principal="alice") for _ in range(2)
+        ]
+        entered.wait(timeout=5)
+        evidence = [future.result(timeout=5) for future in futures]
+    assert any(not record.complete for record in evidence)
+    assert sum(len(record.model_dump_json().encode()) for record in evidence) <= 8192
+    finished = s.finish(
+        run,
+        [record.evidence_id for record in evidence],
+        status="incomplete",
+        reason="byte budget exhausted",
+        principal="alice",
+    )
+    assert finished.query_count == 2
+    assert set(finished.failed_evidence_ids) == {
+        record.evidence_id for record in evidence if not record.complete
+    }
+
+
 def test_expiry_restart_and_capacity_fail_closed() -> None:
     s, _, clock = service(ttl_seconds=10, max_runs=1)
     run = begin(s)
@@ -309,7 +397,19 @@ def test_expiry_restart_and_capacity_fail_closed() -> None:
         restarted.query(run, "incident", principal="alice")
 
 
-def test_late_completion_is_failed_and_remains_inflight_until_return() -> None:
+@pytest.mark.parametrize("closed", [False, True])
+def test_finished_or_deadline_expired_runs_release_capacity(closed: bool) -> None:
+    s, _, clock = service(max_runs=1)
+    run = begin(s)
+    if closed:
+        s.finish(run, [], status="incomplete", reason="finished", principal="alice")
+    else:
+        clock.now += 55
+    assert begin(s) != run
+
+
+@pytest.mark.parametrize("ttl", [10, 3600])
+def test_late_completion_is_failed_and_remains_inflight_until_return(ttl: int) -> None:
     clock = Clock()
     entered, release = Event(), Event()
 
@@ -325,7 +425,7 @@ def test_late_completion_is_failed_and_remains_inflight_until_return() -> None:
         query,
         clock=clock,
         wall_clock=lambda: 10.0,
-        ttl_seconds=10,
+        ttl_seconds=ttl,
         max_runs=1,
     )
     run = begin(s)
@@ -381,10 +481,10 @@ def test_retained_row_and_byte_budget() -> None:
     assert s.query(run, "baseline", principal="alice").complete
     with pytest.raises(ValueError, match="retained-evidence budget"):
         s.query(run, "incident", principal="alice")
-    bounded, oversized, _ = service(profile(max_response_bytes=2048))
+    bounded, oversized, _ = service(profile(max_response_bytes=8192))
     oversized.rows = [
         {
-            "service": "x" * 2000,
+            "service": "x" * 8192,
             "version": "v",
             "zone": "z",
             "errorClass": "ok",
@@ -392,7 +492,7 @@ def test_retained_row_and_byte_budget() -> None:
         }
     ]
     evidence = bounded.query(begin(bounded), "incident", principal="alice")
-    assert not evidence.complete and len(evidence.model_dump_json().encode()) <= 2048
+    assert not evidence.complete and len(evidence.model_dump_json().encode()) <= 8192
 
 
 def test_finish_foundation_never_semantically_validates_hypothesis() -> None:

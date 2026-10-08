@@ -23,6 +23,7 @@ from .models import QueryExecutionMetadata, QueryExecutionResult
 
 QueryKind = Literal["baseline", "incident", "watermark", "changes", "onset"]
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_BUDGET_ERROR = "Retained evidence row/byte budget exceeded."
 
 
 def _value(value: str, name: str) -> str:
@@ -164,6 +165,7 @@ class _Run:
     inflight: int = 0
     retained_rows: int = 0
     retained_bytes: int = 0
+    reserved_failure_bytes: int = 0
     closed: bool = False
     evidence: dict[str, str] = field(default_factory=dict)
 
@@ -196,6 +198,79 @@ class IncidentService:
         self._clock, self._wall_clock = clock, wall_clock
         self._lock = Lock()
         self._runs: dict[str, _Run] = {}
+        bounded_value = "\U0010ffff" * 256
+        candidate = IncidentHypothesis(
+            kind="deployment",
+            service=bounded_value,
+            version=bounded_value,
+            zone=bounded_value,
+        )
+        for key, profile in self._profiles.items():
+            run = _Run(
+                IncidentRun(
+                    run_id="inc_" + "0" * 32,
+                    profile_id=key,
+                    service="service",
+                    baseline_start_ms=9223372036854775805,
+                    start_ms=9223372036854775806,
+                    end_ms=9223372036854775807,
+                    deadline_seconds=profile.deadline_seconds,
+                    max_queries=profile.max_queries,
+                ),
+                "",
+                0,
+                0,
+                profile,
+            )
+            kinds = ["baseline", "incident", "watermark", "changes", "onset"]
+            if profile.span_column is not None:
+                kinds.append("trace")
+            for kind in kinds:
+                sql = self._sql(run, kind, candidate, bounded_value)
+                if self._failure_bytes(sql, kind) > min(
+                    profile.max_response_bytes, profile.max_total_response_bytes
+                ):
+                    raise ValueError(
+                        "Incident profile byte budgets cannot retain "
+                        "bounded query failures."
+                    )
+
+    @staticmethod
+    def _failure_bytes(sql: str, kind: str) -> int:
+        """Reserve the largest bounded failure, including SQL and its digest."""
+        return len(
+            IncidentEvidence(
+                evidence_id="ev_" + "0" * 32,
+                run_id="inc_" + "0" * 32,
+                kind=kind,
+                sql=sql,
+                error="Query execution failed: " + "\x00" * 64,
+                sha256="0" * 64,
+            )
+            .model_dump_json()
+            .encode()
+        )
+
+    @staticmethod
+    def _snapshot(
+        evidence: IncidentEvidence, byte_limit: int
+    ) -> tuple[str, IncidentEvidence, int]:
+        for trim in (None, "rows", "metadata"):
+            if trim is not None:
+                evidence.complete, evidence.error = False, _BUDGET_ERROR
+                evidence.rows = []
+            if trim == "metadata":
+                evidence.columns, evidence.metadata = [], QueryExecutionMetadata()
+            raw = json.dumps(
+                evidence.model_dump(exclude={"sha256"}), sort_keys=True, allow_nan=False
+            ).encode()
+            evidence.sha256 = hashlib.sha256(raw).hexdigest()
+            stored = evidence.model_dump_json()
+            delivery = IncidentEvidence.model_validate_json(stored)
+            stored_bytes = len(stored.encode())
+            if stored_bytes <= byte_limit:
+                return stored, delivery, stored_bytes
+        raise ValueError("Investigation retained-evidence budget exhausted.")
 
     def _get(self, run_id: str, principal: str) -> _Run:
         run = self._runs.get(run_id)
@@ -244,7 +319,8 @@ class IncidentService:
             self._runs = {
                 key: run
                 for key, run in self._runs.items()
-                if run.inflight or now < run.created + self._ttl
+                if run.inflight
+                or (not run.closed and now < min(run.deadline, run.created + self._ttl))
             }
             if len(self._runs) >= self._max_runs:
                 raise ValueError("Investigation capacity reached.")
@@ -407,11 +483,19 @@ class IncidentService:
             ):
                 raise ValueError("Investigation retained-evidence budget exhausted.")
             sql = self._sql(run, kind, candidate, trace_id)
+            failure_bytes = self._failure_bytes(sql, kind)
+            if (
+                failure_bytes > p.max_response_bytes
+                or run.retained_bytes + run.reserved_failure_bytes + failure_bytes
+                > p.max_total_response_bytes
+            ):
+                raise ValueError("Investigation retained-evidence budget exhausted.")
             remaining = min(run.deadline, run.created + self._ttl) - self._clock()
             if remaining <= 0:
                 raise ValueError("Investigation expired before query submission.")
             run.queries += 1
             run.inflight += 1
+            run.reserved_failure_bytes += failure_bytes
         evidence = IncidentEvidence(
             evidence_id="ev_" + secrets.token_hex(16),
             run_id=run_id,
@@ -452,7 +536,7 @@ class IncidentService:
             evidence.columns, evidence.rows = [], []
             evidence.metadata = QueryExecutionMetadata()
             evidence.complete = False
-            evidence.error = "Query execution failed: " + type(error).__name__
+            evidence.error = "Query execution failed: " + type(error).__name__[:64]
         with self._lock:
             try:
                 if self._clock() >= min(run.deadline, run.created + self._ttl):
@@ -460,49 +544,17 @@ class IncidentService:
                         False,
                         "Query returned after the investigation deadline.",
                     )
-                raw = json.dumps(
-                    evidence.model_dump(exclude={"sha256"}),
-                    sort_keys=True,
-                    allow_nan=False,
-                ).encode()
-                if (
-                    len(raw) > p.max_response_bytes
-                    or len(raw) + run.retained_bytes > p.max_total_response_bytes
-                    or len(evidence.rows) + run.retained_rows > p.max_total_rows
-                ):
-                    evidence.complete, evidence.error = (
-                        False,
-                        "Retained evidence row/byte budget exceeded.",
-                    )
+                if len(evidence.rows) + run.retained_rows > p.max_total_rows:
+                    evidence.complete, evidence.error = False, _BUDGET_ERROR
                 if not evidence.complete:
                     evidence.rows = []
-                raw = json.dumps(
-                    evidence.model_dump(exclude={"sha256"}),
-                    sort_keys=True,
-                    allow_nan=False,
-                ).encode()
-                if (
-                    len(raw) > p.max_response_bytes
-                    or len(raw) + run.retained_bytes > p.max_total_response_bytes
-                ):
-                    evidence.columns, evidence.metadata = [], QueryExecutionMetadata()
-                    raw = json.dumps(
-                        evidence.model_dump(exclude={"sha256"}),
-                        sort_keys=True,
-                        allow_nan=False,
-                    ).encode()
-                evidence.sha256 = hashlib.sha256(raw).hexdigest()
-                stored = evidence.model_dump_json()
-                delivery = IncidentEvidence.model_validate_json(stored)
                 byte_limit = min(
                     p.max_response_bytes,
-                    p.max_total_response_bytes - run.retained_bytes,
+                    p.max_total_response_bytes
+                    - run.retained_bytes
+                    - (run.reserved_failure_bytes - failure_bytes),
                 )
-                stored_bytes = len(stored.encode())
-                if stored_bytes > byte_limit:
-                    raise ValueError(
-                        "Investigation retained-evidence budget exhausted."
-                    )
+                stored, delivery, stored_bytes = self._snapshot(evidence, byte_limit)
                 # Hashing/serialization/validation are part of the deadline, too.
                 if self._clock() >= min(run.deadline, run.created + self._ttl):
                     evidence.complete, evidence.error = (
@@ -510,24 +562,15 @@ class IncidentService:
                         "Query returned after the investigation deadline.",
                     )
                     evidence.rows = []
-                    raw = json.dumps(
-                        evidence.model_dump(exclude={"sha256"}),
-                        sort_keys=True,
-                        allow_nan=False,
-                    ).encode()
-                    evidence.sha256 = hashlib.sha256(raw).hexdigest()
-                    stored = evidence.model_dump_json()
-                    delivery = IncidentEvidence.model_validate_json(stored)
-                    stored_bytes = len(stored.encode())
-                    if stored_bytes > byte_limit:
-                        raise ValueError(
-                            "Investigation retained-evidence budget exhausted."
-                        )
+                    stored, delivery, stored_bytes = self._snapshot(
+                        evidence, byte_limit
+                    )
                 run.evidence[evidence.evidence_id] = stored
                 run.retained_rows += len(evidence.rows)
                 run.retained_bytes += stored_bytes
             finally:
                 run.inflight -= 1
+                run.reserved_failure_bytes -= failure_bytes
         return delivery
 
     def finish(

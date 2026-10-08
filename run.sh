@@ -8,4 +8,4 @@ if [ -f /app/config/.env ]; then
 fi
 
 # Run Python with unbuffered output
-exec python -c 'from dotenv import load_dotenv; load_dotenv("/app/config/.env", override=False); from mcp_pinot.server import main; main()'
+exec python -c 'from dotenv import load_dotenv; load_dotenv("/app/config/.env", override=False); from mcp_pinot.server import main; main()' "$@"

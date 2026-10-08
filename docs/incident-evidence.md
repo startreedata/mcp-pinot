@@ -16,6 +16,55 @@ identifiers, and is never supplied by a tool caller. Existing Pinot table filter
 and service-credential authorization still apply. These profiles scope incident
 tools; they do not change the authorization of general-purpose `read_query`.
 
+For Docker, build the current checkout, mount the policy read-only, and pass its
+container path after the image. The entrypoint preserves paths with spaces:
+
+```bash
+docker build -t mcp-pinot-incidents .
+docker run --rm -i \
+  -e MCP_TRANSPORT=stdio \
+  -e PINOT_CONTROLLER_URL=http://host.docker.internal:9000 \
+  -e PINOT_BROKER_URL=http://host.docker.internal:8000 \
+  --mount "type=bind,source=$(pwd)/examples/incident-profiles.example.json,target=/app/config/incident profiles.json,readonly" \
+  mcp-pinot-incidents \
+  --incident-profiles "/app/config/incident profiles.json"
+```
+
+For Helm, set `mcp.incidentProfilesFile` and mount a profile through the chart's
+existing additional volumes. For example, save this as `incident-values.yaml`:
+
+```yaml
+mcp:
+  incidentProfilesFile: /app/config/incidents/profiles.json
+volumes:
+  additional:
+    - name: incident-profiles
+      configMap:
+        name: incident-profiles
+volumeMounts:
+  additional:
+    - name: incident-profiles
+      mountPath: /app/config/incidents
+      readOnly: true
+```
+
+Create `profiles.json` from the [example profile](../examples/incident-profiles.example.json),
+using the deployed table/tenant and authenticated principals. For the chart's
+static-token provider, authorize `client:mcp-static-client`; for OAuth, use the
+verified subject described above. Then deploy with your existing authenticated
+HTTP values and the additional profile values. Configure `image.repository` and
+`image.tag` to use a registry image containing these tools:
+
+```bash
+kubectl create configmap incident-profiles --from-file=profiles.json
+helm upgrade --install mcp-pinot ./helm/mcp-pinot \
+  -f deployment-values.yaml -f incident-values.yaml
+```
+
+The ConfigMap and release must use the same namespace. Restart the server after
+changing the policy: profiles are loaded once at startup. An empty
+`mcp.incidentProfilesFile` preserves the default deployment without incident tools.
+
 The table needs the configured epoch-millisecond time, tenant, service, event,
 error, version, zone, event-ID, and trace columns. Defaults are `eventTs`, `tenant`,
 `service`, `eventType`, `errorClass`, `version`, `zone`, `eventId`, and `traceId`.
@@ -100,7 +149,13 @@ Forward timings and evidence to the agent if its host hides protocol metadata;
 query-history/log access is optional. See the [response timing guide](../README.md#query-execution-evidence).
 
 Runs have a monotonic total deadline plus inflight, query, per-response and total
-retained row/byte limits. SQL requests use the remaining deadline, and late
+retained row/byte limits. Startup rejects byte budgets that cannot hold the
+configured profile's mandatory failure evidence, including full SQL and the
+maximum bounded candidate/trace values. Each admitted query reserves space for
+its failure record before Pinot submission; when the remaining budget cannot
+hold that record, admission fails without executing or charging another query.
+Closed or expired runs release capacity once their in-flight work has returned.
+SQL requests use the remaining deadline, and late
 responses cannot qualify. HTTP timeouts are inactivity limits, not cancellation;
 inflight permits remain held until native callbacks return. A runaway broker can
 therefore still occupy a process worker after expiry. Overflow evidence is

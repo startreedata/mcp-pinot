@@ -94,6 +94,31 @@ jobs:
 
         # Clean up server process
         kill $SERVER_PID || true
+
+    - name: Replay incident tools against native Pinot
+      run: |
+        REPLAY_DIR="${RUNNER_TEMP}/incident-replay"
+        uv run --frozen python examples/incident_replay/fixture.py --output "$REPLAY_DIR" --seeds 1 --start-seed 100
+        DATASET_DIR="$REPLAY_DIR/seed_100"
+        uv run --frozen python examples/incident_replay/load.py --dataset "$DATASET_DIR" --controller http://localhost:9000 --broker http://localhost:8000 --output "$REPLAY_DIR/parity.json"
+        uv run --frozen python examples/incident_replay/runner.py --dataset "$DATASET_DIR" --controller http://localhost:9000 --broker http://localhost:8000 --mode scripted --output "$REPLAY_DIR/predictions"
+        uv run --frozen python examples/incident_replay/score.py --predictions "$REPLAY_DIR/predictions/predictions.json" --truth "$DATASET_DIR/truth.json" --output "$REPLAY_DIR/score.json"
+        uv run --frozen python examples/incident_replay/probes.py --dataset "$DATASET_DIR" --controller http://localhost:9000 --broker http://localhost:8000 --output "$REPLAY_DIR/probes.json"
+        uv run --frozen python - "$REPLAY_DIR/score.json" <<'PY'
+        import json
+        import sys
+        score = json.load(open(sys.argv[1]))
+        if any(score[key] != score["case_count"] for key in ("correct_count", "completed_count", "qualified_state_matches")):
+            raise SystemExit("Scripted MCP replay did not complete all qualified expected outcomes")
+        PY
+
+    - name: Preserve incident replay receipts
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: incident-replay-native-pinot
+        path: ${{ runner.temp }}/incident-replay
+        if-no-files-found: warn
     
     - name: Cleanup
       if: always()

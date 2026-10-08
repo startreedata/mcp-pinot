@@ -181,3 +181,6 @@ and semantic root-cause qualification remain rollout work. Outputs always retain
 `hypothesis_validated=false`, `confirmed_cause=false`, and
 `dataset_coverage_attested=false`. Successful evidence assembly does not establish
 cause, telemetry completeness, or competitive latency/cost savings.
+
+For a reproducible synthetic host replay, full-row native parity checks, and
+separate protocol/fault probes, see [the incident replay example](../examples/incident_replay/README.md).

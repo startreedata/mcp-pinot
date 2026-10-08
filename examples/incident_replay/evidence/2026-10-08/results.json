@@ -1,0 +1,1384 @@
+{
+  "schema_version": 1,
+  "scope": "Four synthetic templates across three seeds per trial; production RCA and full-cost comparison unproven.",
+  "final_trial": "native-replay-v8",
+  "cli_version": "codex-cli 0.153.4",
+  "archive": {
+    "file": "receipts.tar.gz",
+    "sha256": "e33e4be8baad18b4923f5b1359957c7087c7fb1aa3bd485b23d14c1d60adaeb7",
+    "bytes": 348105,
+    "manifest_sha256": "5e579e5225d6d675c44dd43c6f0137fcb257aac41d8f2d087ea795c536a3b5f5"
+  },
+  "publication_filter": "Original JSON receipts plus CLI completed MCP responses/usage only; reasoning, agent messages, stderr, native data and workspaces excluded.",
+  "trials": {
+    "native-replay-v6": {
+      "runtime_commit": {
+        "head": "635ab160db07c04d45ef676e5fc5f93121526a6a",
+        "dirty": true
+      },
+      "source_unchanged": true,
+      "modes": {
+        "scripted": {
+          "case_count": 12,
+          "correct_count": 12,
+          "completed_count": 12,
+          "qualified_count": 9,
+          "qualified_state_matches": 12,
+          "proposal_count": 3,
+          "false_proposals": 0,
+          "abstentions": 6,
+          "incomplete": 3,
+          "latency_ms": {
+            "median": 8121.709729508439,
+            "observed_p95": 15744.383500001277
+          },
+          "tool_counts": {
+            "begin_investigation": 12,
+            "finish_investigation": 12,
+            "get_trace": 12,
+            "query_incident": 51
+          },
+          "tool_call_count": 87,
+          "token_usage": "UNKNOWN",
+          "cost_usd": "UNKNOWN",
+          "cases": [
+            {
+              "case_id": "case_5c5735ea854368b8b7c8a1baefde01b6",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 15744.383500001277,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_3cb7b6729885278d3e4fd3aa274827d9",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 9644.415000002482,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_3041a2075bf20a2887a459a243ea2abf",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 9177.757167009986,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_bce81549768241d6879f4933945bc143",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 6036.12633299781,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_7ccf00a0f57fbd8ce3cc5d2d7ba75c8f",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 7065.662292006891,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_e10750fddf539fee48bafe14e7ec267d",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 12002.694000009797,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_4556e6b8bfbaab478072cf1ddee5db5b",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 13684.030165997683,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_1f652536bc461084b9bd47e85277bda3",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 12752.62370800192,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_d75ba9794d7cf73ebd47607bffb72cb3",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 3273.762042008457,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_37699069d4d38507f8492e30775ab484",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1731.5117920079501,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_74dfac77980e99f01fdaa2efd78a0165",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 2267.4041670106817,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_e91aeb9d6ab207dacead4deebead7373",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1876.1162910086568,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            }
+          ],
+          "actual_raw_matches": 12,
+          "successful_raw_finishes": 12,
+          "native_sql_submissions_with_metadata": 63,
+          "mcp_error_calls": 0,
+          "evidence_timing_median_ms": {
+            "native_timeUsedMs": 15,
+            "mcp_execution": 58,
+            "client": 72.60262500494719
+          },
+          "usage_receipt_count": 0,
+          "recorded_usage_subset": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          }
+        },
+        "model": {
+          "case_count": 12,
+          "correct_count": 0,
+          "completed_count": 0,
+          "qualified_count": 0,
+          "qualified_state_matches": 0,
+          "proposal_count": 0,
+          "false_proposals": 0,
+          "abstentions": 0,
+          "incomplete": 12,
+          "latency_ms": {
+            "median": 9632.666270495974,
+            "observed_p95": 31021.29970799433
+          },
+          "tool_counts": {},
+          "tool_call_count": 0,
+          "token_usage": "UNKNOWN",
+          "cost_usd": "UNKNOWN",
+          "cases": [
+            {
+              "case_id": "case_5c5735ea854368b8b7c8a1baefde01b6",
+              "expected_status": "proposed",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 9556.017499999143,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_3cb7b6729885278d3e4fd3aa274827d9",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 6327.023167003063,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_3041a2075bf20a2887a459a243ea2abf",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 5634.01037499716,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_bce81549768241d6879f4933945bc143",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 6213.749999995343,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_7ccf00a0f57fbd8ce3cc5d2d7ba75c8f",
+              "expected_status": "proposed",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 20817.952249999507,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_e10750fddf539fee48bafe14e7ec267d",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 31021.29970799433,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_4556e6b8bfbaab478072cf1ddee5db5b",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 20324.629916998674,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_1f652536bc461084b9bd47e85277bda3",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 6352.201540998067,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_d75ba9794d7cf73ebd47607bffb72cb3",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 6096.7760420026025,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_37699069d4d38507f8492e30775ab484",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 9709.315040992806,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_74dfac77980e99f01fdaa2efd78a0165",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 10133.649084003991,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_e91aeb9d6ab207dacead4deebead7373",
+              "expected_status": "proposed",
+              "summary_status": "incomplete",
+              "actual_raw_status": null,
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 12168.842750004842,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool.",
+                "CLI attempted an unexpected tool.",
+                "CLI reported a failed turn.",
+                "CLI reported a failed turn."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            }
+          ],
+          "actual_raw_matches": 0,
+          "successful_raw_finishes": 0,
+          "native_sql_submissions_with_metadata": 0,
+          "mcp_error_calls": 0,
+          "evidence_timing_median_ms": {
+            "native_timeUsedMs": "UNKNOWN",
+            "mcp_execution": "UNKNOWN",
+            "client": "UNKNOWN"
+          },
+          "usage_receipt_count": 0,
+          "recorded_usage_subset": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          }
+        }
+      }
+    },
+    "native-replay-v7": {
+      "runtime_commit": {
+        "head": "635ab160db07c04d45ef676e5fc5f93121526a6a",
+        "dirty": true
+      },
+      "source_unchanged": true,
+      "modes": {
+        "scripted": {
+          "case_count": 12,
+          "correct_count": 12,
+          "completed_count": 12,
+          "qualified_count": 9,
+          "qualified_state_matches": 12,
+          "proposal_count": 3,
+          "false_proposals": 0,
+          "abstentions": 6,
+          "incomplete": 3,
+          "latency_ms": {
+            "median": 1184.7779370000353,
+            "observed_p95": 3050.9739169938257
+          },
+          "tool_counts": {
+            "begin_investigation": 12,
+            "finish_investigation": 12,
+            "get_trace": 12,
+            "query_incident": 51
+          },
+          "tool_call_count": 87,
+          "token_usage": "UNKNOWN",
+          "cost_usd": "UNKNOWN",
+          "cases": [
+            {
+              "case_id": "case_ee53ebb7fd1548d38af01f82c4855eb5",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 2746.1728750058683,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_bec58d8b8654104b51f8d3cc8c5851bc",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1150.8254159998614,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_24e86f81c2139020b43b020c3a509ec9",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1191.9352080003591,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_bb25829904e343ea4bd1b35f07df971d",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1207.0545830065385,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_fa057b26523b7841839dc54e399029b4",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1935.0720000074944,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_cb44bd94b8197713a85e439121036e0c",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 1159.1736670088721,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_2f46f4639ccf945907f2b8b584fb48b1",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1040.0791249994654,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_6567255a8872cf80d6d86cc4cd5d336f",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1122.6862499897834,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_67c84558730bda743141cbca0a8c81db",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 3050.9739169938257,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_40e827c3fa22843c9ec62bc3764913ba",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1055.5620420054765,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_ccd901b566d2cbd3fcc55c418be9b08e",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1375.706667007762,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_78ea923272529bc7f55f4e3516916cf6",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1177.6206659997115,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            }
+          ],
+          "actual_raw_matches": 12,
+          "successful_raw_finishes": 12,
+          "native_sql_submissions_with_metadata": 63,
+          "mcp_error_calls": 0,
+          "evidence_timing_median_ms": {
+            "native_timeUsedMs": 3,
+            "mcp_execution": 16,
+            "client": 21.746333004557528
+          },
+          "usage_receipt_count": 0,
+          "recorded_usage_subset": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          }
+        },
+        "model": {
+          "case_count": 12,
+          "correct_count": 0,
+          "completed_count": 0,
+          "qualified_count": 0,
+          "qualified_state_matches": 0,
+          "proposal_count": 0,
+          "false_proposals": 0,
+          "abstentions": 2,
+          "incomplete": 10,
+          "latency_ms": {
+            "median": 55299.527208502695,
+            "observed_p95": 60046.64104199037
+          },
+          "tool_counts": {
+            "begin_investigation": 12,
+            "finish_investigation": 12,
+            "get_trace": 19,
+            "query_incident": 63
+          },
+          "tool_call_count": 106,
+          "token_usage": "UNKNOWN",
+          "cost_usd": "UNKNOWN",
+          "cases": [
+            {
+              "case_id": "case_ee53ebb7fd1548d38af01f82c4855eb5",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 54498.46745899413,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_bec58d8b8654104b51f8d3cc8c5851bc",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 54694.180999998935,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_24e86f81c2139020b43b020c3a509ec9",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 60046.64104199037,
+              "timed_out": true,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_bb25829904e343ea4bd1b35f07df971d",
+              "expected_status": "proposed",
+              "summary_status": "incomplete",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 51457.03995900112,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_fa057b26523b7841839dc54e399029b4",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": false,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 59872.066625001025,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_cb44bd94b8197713a85e439121036e0c",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 60035.39954200096,
+              "timed_out": true,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": false,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_2f46f4639ccf945907f2b8b584fb48b1",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 55904.873417006456,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_6567255a8872cf80d6d86cc4cd5d336f",
+              "expected_status": "proposed",
+              "summary_status": "incomplete",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 60030.87425000558,
+              "timed_out": true,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_67c84558730bda743141cbca0a8c81db",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 56283.045624993974,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_40e827c3fa22843c9ec62bc3764913ba",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 53838.31404100056,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_ccd901b566d2cbd3fcc55c418be9b08e",
+              "expected_status": "proposed",
+              "summary_status": "incomplete",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 47039.55916699488,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            },
+            {
+              "case_id": "case_78ea923272529bc7f55f4e3516916cf6",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": false,
+              "qualified": false,
+              "elapsed_ms": 51908.487375010736,
+              "timed_out": false,
+              "cli_issues": [
+                "CLI attempted an unexpected tool."
+              ],
+              "usage_receipt_present": true,
+              "error": "No verified finish within the host deadline."
+            }
+          ],
+          "actual_raw_matches": 11,
+          "successful_raw_finishes": 12,
+          "native_sql_submissions_with_metadata": 72,
+          "mcp_error_calls": 10,
+          "evidence_timing_median_ms": {
+            "native_timeUsedMs": 19.0,
+            "mcp_execution": 84.5,
+            "client": 92.8251665
+          },
+          "usage_receipt_count": 10,
+          "recorded_usage_subset": {
+            "input_tokens": 1103712,
+            "cached_input_tokens": 847232,
+            "output_tokens": 8715,
+            "reasoning_output_tokens": 254
+          }
+        }
+      }
+    },
+    "native-replay-v8": {
+      "runtime_commit": {
+        "head": "a70c99276385e4fa0cec6ce19568bbdbbd45fe1a",
+        "dirty": false
+      },
+      "source_unchanged": true,
+      "modes": {
+        "scripted": {
+          "case_count": 12,
+          "correct_count": 12,
+          "completed_count": 12,
+          "qualified_count": 9,
+          "qualified_state_matches": 12,
+          "proposal_count": 3,
+          "false_proposals": 0,
+          "abstentions": 6,
+          "incomplete": 3,
+          "latency_ms": {
+            "median": 1200.9014369978104,
+            "observed_p95": 3007.878417003667
+          },
+          "tool_counts": {
+            "begin_investigation": 12,
+            "finish_investigation": 12,
+            "get_trace": 12,
+            "query_incident": 51
+          },
+          "tool_call_count": 87,
+          "token_usage": "UNKNOWN",
+          "cost_usd": "UNKNOWN",
+          "cases": [
+            {
+              "case_id": "case_4cc772c3d8cf8c9322dc081605d38191",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 2249.2802499909885,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_0ff4d4655dbe761c538f48eb48354088",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 1294.6799170022132,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_fcd15ce608cea8a7beb408eec534c03b",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1125.8017080108402,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_b7fc3338e1855357532928b140311579",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1139.224540995201,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_7bc71cd2ced246923aca69e743ff8b2b",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 3007.878417003667,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_633e37ad5e2d0f82bf88c205704b6534",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1025.0401670054998,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_a70730f86050a915217e3c46fe3b9e9d",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1016.0798750002868,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_2e15b7f9056ba4644095e57079e840ac",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1034.2847499996424,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_4b17653e5213dcb1e8337be0cf4b4d1f",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 2035.408666008152,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_c45abfc34b6ca50f6dc8009c0fec9b3e",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1032.3557079973398,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_c4b7fccf93916218ff825a128a20d62d",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 1470.3727080050157,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            },
+            {
+              "case_id": "case_7746df281c903c6c54dcd668d0fb6691",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 1262.5783330004197,
+              "timed_out": null,
+              "cli_issues": [],
+              "usage_receipt_present": false,
+              "error": null
+            }
+          ],
+          "actual_raw_matches": 12,
+          "successful_raw_finishes": 12,
+          "native_sql_submissions_with_metadata": 63,
+          "mcp_error_calls": 0,
+          "evidence_timing_median_ms": {
+            "native_timeUsedMs": 3,
+            "mcp_execution": 14,
+            "client": 19.103917002212256
+          },
+          "usage_receipt_count": 0,
+          "recorded_usage_subset": {
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          }
+        },
+        "model": {
+          "case_count": 12,
+          "correct_count": 10,
+          "completed_count": 12,
+          "qualified_count": 7,
+          "qualified_state_matches": 10,
+          "proposal_count": 3,
+          "false_proposals": 0,
+          "abstentions": 4,
+          "incomplete": 5,
+          "latency_ms": {
+            "median": 45375.37052099651,
+            "observed_p95": 52716.605584006174
+          },
+          "tool_counts": {
+            "begin_investigation": 12,
+            "finish_investigation": 12,
+            "get_trace": 12,
+            "query_incident": 60
+          },
+          "tool_call_count": 96,
+          "token_usage": {
+            "input_tokens": 1981819,
+            "output_tokens": 10474
+          },
+          "cost_usd": "UNKNOWN",
+          "cases": [
+            {
+              "case_id": "case_4cc772c3d8cf8c9322dc081605d38191",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": false,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 45053.26874999446,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_0ff4d4655dbe761c538f48eb48354088",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 38613.19200000435,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_fcd15ce608cea8a7beb408eec534c03b",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 48926.48441599158,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_b7fc3338e1855357532928b140311579",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 49851.63604200352,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_7bc71cd2ced246923aca69e743ff8b2b",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 41571.76770899969,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_633e37ad5e2d0f82bf88c205704b6534",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 44127.450875006616,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_a70730f86050a915217e3c46fe3b9e9d",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 43228.02370900172,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_2e15b7f9056ba4644095e57079e840ac",
+              "expected_status": "abstained",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": false,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 45697.472291998565,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_4b17653e5213dcb1e8337be0cf4b4d1f",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 48117.45358299231,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_c45abfc34b6ca50f6dc8009c0fec9b3e",
+              "expected_status": "abstained",
+              "summary_status": "abstained",
+              "actual_raw_status": "abstained",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 47592.09954200196,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_c4b7fccf93916218ff825a128a20d62d",
+              "expected_status": "proposed",
+              "summary_status": "proposed",
+              "actual_raw_status": "proposed",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": true,
+              "elapsed_ms": 52716.605584006174,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            },
+            {
+              "case_id": "case_7746df281c903c6c54dcd668d0fb6691",
+              "expected_status": "incomplete",
+              "summary_status": "incomplete",
+              "actual_raw_status": "incomplete",
+              "raw_matches_truth": true,
+              "verified_finish": true,
+              "qualified": false,
+              "elapsed_ms": 40745.306416007224,
+              "timed_out": false,
+              "cli_issues": [],
+              "usage_receipt_present": true,
+              "error": null
+            }
+          ],
+          "actual_raw_matches": 10,
+          "successful_raw_finishes": 12,
+          "native_sql_submissions_with_metadata": 72,
+          "mcp_error_calls": 0,
+          "evidence_timing_median_ms": {
+            "native_timeUsedMs": 7.0,
+            "mcp_execution": 32.0,
+            "client": 34.6489585
+          },
+          "usage_receipt_count": 12,
+          "recorded_usage_subset": {
+            "input_tokens": 1981819,
+            "cached_input_tokens": 1691904,
+            "output_tokens": 10474,
+            "reasoning_output_tokens": 100
+          }
+        }
+      }
+    }
+  }
+}

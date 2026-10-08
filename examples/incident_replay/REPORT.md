@@ -1,8 +1,9 @@
 # Incident tool replay, 2026-10-08
 
 The merged incident APIs can assemble bounded, cited evidence from native Pinot.
-The scripted investigator passed 12/12 constructed cases. This establishes the
-API path and the fixture's conservative decisions; it does not establish Wix
+The scripted investigator passed 12/12 constructed cases; the real host model
+matched 10/12, with all 12 finishes verified within 60 seconds and no false
+proposals. This establishes the API path and these constructed decisions; it does not establish Wix
 production RCA, feature equivalence with Wild Moose, or a 50% total-cost advantage.
 The real host-model results and retained failed trials are reported separately.
 
@@ -45,6 +46,57 @@ Raw MCP finishes are retained even when the host delivery or qualification fails
 | --- | --- | --- | --- |
 | v6, seeds 53–55 | 12/12, 12/12 | 0/12, 0/12 | Configured CLI model rejected before any tool call; no model-quality measurement |
 | v7, seeds 56–58 | 12/12, 12/12 | 0/12, 0/12 | Startup-warning classification and concurrent admission failures; retained as a failed host trial |
+| v8, seeds 59–61 | 12/12, 12/12 | 10/12, 12/12 | Frozen committed harness, sequential calls, full CLI response binding; two terminal-status misses |
+
+### Primary frozen trial: v8
+
+| Measure | Scripted | Real host model |
+| --- | ---: | ---: |
+| Exact expected outcome | 12/12 | 10/12 |
+| Verified MCP finish | 12/12 | 12/12 |
+| Host-qualified proposal or abstention | 9/12 | 7/12 |
+| Proposed / abstained / incomplete | 3 / 6 / 3 | 3 / 4 / 5 |
+| False proposals against synthetic truth | 0 of 3 | 0 of 3 |
+| Median whole-case latency | 1.201 s | 45.375 s |
+| Observed p95 of 12 cases | 3.008 s | 52.717 s |
+| MCP calls / native SQL evidence submissions | 87 / 63 | 96 / 72 |
+| Native `timeUsedMs` median | 3 ms | 7 ms |
+| MCP evidence execution median | 14 ms | 32 ms |
+| Client-observed evidence-call median | 19.10 ms | 34.65 ms |
+| Tool errors / host timeouts | 0 / 0 | 0 / 0 |
+| Actual CLI usage receipts | N/A | 12/12 |
+
+The two misses are `case_4cc772c3d8cf8c9322dc081605d38191` and
+`case_2e15b7f9056ba4644095e57079e840ac`: the model returned `incomplete` where
+adequate evidence of confounding required `abstained`. It withheld causal
+proposals, but the decision taxonomy was wrong. Future work should distinguish
+complete but unidentifiable associations from missing coverage, then evaluate
+that contract on fresh cases. These cases are not relabeled.
+
+Model usage receipts total 1,981,819 input tokens (1,691,904 cached) and 10,474
+output tokens. Cached input is part of input, not an additional amount. Dollar
+cost remains `UNKNOWN`: the CLI does not expose a priced billing receipt or
+observed model identity in these events. The timing gap points to overhead in
+the host/model workflow; this does not identify a Pinot engine bottleneck
+or establish the cost of an API-only model host.
+
+V8 ran from clean commit `a70c99276385e4fa0cec6ce19568bbdbbd45fe1a` and its
+production/harness source hashes stayed unchanged through shutdown. A subsequent
+Windows assertion fix changes only tests. Any later launcher hardening is separate
+from this measured snapshot; its checks must not be presented as v8 measurements.
+All three full-row parity checks and the six protocol probes passed.
+
+Post-trial launcher hardening restricts Java/Codex executable names, resolves the
+intended driver, and explicitly disables shell execution. Real version probes
+selected the same Temurin 25 and Codex CLI 0.153.4 paths as before. This validates
+the launcher change, not a new model-quality trial. Local validation passed
+525 tests with seven existing remote-cluster tests skipped, Ruff, formatting,
+mypy, and the frozen dependency lock. Live native validation is reported above.
+
+[The evidence bundle](evidence/2026-10-08/README.md) includes original predictions,
+truth, scores, native parity, probes, runtime identities, and filtered completed
+CLI tool/usage receipts, with archive/member hashes. Excluded model reasoning and
+local native data remain under ignored `output/`. Historical scores are preserved.
 
 In v6 the signed-in CLI rejected the copied model selection with HTTP 400. We did
 not silently switch models inside that trial. v7 explicitly used isolated CLI
@@ -62,16 +114,17 @@ recorded MCP responses preserve them; the final runner retains raw outcomes
 directly while keeping verification and qualification strict. The exploratory
 11/12 raw match is not the verified 0/12 result.
 
-The final trial suppresses the startup warning, asks for sequential queries, and
+V8 suppresses the startup warning, asks for sequential queries, and
 matches completed CLI response content and structured results against the actual
 production MCP audit. The earlier failures are not rescored as successes.
 
 The backend is the cached Apache Pinot 1.5.1 distribution, JAR SHA-256
 `64c2d0fda4efd1f1b6d89a4b828d5f794782f297d25c3ee350072d913ba2b37a`,
-with JDK 25, Codex CLI 0.153.4, and pinotdb 9.2.1 / MCP 2.1.1 / FastMCP 4.0.2. Production and harness
-source hashes stayed unchanged throughout v6 and v7. Git HEAD was the merged
-#157 base with the replay changes uncommitted; per-file hashes identify those
-changes. This is an OSS-native compatibility run, not a successful StarTree
+with JDK 25, Codex CLI 0.153.4, and pinotdb 9.2.1 / MCP 2.1.1 / FastMCP 4.0.2.
+Production and harness source hashes stayed unchanged throughout v6, v7, and v8.
+In v6/v7, Git HEAD was the merged #157 base with replay changes uncommitted;
+per-file hashes identify those changes. V8 has the committed identity above.
+This is an OSS-native compatibility run, not a successful StarTree
 distribution certification.
 
 Earlier startup/parity failures are preserved locally: two cached StarTree JARs
@@ -100,7 +153,7 @@ quality claim is made.
 
 ## Protocol and evidence checks
 
-Both completed trials passed six separate probes: verified-subject ownership,
+All three completed trials passed six separate probes: verified-subject ownership,
 all four healthy tools, real monotonic expiry, partial-response rejection, a real
 missing-table broker failure, and native request-ID correlation. Ownership and
 expiry rejected without an additional SQL submission. The partial-response probe
@@ -116,8 +169,8 @@ four tools, so this is not a general prompt-injection evaluation.
 
 ## What remains before a competitive claim
 
-1. Validate the real host delivery and abstention behavior with the frozen final
-   trial, then release the merged API version through the normal release process.
+1. Tighten the agent's abstention/incomplete decision contract and validate it on
+   new cases, then release the merged API version through the normal release process.
 2. Replay independently labeled production incidents, including traffic switches,
    experiments, environment changes, sparse/late telemetry, and competing causes.
    Measure useful hypotheses, unsupported proposals, abstention, and time to evidence.

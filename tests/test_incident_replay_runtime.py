@@ -22,15 +22,14 @@ def test_runtime_identity_changes_with_backend_or_dependency_lock(tmp_path):
     before = source_hashes(tmp_path)
     production.write_text("# backend after\n")
     after = source_hashes(tmp_path)
+    harness_key = str((replay / "runner.py").relative_to(tmp_path))
+    production_key = str(production.relative_to(tmp_path))
     assert before != after
-    assert (
-        before["examples/incident_replay/runner.py"]
-        == after["examples/incident_replay/runner.py"]
-    )
+    assert before[harness_key] == after[harness_key]
     lock.write_text("# dependency lock after\n")
     assert source_hashes(tmp_path)["uv.lock"] != after["uv.lock"]
     production.unlink()
-    assert "mcp_pinot/auth/provider.py" not in source_hashes(tmp_path)
+    assert production_key not in source_hashes(tmp_path)
 
 
 def test_probe_help_does_not_initialize_ambient_auth(tmp_path):

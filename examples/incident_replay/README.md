@@ -86,9 +86,10 @@ The auth test does not cover an external OAuth issuer or browser login.
 `live.py` creates a fresh multi-seed fixture, owns its local BATCH process, runs
 both modes, scores them, probes failures, and stops only its own process.
 
-The launchers resolve drivers named `java`/`java.exe` or `codex`/`codex.exe` and
-pass arguments literally with `shell=False`. The operator selects the installed
-software; this name restriction does not establish binary provenance.
+The launchers discover Java/Codex on PATH and JDK 25 through macOS `java_home`.
+Executable arguments select those discovered drivers; arbitrary driver paths are
+rejected. Arguments remain literal with `shell=False`. System discovery does not
+establish binary provenance.
 
 Supply an existing distribution JAR and an explicit JDK 25+ executable:
 

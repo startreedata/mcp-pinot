@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 from urllib.parse import urlsplit
 
 
@@ -24,20 +26,37 @@ def loopback_url(value: str) -> str:
 
 
 def executable_path(value: str, *, program: str) -> str:
-    """Locate the intended program without accepting arbitrary command names."""
+    """Select an independently discovered driver, never an arbitrary CLI path."""
     requested = Path(value).expanduser()
     allowed = {"java": ("java", "java.exe"), "codex": ("codex", "codex.exe")}[program]
     if requested.name not in allowed:
         raise ValueError(f"Executable must be named {allowed[0]} or {allowed[1]}.")
-    directory = str(requested.parent) if os.path.dirname(value) else None
-    name = allowed[1] if requested.name.endswith(".exe") else allowed[0]
-    # Explicit paths bypass PATH splitting (notably ';' in Windows directories).
-    located = shutil.which(str(requested.absolute()) if directory else name)
-    if located is None or not Path(located).is_file():
-        raise ValueError(f"An executable {program} program is required.")
-    if directory is not None and Path(located).resolve() != requested.resolve():
-        raise ValueError(f"Requested executable does not match the {program} lookup.")
-    return located
+    discovered = [shutil.which(name) for name in allowed]
+    if program == "java" and sys.platform == "darwin":
+        try:
+            java_home = subprocess.check_output(
+                ["/usr/libexec/java_home", "-v", "25"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                shell=False,
+                timeout=10,
+            ).strip()
+            if java_home:
+                discovered.insert(0, str(Path(java_home) / "bin" / "java"))
+        except (OSError, subprocess.SubprocessError):
+            pass  # PATH remains usable when no JDK 25 is registered with macOS.
+    for located in discovered:
+        if (
+            located is not None
+            and Path(located).is_file()
+            and os.access(located, os.X_OK)
+            and (
+                not os.path.dirname(value)
+                or Path(located).resolve() == requested.resolve()
+            )
+        ):
+            return located
+    raise ValueError(f"Select an installed {program} driver discovered by the system.")
 
 
 def replay_env(broker: str, controller: str) -> dict[str, str]:

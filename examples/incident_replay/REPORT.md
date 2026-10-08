@@ -86,11 +86,11 @@ Windows assertion fix changes only tests. Any later launcher hardening is separa
 from this measured snapshot; its checks must not be presented as v8 measurements.
 All three full-row parity checks and the six protocol probes passed.
 
-Post-trial launcher hardening restricts Java/Codex executable names, resolves the
-intended driver, and explicitly disables shell execution. Real version probes
+Post-trial launcher hardening selects Java/Codex from independent system/PATH
+discovery, rejects unlisted driver paths, and explicitly disables shell execution. Real version probes
 selected the same Temurin 25 and Codex CLI 0.153.4 paths as before. This validates
 the launcher change, not a new model-quality trial. Local validation passed
-525 tests with seven existing remote-cluster tests skipped, Ruff, formatting,
+526 tests with seven existing remote-cluster tests skipped, Ruff, formatting,
 mypy, and the frozen dependency lock. Live native validation is reported above.
 
 [The evidence bundle](evidence/2026-10-08/README.md) includes original predictions,

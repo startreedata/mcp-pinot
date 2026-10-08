@@ -13,7 +13,9 @@ import pytest
 
 def test_executable_lookup_preserves_explicit_paths_and_literal_directory_names(
     tmp_path,
+    monkeypatch,
 ):
+    monkeypatch.setattr(sys, "platform", "linux")
     directory = tmp_path / "tool path; literal"
     directory.mkdir()
     for program in ("java", "codex"):
@@ -21,6 +23,10 @@ def test_executable_lookup_preserves_explicit_paths_and_literal_directory_names(
         executable = directory / name
         executable.write_text("test executable\n")
         executable.chmod(0o755)
+        monkeypatch.setattr(
+            "examples.incident_replay.common.shutil.which",
+            lambda _name, selected=str(executable): selected,
+        )
         assert executable_path(str(executable), program=program) == str(executable)
 
 
@@ -30,6 +36,29 @@ def test_executable_lookup_rejects_other_programs_even_when_executable(tmp_path)
     other.chmod(0o755)
     for program in ("java", "codex"):
         with pytest.raises(ValueError, match="Executable must be named"):
+            executable_path(str(other), program=program)
+
+
+def test_executable_selector_cannot_redirect_to_an_unlisted_named_driver(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(sys, "platform", "linux")
+    approved = tmp_path / "approved"
+    unlisted = tmp_path / "unlisted"
+    approved.mkdir()
+    unlisted.mkdir()
+    for program in ("java", "codex"):
+        name = program + (".exe" if os.name == "nt" else "")
+        listed, other = approved / name, unlisted / name
+        for path in (listed, other):
+            path.write_text("test executable\n")
+            path.chmod(0o755)
+        monkeypatch.setattr(
+            "examples.incident_replay.common.shutil.which",
+            lambda _name, selected=str(listed): selected,
+        )
+        with pytest.raises(ValueError, match="Select an installed"):
             executable_path(str(other), program=program)
 
 

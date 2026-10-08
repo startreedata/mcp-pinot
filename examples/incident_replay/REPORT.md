@@ -90,8 +90,11 @@ Post-trial launcher hardening selects Java/Codex from independent system/PATH
 discovery, rejects unlisted driver paths, and explicitly disables shell execution. Real version probes
 selected the same Temurin 25 and Codex CLI 0.153.4 paths as before. This validates
 the launcher change, not a new model-quality trial. Local validation passed
-526 tests with seven existing remote-cluster tests skipped, Ruff, formatting,
+529 tests with seven existing remote-cluster tests skipped, Ruff, formatting,
 mypy, and the frozen dependency lock. Live native validation is reported above.
+Review follow-ups preserve IPv6 host brackets and size loader queries from the
+expected rows plus one; regressions cover oversized fixtures and hidden extra rows.
+These boundary fixes do not change the preserved v8 measurements.
 
 [The evidence bundle](evidence/2026-10-08/README.md) includes original predictions,
 truth, scores, native parity, probes, runtime identities, and filtered completed

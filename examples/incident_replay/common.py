@@ -71,7 +71,9 @@ def replay_env(broker: str, controller: str) -> dict[str, str]:
     env.update(
         {
             "PINOT_BROKER_URL": broker,
-            "PINOT_BROKER_HOST": parsed.hostname,
+            "PINOT_BROKER_HOST": (
+                f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+            ),
             "PINOT_BROKER_PORT": str(
                 parsed.port or (443 if parsed.scheme == "https" else 80)
             ),

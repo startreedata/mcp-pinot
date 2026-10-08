@@ -8,7 +8,10 @@ from pathlib import Path
 import re
 import time
 
-from common import loopback_url
+if __package__:
+    from .common import loopback_url
+else:
+    from common import loopback_url
 import httpx
 
 
@@ -81,7 +84,8 @@ def main() -> None:
         while True:
             response = client.post(
                 broker + "/query/sql",
-                json={"sql": f'SELECT * FROM "{table}" LIMIT 100000'},  # noqa: S608
+                # One extra row prevents a matching prefix from proving parity.
+                json={"sql": f'SELECT * FROM "{table}" LIMIT {len(expected) + 1}'},  # noqa: S608
             )
             response.raise_for_status()
             native = response.json()

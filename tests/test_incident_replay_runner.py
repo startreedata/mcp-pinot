@@ -318,6 +318,37 @@ def test_replay_helper_preserves_cli_auth_but_never_loads_checkout_secrets(
     assert json.loads(result.stdout) == [True, True]
 
 
+def test_replay_ipv6_config_builds_valid_pinotdb_authority_without_network(tmp_path):
+    script = (
+        "import json, httpx; from pinotdb import connect; "
+        "from mcp_pinot.config import load_pinot_config; "
+        "from mcp_pinot.pinot_client import PinotClient; "
+        "p=PinotClient(load_pinot_config()).config; "
+        "connection=connect(host=p.broker_host,port=p.broker_port,"
+        "scheme=p.broker_scheme,path='/query/sql'); "
+        "cursor=connection.cursor(); url=httpx.URL(cursor.url); "
+        "print(json.dumps([p.broker_host,cursor.url,url.host,url.port,"
+        "p.controller_url])); "
+        "connection.close()"
+    )
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", script],
+        env=replay_env("http://[::1]:18000", "http://[::1]:19090"),
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    assert json.loads(result.stdout) == [
+        "[::1]",
+        "http://[::1]:18000/query/sql",
+        "::1",
+        18000,
+        "http://[::1]:19090",
+    ]
+
+
 @pytest.mark.parametrize(
     "changed", [None, "structured", "meta", "content", "failed", "native_error"]
 )

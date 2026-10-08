@@ -12,7 +12,7 @@ When you enable the plugin, Claude asks for the controller URL, broker URL and a
 
 ## What it runs and where data goes
 
-- On first use, `uvx` downloads the `mcp-pinot-server` package, pinned to version 4.1.0, from PyPI and runs it on your machine over stdio.
+- On first use, `uvx` downloads the `mcp-pinot-server` package, pinned to version 4.1.0, from PyPI and runs it on your machine over stdio. The server needs Python 3.12, so uv also downloads it once if your machine has an older Python.
 - The server talks only to the controller and broker URLs you configure, and sends your token or password only to them.
 - Query results come back into your Claude conversation. The plugin doesn't store your query results or cluster data and sends nothing anywhere else. Your credentials are kept in the system credential store, and uv keeps the downloaded package in its local cache. See [PRIVACY.md](https://github.com/startreedata/mcp-pinot/blob/main/PRIVACY.md).
 

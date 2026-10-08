@@ -1,6 +1,6 @@
 import json
 from types import SimpleNamespace
-from unittest.mock import call, patch
+from unittest.mock import ANY, call, patch
 
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
@@ -357,6 +357,7 @@ class TestFastMCPServer:
             query="SELECT * FROM test_table",
             max_rows=101,
             application_name="mcp-pinot",
+            request_id=ANY,
         )
 
     @pytest.mark.asyncio
@@ -391,6 +392,7 @@ class TestFastMCPServer:
             query="SELECT n FROM t",
             max_rows=3,
             application_name="mcp-pinot",
+            request_id=ANY,
         )
 
     @pytest.mark.asyncio
@@ -500,12 +502,16 @@ class TestFastMCPServer:
         mock_pinot_client.execute_query_with_metadata.side_effect = error
 
         async with Client(mcp) as client:
-            with pytest.raises(ToolError) as raised:
-                await client.call_tool(
-                    "read_query", {"query": "SELECT 'private-query-text' FROM t"}
-                )
+            result = await client.call_tool_mcp(
+                "read_query", {"query": "SELECT 'private-query-text' FROM t"}
+            )
 
-        message = str(raised.value)
+        assert result.is_error is True
+        metadata = result.meta["io.github.startreedata/mcp-pinot"]
+        assert metadata["status"] == "error"
+        assert metadata["admitted"] is True
+        assert len(metadata["request_id"]) == 32
+        message = result.content[0].text
         classification = json.loads(message)
         assert classification["code"] == code
         assert classification["category"] == category
@@ -519,7 +525,7 @@ class TestFastMCPServer:
             "private-auth-text",
             "Authorization",
         ):
-            assert private_value not in message
+            assert private_value not in result.model_dump_json()
         mock_pinot_client.execute_query_with_metadata.assert_called_once()
         mock_pinot_client.test_connection.assert_not_called()
 

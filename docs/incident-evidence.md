@@ -111,16 +111,17 @@ async def collect(client: Client, trace_id: str | None = None):
     finished = await client.call_tool("finish_investigation", {
         "run_id": run_id,
         "citations": [record["evidence_id"] for record in records],
-        "status": "incomplete" if incomplete else "abstained",
+        "status": "incomplete",
         "reason": ("Evidence execution was incomplete, unknown, or truncated."
-                   if incomplete else "Coverage and cause remain unvalidated."),
+                   if incomplete else "Coverage and association sufficiency have not been evaluated."),
     })
     return {"finish": finished.structured_content,
             "evidence": records, "timings": timings}
 ```
 
 Call `collect` inside an existing FastMCP `Client` session. This example collects
-execution evidence and abstains from a causal claim. `complete=true` qualifies
+execution evidence and finishes `incomplete` pending a coverage and association
+assessment. `complete=true` qualifies
 only that bounded SQL execution; an empty watermark result or a recent watermark
 alone does not prove continuous coverage of every service in the incident window.
 The baseline and incident aggregations cover services in the tenant/window;
@@ -137,6 +138,21 @@ same run and owner. Complete citations are required for `proposed`/`abstained`;
 requires a reason. Pending queries prevent finish, and finish closes once. Failed
 attempts consume query budget and remain visible as failed evidence. An expired
 run cannot be finished; preserve received evidence rather than retrying it blindly.
+
+Choose the terminal status after evaluating the received observations:
+
+| Status | Caller decision |
+| --- | --- |
+| `proposed` | Adequate observations support a specific candidate association; the hypothesis remains unverified. |
+| `abstained` | Adequate observations show a healthy target, unrelated changes, or confounding that prevents identifying a supported candidate. |
+| `incomplete` | Missing, sparse, stale, partial, or failed evidence prevents evaluating the association. |
+
+Absent matched controls can reveal confounding in otherwise adequate data. That
+supports abstention. Insufficient observations of an expected cohort, missing
+coverage checkpoints, or stale telemetry support `incomplete`, even when the SQL
+queries all executed completely. The server validates ownership and citation
+integrity and enforces execution-completeness requirements; evidence sufficiency,
+the chosen semantic status, coverage, and cause remain caller judgments.
 
 All four tools expose the response timing envelope through `response.meta`
 (wire `_meta`). For `query_incident` and `get_trace`, its `request_id` is submitted

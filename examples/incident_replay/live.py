@@ -76,6 +76,7 @@ def main() -> None:
     parser.add_argument("--mode", choices=["scripted", "model", "both"], default="both")
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--cli-defaults", action="store_true")
+    parser.add_argument("--extended-cases", action="store_true")
     args = parser.parse_args()
     java = executable_path(args.java, program="java")
     java_version = subprocess.check_output(  # noqa: S603
@@ -122,6 +123,7 @@ def main() -> None:
         str(args.seeds),
         "--start-seed",
         str(args.start_seed),
+        *(["--extended-cases"] if args.extended_cases else []),
     )
     with args.jar.open("rb") as stream:
         jar_hash = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -130,6 +132,7 @@ def main() -> None:
         manifest = manifest.replace("\n ", "")
     runtime = {
         "scope": "local synthetic replay; no production accuracy or cost claim",
+        "fixture_suite": "extended" if args.extended_cases else "baseline",
         "started_at": datetime.now(UTC).isoformat(),
         "jar": str(args.jar.resolve()),
         "jar_sha256": jar_hash,

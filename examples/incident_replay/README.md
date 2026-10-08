@@ -13,6 +13,16 @@ cases. It generates unique event/span IDs, real parent references, and at least
 and expected answers occur only in `truth.json`. The public trace ID represents
 one already observed in alert context; the tools do not discover traces.
 
+Add `--extended-cases` to `fixture.py` or `live.py` for two further cases:
+eight spans per populated payments cohort, and present collector checkpoints
+five seconds behind the incident end. Both require `incomplete`. The original
+four cases and default fixture output remain unchanged.
+
+Use `abstained` when adequate observations establish a healthy target, unrelated
+changes, or confounding. Use `incomplete` when coverage or samples remain
+insufficient, including stale or missing checkpoints. Complete query execution
+is one evidence check; the caller also evaluates whether the observations suffice.
+
 ## Run against an owned local Pinot
 
 From the repository root, create a fresh output directory and start an isolated

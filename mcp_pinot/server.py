@@ -1046,14 +1046,33 @@ def finish_investigation(
     run_id: Annotated[str, Field(min_length=1, max_length=128)],
     citations: Annotated[list[str], Field(max_length=64)],
     hypothesis: IncidentHypothesis | None = None,
-    status: Literal["proposed", "abstained", "incomplete"] = "proposed",
+    status: Annotated[
+        Literal["proposed", "abstained", "incomplete"],
+        Field(
+            description=(
+                "Caller decision: proposed for an adequately supported unverified "
+                "association; abstained for adequate evidence showing healthy, "
+                "unrelated, or confounded observations; incomplete when required "
+                "coverage or samples are missing, sparse, stale, partial, or failed."
+            )
+        ),
+    ] = "proposed",
     reason: Annotated[str | None, Field(max_length=4096)] = None,
 ) -> IncidentFinish:
     """Close a run once with authentic citations and an unverified outcome.
 
+    Choose proposed for an adequately supported candidate association, abstained
+    when adequate evidence shows healthy, unrelated, or confounded observations,
+    and incomplete when missing, sparse, stale, partial, or failed evidence prevents
+    evaluating the association. Complete SQL execution can still yield insufficient
+    observations. Missing matched controls in otherwise adequate observations can
+    reveal confounding and support abstention.
+
     Proposed requires a hypothesis; proposed/abstained require complete citations.
-    Incomplete requires a reason. Pending work blocks finishing. Hypotheses and
-    dataset coverage remain unvalidated even when cited execution is complete.
+    Incomplete requires a reason. Pending work blocks finishing. These semantic
+    choices are caller judgments; finishing validates ownership, citations, and
+    execution completeness. Evidence sufficiency, the semantic choice, hypotheses,
+    and dataset coverage remain unvalidated.
     Failure recovery:
         Correct citation/status errors; a closed run cannot be reused.
     """

@@ -1,0 +1,17 @@
+{
+  "local-demo": {
+    "table": "incident_events",
+    "authorized_principals": ["local"],
+    "tenant_value": "demo-tenant",
+    "span_column": "spanId",
+    "parent_span_column": "parentSpanId",
+    "max_queries": 16,
+    "max_inflight": 2,
+    "max_rows": 500,
+    "max_response_bytes": 65536,
+    "max_total_rows": 2000,
+    "max_total_response_bytes": 262144,
+    "deadline_seconds": 55,
+    "max_window_ms": 3600000
+  }
+}

@@ -40,6 +40,15 @@ matches 'maxUnavailable: 1' || fail "single-process rolling strategy missing"
 matches 'maxSurge: 0' || fail "rolling strategy permits overlapping processes"
 matches 'requests:' || fail "resource requests missing"
 matches 'limits:' || fail "resource limits missing"
+matches_ere '^          args:' && fail "container arguments rendered by default"
+matches --incident-profiles && fail "incident profile rendered by default"
+
+# Opt-in incident policy preserves a spaced file path as one entrypoint argument.
+out=$(render --set-string 'mcp.incidentProfilesFile=/app/config/incident profiles.json')
+matches_ere '^          args:$' || fail "incident profile arguments missing"
+matches_ere '^            - --incident-profiles$' || fail "incident profile flag missing"
+matches_ere '^            - "/app/config/incident profiles\.json"$' || fail "incident profile path split or changed"
+matches_ere '^          command:' && fail "incident profile overrides image entrypoint"
 
 # provider=static: AUTH_PROVIDER + MCP_STATIC_TOKEN from the chart Secret.
 out=$(render_exposed \

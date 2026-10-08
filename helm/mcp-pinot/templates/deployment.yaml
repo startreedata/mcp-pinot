@@ -43,6 +43,11 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.mcp.incidentProfilesFile }}
+          args:
+            - --incident-profiles
+            - {{ . | quote }}
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.mcp.port }}

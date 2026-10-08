@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timings in standard response `_meta`, preserving tool data and output schemas.
   Rate-limit protocol errors carry the same envelope in `error.data._meta`;
   payload-free audit events use the same IDs and timings.
+- Opt-in incident evidence tools with server-owned profiles, owner-bound runs,
+  monotonic deadlines, budgets, real trace span IDs, and immutable citations.
+  Hypotheses and dataset coverage remain explicitly unvalidated.
 - `read_query` retains native execution completeness, server counts, IDs,
   query hashes, and bounded statistics; missing metadata stays unknown.
 - A manual **Set MCP Registry status** workflow that marks one published version

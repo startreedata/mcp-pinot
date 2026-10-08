@@ -61,6 +61,8 @@ update their calls.
 | `list_segment_metadata` | Page through metadata for a table's segments. |
 | `get_segment_index_metadata` | Inspect per-column indexes for one exact segment. |
 | `read_query` | Run one read-only Pinot SQL query. |
+| `begin_investigation` / `query_incident` | Open and query an opt-in scoped evidence run. |
+| `get_trace` / `finish_investigation` | Fetch recorded span edges and close with citations. |
 | `create_schema` / `update_schema` | Preview or apply schema changes. |
 | `create_table_config` / `update_table_config` | Preview or apply table-config changes. |
 | `reload_table_filters` | Preview or apply the configured table-filter YAML. |
@@ -156,6 +158,16 @@ identifiers. `MCP_MAX_RESPONSE_BYTES` limits the tool payload before this bounde
 timing envelope is added; it excludes the added observability metadata.
 Cancellation is audit-only when no response is returned and does not prove that
 Pinot execution stopped.
+
+Incident tools are disabled until the server starts with `--incident-profiles`.
+See [the incident evidence guide](docs/incident-evidence.md) and
+[example profile](examples/incident-profiles.example.json) for configuration and a
+workflow using `begin_investigation`, `query_incident`, optional `get_trace`, and
+`finish_investigation`. Evidence queries expose the same response `_meta` timings
+and native request IDs when reported; log access is optional. Runs are
+owner-bound and budgeted; complete execution still leaves root-cause hypotheses
+and dataset coverage unvalidated. This first version uses bounded in-memory state
+in one process.
 
 ## Pinot MCP in Action
 

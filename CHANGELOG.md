@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A synthetic replay example for the four incident tools, with scripted and real
+  host-model modes, independent receipt scoring, and native protocol/fault checks.
 - A Claude plugin, `plugins/startree-pinot`, for the Claude directory, which no
   longer accepts `.mcpb` desktop extensions. It runs `mcp-pinot-server==4.1.0` through
   `uvx`, asks for the controller and broker URLs and credentials through `userConfig`

@@ -13,6 +13,11 @@ import sys
 import time
 import zipfile
 
+if __package__:
+    from .common import executable_path
+else:
+    from common import executable_path
+
 
 def source_hashes(root: Path) -> dict[str, str]:
     """Identify both the harness and the production code it actually imports."""
@@ -72,8 +77,9 @@ def main() -> None:
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--cli-defaults", action="store_true")
     args = parser.parse_args()
+    java = executable_path(args.java, program="java")
     java_version = subprocess.check_output(  # noqa: S603
-        [args.java, "-version"], stderr=subprocess.STDOUT, text=True
+        [java, "-version"], stderr=subprocess.STDOUT, text=True, shell=False
     )
     match = re.search(r'version "(\d+)', java_version)
     if match is None or int(match[1]) < 25:
@@ -141,7 +147,7 @@ def main() -> None:
     write_json(output / "runtime.json", runtime)
     native_data = output / "native-data"
     native_data.mkdir()
-    command = [args.java, "-Xmx2g", "--enable-native-access=ALL-UNNAMED"]
+    command = [java, "-Xmx2g", "--enable-native-access=ALL-UNNAMED"]
     for package in (
         "java.nio",
         "sun.nio.ch",
@@ -168,7 +174,9 @@ def main() -> None:
     ]
     log_path = output / "quickstart.log"
     with log_path.open("w") as log:
-        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)  # noqa: S603
+        process = subprocess.Popen(  # noqa: S603
+            command, stdout=log, stderr=subprocess.STDOUT, shell=False
+        )
         runtime["owned_pid"] = process.pid
         write_json(output / "runtime.json", runtime)
         try:

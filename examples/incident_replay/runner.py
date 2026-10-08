@@ -15,9 +15,9 @@ import time
 import tomllib
 
 if __package__:
-    from .common import loopback_url, replay_env
+    from .common import executable_path, loopback_url, replay_env
 else:
-    from common import loopback_url, replay_env
+    from common import executable_path, loopback_url, replay_env
 
 TOOLS = ("begin_investigation", "query_incident", "get_trace", "finish_investigation")
 NAMESPACE = "io.github.startreedata/mcp-pinot"
@@ -601,11 +601,12 @@ def cli_receipts(lines: list[str], calls: list[dict]) -> dict:
 def model(
     args: argparse.Namespace, case: dict, directory: Path
 ) -> tuple[list[dict], dict]:
+    codex = executable_path(args.codex, program="codex")
     workspace = directory / "workspace"
     workspace.mkdir()
     selection = model_selection(cli_defaults=args.cli_defaults)
     argv = [
-        args.codex,
+        codex,
         "exec",
         "--ignore-user-config",
         "--ignore-rules",
@@ -678,6 +679,7 @@ def model(
             stderr=stderr,
             text=True,
             start_new_session=True,
+            shell=False,
         )
         timed_out = False
         try:

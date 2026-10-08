@@ -6,7 +6,31 @@ from pathlib import Path
 import subprocess
 import sys
 
+from examples.incident_replay.common import executable_path
 from examples.incident_replay.live import source_hashes
+import pytest
+
+
+def test_executable_lookup_preserves_explicit_paths_and_literal_directory_names(
+    tmp_path,
+):
+    directory = tmp_path / "tool path; literal"
+    directory.mkdir()
+    for program in ("java", "codex"):
+        name = program + (".exe" if os.name == "nt" else "")
+        executable = directory / name
+        executable.write_text("test executable\n")
+        executable.chmod(0o755)
+        assert executable_path(str(executable), program=program) == str(executable)
+
+
+def test_executable_lookup_rejects_other_programs_even_when_executable(tmp_path):
+    other = tmp_path / ("sh.exe" if os.name == "nt" else "sh")
+    other.write_text("test executable\n")
+    other.chmod(0o755)
+    for program in ("java", "codex"):
+        with pytest.raises(ValueError, match="Executable must be named"):
+            executable_path(str(other), program=program)
 
 
 def test_runtime_identity_changes_with_backend_or_dependency_lock(tmp_path):

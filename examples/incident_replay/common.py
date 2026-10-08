@@ -1,6 +1,8 @@
 """Shared restrictions for local replay endpoints."""
 
 import os
+from pathlib import Path
+import shutil
 from urllib.parse import urlsplit
 
 
@@ -19,6 +21,23 @@ def loopback_url(value: str) -> str:
             "Replay endpoints must be explicit loopback broker/controller URLs."
         )
     return value.rstrip("/")
+
+
+def executable_path(value: str, *, program: str) -> str:
+    """Locate the intended program without accepting arbitrary command names."""
+    requested = Path(value).expanduser()
+    allowed = {"java": ("java", "java.exe"), "codex": ("codex", "codex.exe")}[program]
+    if requested.name not in allowed:
+        raise ValueError(f"Executable must be named {allowed[0]} or {allowed[1]}.")
+    directory = str(requested.parent) if os.path.dirname(value) else None
+    name = allowed[1] if requested.name.endswith(".exe") else allowed[0]
+    # Explicit paths bypass PATH splitting (notably ';' in Windows directories).
+    located = shutil.which(str(requested.absolute()) if directory else name)
+    if located is None or not Path(located).is_file():
+        raise ValueError(f"An executable {program} program is required.")
+    if directory is not None and Path(located).resolve() != requested.resolve():
+        raise ValueError(f"Requested executable does not match the {program} lookup.")
+    return located
 
 
 def replay_env(broker: str, controller: str) -> dict[str, str]:

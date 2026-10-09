@@ -76,7 +76,7 @@ jobs:
           TASK_KEY: ${{ inputs.task }}
           TASK_LEASE: ${{ inputs.lease }}
         run: PYTHONPATH=runtime/src python -m startree_review_bot.maintainer worker prepare --policy control/.github/maintainer/policy.toml --task "$TASK_KEY" --lease "$TASK_LEASE" --output prepared.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: maintainer-prepared
           path: prepared.json
@@ -129,7 +129,7 @@ jobs:
             --mount "type=bind,source=$GITHUB_WORKSPACE/output,target=/output" \
             -e ANTHROPIC_API_KEY repo-maintainer-runtime \
             python -I -m startree_review_bot.maintainer worker run --prepared /prepared/prepared.json --checkout /work --output /output
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: maintainer-candidate
           path: output/

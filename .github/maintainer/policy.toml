@@ -4,7 +4,7 @@ mode = "observe"
 default_branch = "main"
 app_login = ""
 writer_type = "Bot"
-state_issue = 0
+state_issue = 167
 worker_workflow = "maintainer-worker.yml"
 ready_label = "ai:ready"
 managed_label = "ai:managed"
@@ -29,8 +29,8 @@ lease_seconds = 5400
 max_turns = 30
 
 [review]
-mode = "observe"
-login = ""
+mode = "approve"
+login = "startree-code-review-bot[bot]"
 identity_type = "Bot"
 max_files = 30
 max_input_bytes = 200000

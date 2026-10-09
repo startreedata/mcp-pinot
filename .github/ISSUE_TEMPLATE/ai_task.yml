@@ -1,0 +1,28 @@
+name: Maintainer task
+description: Describe a bounded task for the Repo Maintainer queue.
+title: "[Maintainer] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A maintainer must authorize this task with the `ai:ready` label.
+        Opening this issue does not start an agent.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Requested behavior
+      description: Describe the concrete problem and the behavior you want.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Describe observable success and relevant reproduction steps.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and evidence
+      description: Link relevant files, issues, or logs; include limits on scope.

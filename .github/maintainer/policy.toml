@@ -1,0 +1,66 @@
+# Per-repository settings. Installation starts in observe mode.
+version = 1
+mode = "observe"
+default_branch = "main"
+app_login = ""
+writer_type = "Bot"
+state_issue = 167
+worker_workflow = "maintainer-worker.yml"
+ready_label = "ai:ready"
+managed_label = "ai:managed"
+hold_label = "ai:hold"
+needs_human_label = "ai:needs-human"
+allowed_paths = ["mcp_pinot/**", "tests/**", "docs/**", "README.md", "pyproject.toml", "uv.lock"]
+protected_paths = ["mcp_pinot/auth/**", "Dockerfile", "manifest.json", "server.json", "helm/**"]
+ci_workflows = ["Build and Test", "Lint", "Test Pinot Quickstart"]
+setup_commands = ["uv sync --frozen --all-extras"]
+validation_commands = ["uv lock --check", "uv run --frozen ruff check .", "uv run --frozen ruff format --check .", "uv run --frozen mypy", "uv run --frozen pytest tests/ --cov=mcp_pinot --cov-report=xml"]
+validation_env = { FASTMCP_MCP_CAMELCASE_COMPAT = "false" }
+
+[limits]
+max_workers = 1
+max_repair_rounds = 3
+max_attempts = 4
+max_files = 30
+max_patch_bytes = 1048576
+per_run_usd = 5.0
+daily_usd = 20.0
+lease_seconds = 5400
+max_turns = 30
+
+[review]
+mode = "approve"
+login = "startree-code-review-bot[bot]"
+identity_type = "Bot"
+max_files = 30
+max_input_bytes = 200000
+per_run_usd = 5.0
+daily_usd = 20.0
+max_turns = 30
+lease_seconds = 5400
+
+[merge]
+enabled = false
+independent_approvers = []
+policy_check_app_id = 0
+require_human_for_dependencies = true
+# Verified from GitHub's check runs on this repository's main head.
+required_checks = [
+  { name = "build-and-test (ubuntu-latest, 3.12)", app_id = 15368 },
+  { name = "build-and-test (ubuntu-latest, 3.13)", app_id = 15368 },
+  { name = "build-and-test (macos-latest, 3.12)", app_id = 15368 },
+  { name = "build-and-test (macos-latest, 3.13)", app_id = 15368 },
+  { name = "build-and-test (windows-latest, 3.12)", app_id = 15368 },
+  { name = "build-and-test (windows-latest, 3.13)", app_id = 15368 },
+  { name = "Docker build", app_id = 15368 },
+  { name = "test-pinot-quickstart (3.12)", app_id = 15368 },
+  { name = "lint-python", app_id = 15368 },
+]
+
+[dependencies]
+enabled = true
+manifest_paths = ["pyproject.toml", "uv.lock"]
+authors = ["dependabot[bot]"]
+
+[slack]
+channel = ""

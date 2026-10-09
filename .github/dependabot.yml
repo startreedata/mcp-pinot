@@ -3,7 +3,7 @@ version: 2
 
 # Python dependency updates
 updates:
-  - package-ecosystem: "pip"
+  - package-ecosystem: "uv"
     # Location of your Python dependency files; adjust if using subdirectories
     directory: "/"
     schedule:

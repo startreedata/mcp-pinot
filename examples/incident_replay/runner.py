@@ -623,6 +623,8 @@ def model(
     for feature in DISABLED:
         argv += ["--disable", feature]
     argv += ["--enable", "skip_host_skill_discovery", "--enable", "code_mode_host"]
+    if getattr(args, "planned_collection", False):
+        argv += ["--enable", "code_mode"]
     config = {
         **selection,
         "approval_policy": "never",
@@ -645,9 +647,6 @@ def model(
         "mcp_servers.incident_reader.required": True,
         "mcp_servers.incident_reader.default_tools_approval_mode": "auto",
     }
-    for key, value in config.items():
-        argv += ["-c", key + "=" + json.dumps(value)]
-    argv += ["-"]
     prompt = (
         "Investigate this public synthetic alert using only incident_reader MCP tools. "
         "Begin one run with the profile/service/windows below. Collect baseline, "
@@ -674,10 +673,34 @@ def model(
         "Finish remains an unvalidated association, never confirmed cause. "
         "Do not access files or other tools. Public case: " + json.dumps(case)
     )
+    if getattr(args, "planned_collection", False):
+        prompt = prompt.replace(
+            "Begin one run with the profile/service/windows below. Collect baseline, "
+            "incident, watermark, changes, and get_trace using the public trace_id. "
+            "Collect evidence sequentially: await each query "
+            "before starting the next. ",
+            "Use Code Mode for one planned initial collection execution. In that "
+            "single JavaScript execution, begin one run with the profile/service/"
+            "windows below, then sequentially await query_incident for baseline, "
+            "incident, watermark, changes, then get_trace with the public trace_id. "
+            "Print each full original tool response, including content, "
+            "structuredContent, _meta, evidence IDs and hashes. Preserve every "
+            "response without trimming, rewriting, or summarizing it. Await each "
+            "call before starting the next and collect all five observations "
+            "before interpreting the evidence. ",
+        )
     with (
         (directory / "events.jsonl").open("x") as events,
         (directory / "cli-stderr.log").open("x") as stderr,
     ):
+        started_ns = time.monotonic_ns()
+        config["mcp_servers.incident_reader.args"] += [
+            "--host-started-ns",
+            str(started_ns),
+        ]
+        for key, value in config.items():
+            argv += ["-c", key + "=" + json.dumps(value)]
+        argv += ["-"]
         process = subprocess.Popen(  # noqa: S603
             argv,
             stdin=subprocess.PIPE,
@@ -698,6 +721,7 @@ def model(
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=5)
+        exited_ns = time.monotonic_ns()
     audit = directory / "calls.jsonl"
     calls = (
         [json.loads(line) for line in audit.read_text().splitlines()]
@@ -711,6 +735,7 @@ def model(
         "configured_selection": selection,
         "exit_code": process.returncode,
         "timed_out": timed_out,
+        "timing": collection_timing(calls, (exited_ns - started_ns) / 1e6),
     }
     if cli["model_usage"] != "UNKNOWN":
         runtime["provider_receipt"] = {
@@ -720,77 +745,152 @@ def model(
     return calls, runtime
 
 
+def collection_timing(calls: list[dict], cli_elapsed_ms: float) -> dict:
+    """Measure actual tool occupancy without double-counting overlapping calls."""
+    intervals = sorted(
+        (call["started_ms"], call["completed_ms"])
+        for call in calls
+        if "started_ms" in call and "completed_ms" in call
+    )
+    occupied_ms, end_ms = 0.0, 0.0
+    for started_ms, completed_ms in intervals:
+        occupied_ms += max(0, completed_ms - max(started_ms, end_ms))
+        end_ms = max(end_ms, completed_ms)
+    return {
+        "cli_elapsed_ms": cli_elapsed_ms,
+        "launch_to_first_request_ms": intervals[0][0] if intervals else None,
+        "last_response_to_exit_ms": cli_elapsed_ms - end_ms if intervals else None,
+        "tool_occupancy_ms": occupied_ms,
+    }
+
+
+async def _prediction(args: argparse.Namespace, case: dict, directory: Path) -> dict:
+    directory.mkdir()
+    started = time.monotonic()
+    calls, runtime = [], {}
+    error = None
+    try:
+        calls, runtime = (
+            await asyncio.wait_for(scripted(args, case, directory), args.timeout)
+            if args.mode == "scripted"
+            else model(args, case, directory)
+        )
+    except Exception as exc:
+        error = type(exc).__name__ + ": " + str(exc)[:512]
+        saved = directory / "calls.json"
+        if saved.exists():
+            calls = json.loads(saved.read_text())["calls"]
+    raw_finish = actual_finish(calls)
+    receipt = finish_receipt(calls, case)
+    qualification = qualify(calls, case)
+    if receipt and qualification["qualified"]:
+        evidence, _ = evidence_from(calls)
+        required = {entry["record"]["evidence_id"] for entry in evidence.values()}
+        if not required.issubset(receipt["citations"]):
+            qualification["qualified"] = False
+            qualification["reason"] = (
+                "Actual finish omits supporting evidence citations."
+            )
+    if receipt is not None and (
+        receipt["status"] != qualification["status"]
+        or receipt["hypothesis"] != qualification["hypothesis"]
+    ):
+        qualification["qualified"] = False
+        qualification["reason"] = (
+            "Actual finish does not match independently qualified evidence."
+        )
+    elapsed_ms = (time.monotonic() - started) * 1000
+    verified = (
+        receipt is not None
+        and not error
+        and not runtime.get("timed_out", False)
+        and runtime.get("exit_code", 0) == 0
+        and not runtime.get("cli_issues")
+        and elapsed_ms <= args.timeout * 1000
+    )
+    if not verified:
+        qualification["qualified"] = False
+    prediction = {
+        "case_id": case["case_id"],
+        "status": raw_finish["status"] if raw_finish else "incomplete",
+        "hypothesis": raw_finish["hypothesis"] if raw_finish else None,
+        "elapsed_ms": elapsed_ms,
+        "calls": calls,
+        "raw_finish": raw_finish,
+        "verified_finish": verified,
+        "qualification": qualification,
+        **runtime,
+    }
+    if error or not verified:
+        prediction["error"] = error or "No verified finish within the host deadline."
+    return prediction
+
+
 async def run(args: argparse.Namespace) -> dict:
-    public = json.loads((args.dataset / "public.json").read_text())
+    planned = getattr(args, "planned_collection", False)
+    compare = getattr(args, "compare_collection", False)
+    planned_first = getattr(args, "planned_first", False)
+    if (planned or compare) and args.mode != "model":
+        raise ValueError("Collection strategies require model mode.")
+    if planned and compare:
+        raise ValueError("Choose planned collection or comparison, not both.")
+    if planned_first and not compare:
+        raise ValueError("Planned-first order requires collection comparison.")
+    public_path = args.dataset / "public.json"
+    public = json.loads(public_path.read_text())
     if public.get("schema_version") != 1:
         raise ValueError("Unsupported public fixture schema.")
     args.output.mkdir(parents=True, exist_ok=False)
-    predictions = {"schema_version": 1, "mode": args.mode, "cases": []}
+    if not compare:
+        predictions = {"schema_version": 1, "mode": args.mode, "cases": []}
+        for index, case in enumerate(public["cases"]):
+            predictions["cases"].append(
+                await _prediction(args, case, args.output / str(index))
+            )
+            write(args.output / "predictions.json", predictions)
+        return predictions
+
+    arms: dict[str, dict] = {
+        name: {"schema_version": 1, "mode": "model", "cases": []}
+        for name in ("default", "planned")
+    }
+    for name in arms:
+        (args.output / name).mkdir()
+    comparison: dict = {
+        "schema_version": 1,
+        "public_sha256": hashlib.sha256(public_path.read_bytes()).hexdigest(),
+        "settings": {
+            "mode": "model",
+            "timeout_seconds": args.timeout,
+            "cli_defaults": args.cli_defaults,
+            "planned_first": planned_first,
+            "configured_selection": model_selection(cli_defaults=args.cli_defaults),
+            "codex": str(executable_path(args.codex, program="codex")),
+            "broker": args.broker,
+            "controller": args.controller,
+        },
+        "cases": [
+            {
+                "case_id": case["case_id"],
+                "order": (
+                    ["planned", "default"]
+                    if bool(index % 2) ^ planned_first
+                    else ["default", "planned"]
+                ),
+            }
+            for index, case in enumerate(public["cases"])
+        ],
+    }
+    write(args.output / "comparison.json", comparison)
     for index, case in enumerate(public["cases"]):
-        directory = args.output / str(index)
-        directory.mkdir()
-        started = time.monotonic()
-        calls, runtime = [], {}
-        error = None
-        try:
-            calls, runtime = (
-                await asyncio.wait_for(scripted(args, case, directory), args.timeout)
-                if args.mode == "scripted"
-                else model(args, case, directory)
+        for name in comparison["cases"][index]["order"]:
+            arm_args = argparse.Namespace(**vars(args))
+            arm_args.planned_collection = name == "planned"
+            arms[name]["cases"].append(
+                await _prediction(arm_args, case, args.output / name / str(index))
             )
-        except Exception as exc:
-            error = type(exc).__name__ + ": " + str(exc)[:512]
-            saved = directory / "calls.json"
-            if saved.exists():
-                calls = json.loads(saved.read_text())["calls"]
-        raw_finish = actual_finish(calls)
-        receipt = finish_receipt(calls, case)
-        qualification = qualify(calls, case)
-        if receipt and qualification["qualified"]:
-            evidence, _ = evidence_from(calls)
-            required = {entry["record"]["evidence_id"] for entry in evidence.values()}
-            if not required.issubset(receipt["citations"]):
-                qualification["qualified"] = False
-                qualification["reason"] = (
-                    "Actual finish omits supporting evidence citations."
-                )
-        if receipt is not None and (
-            receipt["status"] != qualification["status"]
-            or receipt["hypothesis"] != qualification["hypothesis"]
-        ):
-            qualification["qualified"] = False
-            qualification["reason"] = (
-                "Actual finish does not match independently qualified evidence."
-            )
-        elapsed_ms = (time.monotonic() - started) * 1000
-        verified = (
-            receipt is not None
-            and not error
-            and not runtime.get("timed_out", False)
-            and runtime.get("exit_code", 0) == 0
-            and not runtime.get("cli_issues")
-            and elapsed_ms <= args.timeout * 1000
-        )
-        if not verified:
-            qualification["qualified"] = False
-        prediction = {
-            "case_id": case["case_id"],
-            "status": raw_finish["status"] if raw_finish else "incomplete",
-            "hypothesis": raw_finish["hypothesis"] if raw_finish else None,
-            "elapsed_ms": elapsed_ms,
-            "calls": calls,
-            "raw_finish": raw_finish,
-            "verified_finish": verified,
-            "qualification": qualification,
-            **runtime,
-        }
-        if error or not verified:
-            prediction["error"] = (
-                error or "No verified finish within the host deadline."
-            )
-        predictions["cases"].append(prediction)
-        write(args.output / "predictions.json", predictions)
-    return predictions
+            write(args.output / name / "predictions.json", arms[name])
+    return {"schema_version": 1, "mode": "model", "arms": arms}
 
 
 def main() -> None:
@@ -807,10 +907,30 @@ def main() -> None:
         action="store_true",
         help="Let the CLI select its model and effort instead of copying user settings",
     )
+    strategies = parser.add_mutually_exclusive_group()
+    strategies.add_argument(
+        "--planned-collection",
+        action="store_true",
+        help="Collect the initial evidence sequentially in one Code Mode execution",
+    )
+    strategies.add_argument(
+        "--compare-collection",
+        action="store_true",
+        help="Run both collection strategies with alternating per-case order",
+    )
+    parser.add_argument(
+        "--planned-first",
+        action="store_true",
+        help="Start collection comparison with the planned arm instead of default",
+    )
     args = parser.parse_args()
     args.dataset, args.output = args.dataset.resolve(), args.output.resolve()
     if not 0 < args.timeout <= 300:
         parser.error("timeout must be positive and at most 300 seconds")
+    if (args.planned_collection or args.compare_collection) and args.mode != "model":
+        parser.error("collection strategies require --mode model")
+    if args.planned_first and not args.compare_collection:
+        parser.error("--planned-first requires --compare-collection")
     asyncio.run(run(args))
 
 

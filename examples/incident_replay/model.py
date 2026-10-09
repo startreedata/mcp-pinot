@@ -22,7 +22,13 @@ def main() -> None:
     parser.add_argument("--broker", required=True)
     parser.add_argument("--controller", required=True)
     parser.add_argument("--audit", type=Path, required=True)
+    parser.add_argument("--host-started-ns", type=int)
     args = parser.parse_args()
+    host_started_ns = (
+        args.host_started_ns
+        if args.host_started_ns is not None
+        else time.monotonic_ns()
+    )
     env = replay_env(args.broker, args.controller)
     audit = args.audit.open("x", encoding="utf-8")
     child = subprocess.Popen(  # noqa: S603
@@ -50,10 +56,16 @@ def main() -> None:
             sys.stdout.write(json.dumps(value, allow_nan=False) + "\n")
             sys.stdout.flush()
 
+    def forward(line: str) -> None:
+        with output_lock:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
     with audit:
 
         def receive() -> None:
             for line in child.stdout:
+                completed_ns = time.monotonic_ns()
                 response = json.loads(line)
                 with lock:
                     request = pending.pop(response.get("id"), None)
@@ -64,9 +76,13 @@ def main() -> None:
                                     "tool": request["tool"],
                                     "args": request["args"],
                                     "response": response,
-                                    "elapsed_ms": (
-                                        time.monotonic_ns() - request["started_ns"]
+                                    "elapsed_ms": (completed_ns - request["started_ns"])
+                                    / 1e6,
+                                    "started_ms": (
+                                        request["started_ns"] - host_started_ns
                                     )
+                                    / 1e6,
+                                    "completed_ms": (completed_ns - host_started_ns)
                                     / 1e6,
                                 },
                                 allow_nan=False,
@@ -80,7 +96,9 @@ def main() -> None:
                         for tool in response["result"]["tools"]
                         if tool["name"] in TOOLS
                     ]
-                send(response)
+                    send(response)
+                else:
+                    forward(line)
 
         reader = Thread(target=receive, daemon=True)
         reader.start()

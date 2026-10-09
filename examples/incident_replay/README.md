@@ -6,7 +6,8 @@ It compares a scripted investigation with a real Codex host using the same publi
 alerts. The scorer reads private synthetic labels after prediction and independently
 checks the recorded finish, evidence hashes, public scope, and host qualification.
 See [the original scored report](REPORT.md) and the
-[terminal-decision follow-up](TERMINAL-STATUS-REPORT.md) for measured results and
+[terminal-decision follow-up](TERMINAL-STATUS-REPORT.md), and
+[paired collection comparison](COLLECTION-EFFICIENCY-REPORT.md) for measured results and
 remaining gaps.
 
 The fixture has deployment, unrelated-change, confounded, and missing-watermark

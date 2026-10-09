@@ -50,6 +50,10 @@ jobs:
           key = os.environ.get("ANTHROPIC_API_KEY", "")
           if not key:
               raise SystemExit("Model credential is unavailable")
+          print("Credential has outer whitespace:", key != key.strip())
+          print("Credential contains whitespace:", any(character.isspace() for character in key))
+          print("Credential uses Console API key format:", key.startswith("sk-ant-api"))
+          print("Credential uses OAuth token format:", key.startswith("sk-ant-oat"))
           request = urllib.request.Request(
               "https://api.anthropic.com/v1/models?limit=1",
               headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
@@ -72,6 +76,12 @@ jobs:
                       "api key": "api_key_rejected",
                       "anthropic-version": "api_version_rejected",
                       "organization": "organization_access",
+                      "token": "token_credential",
+                      "claude code": "cli_credential",
+                      "format": "credential_format",
+                      "header": "header_validation",
+                      "credit": "account_credit",
+                      "permission": "permission_rejected",
                   }
                   for match, reason in reasons.items():
                       if match in message:

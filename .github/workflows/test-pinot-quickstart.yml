@@ -98,7 +98,7 @@ jobs:
     - name: Replay incident tools against native Pinot
       run: |
         REPLAY_DIR="${RUNNER_TEMP}/incident-replay"
-        uv run --frozen python examples/incident_replay/fixture.py --output "$REPLAY_DIR" --seeds 1 --start-seed 100
+        uv run --frozen python examples/incident_replay/fixture.py --output "$REPLAY_DIR" --seeds 1 --start-seed 100 --extended-cases
         DATASET_DIR="$REPLAY_DIR/seed_100"
         uv run --frozen python examples/incident_replay/load.py --dataset "$DATASET_DIR" --controller http://localhost:9000 --broker http://localhost:8000 --output "$REPLAY_DIR/parity.json"
         uv run --frozen python examples/incident_replay/runner.py --dataset "$DATASET_DIR" --controller http://localhost:9000 --broker http://localhost:8000 --mode scripted --output "$REPLAY_DIR/predictions"

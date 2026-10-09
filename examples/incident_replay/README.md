@@ -5,13 +5,25 @@ This example exercises `begin_investigation`, `query_incident`, `get_trace`, and
 It compares a scripted investigation with a real Codex host using the same public
 alerts. The scorer reads private synthetic labels after prediction and independently
 checks the recorded finish, evidence hashes, public scope, and host qualification.
-See [the scored report](REPORT.md) for measured results and remaining gaps.
+See [the original scored report](REPORT.md) and the
+[terminal-decision follow-up](TERMINAL-STATUS-REPORT.md) for measured results and
+remaining gaps.
 
 The fixture has deployment, unrelated-change, confounded, and missing-watermark
 cases. It generates unique event/span IDs, real parent references, and at least
 40 spans per populated cohort and period. Public IDs are opaque; scenario names
 and expected answers occur only in `truth.json`. The public trace ID represents
 one already observed in alert context; the tools do not discover traces.
+
+Add `--extended-cases` to `fixture.py` or `live.py` for two further cases:
+eight spans per populated payments cohort, and present collector checkpoints
+five seconds behind the incident end. Both require `incomplete`. The original
+four cases and default fixture output remain unchanged.
+
+Use `abstained` when adequate observations establish a healthy target, unrelated
+changes, or confounding. Use `incomplete` when coverage or samples remain
+insufficient, including stale or missing checkpoints. Complete query execution
+is one evidence check; the caller also evaluates whether the observations suffice.
 
 ## Run against an owned local Pinot
 

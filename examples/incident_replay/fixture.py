@@ -24,6 +24,7 @@ FIELDS = (
     "durationMs",
 )
 SCENARIOS = ("deployment", "unrelated_change", "confounded", "missing_watermark")
+EXTENDED_SCENARIOS = ("sparse_spans", "stale_watermark")
 END_MS = 1735689600000
 WINDOW_MS = 600000
 
@@ -166,7 +167,7 @@ def _rows(
                 "",
                 "",
                 "ok",
-                end_ms - 1,
+                end_ms - (5000 if scenario == "stale_watermark" else 1),
                 message="collector checkpoint",
             )
     for row in rows:
@@ -266,7 +267,12 @@ def _bootstrap(output: Path, table: str, rows: list[dict[str, Any]]) -> Path:
 
 
 def generate(
-    output: Path, seeds: int = 3, start_seed: int = 0, rows_per_cohort: int = 40
+    output: Path,
+    seeds: int = 3,
+    start_seed: int = 0,
+    rows_per_cohort: int = 40,
+    *,
+    extended_cases: bool = False,
 ) -> dict[str, Any]:
     """Write fresh operator-owned fixtures; public cases contain no scenario labels."""
     if not 1 <= seeds <= 100 or start_seed < 0 or not 40 <= rows_per_cohort <= 10000:
@@ -283,12 +289,20 @@ def generate(
         cases, truth, profiles, all_rows = [], [], {}, []
         scenarios = list(SCENARIOS)
         rng.shuffle(scenarios)
+        if extended_cases:
+            scenarios.extend(EXTENDED_SCENARIOS)
         for index, scenario in enumerate(scenarios):
             case_id = f"case_{rng.getrandbits(128):032x}"
             profile_id = f"profile_{rng.getrandbits(128):032x}"
             tenant = f"tenant_{rng.getrandbits(128):032x}"
             end_ms = END_MS - index * 3 * WINDOW_MS
-            rows, trace_id = _rows(rng, scenario, tenant, rows_per_cohort, end_ms)
+            rows, trace_id = _rows(
+                rng,
+                scenario,
+                tenant,
+                8 if scenario == "sparse_spans" else rows_per_cohort,
+                end_ms,
+            )
             all_rows.extend(rows)
             cases.append(
                 {
@@ -310,9 +324,12 @@ def generate(
                 "max_response_bytes": 65536,
                 "max_total_response_bytes": 262144,
             }
-            status = {"deployment": "proposed", "missing_watermark": "incomplete"}.get(
-                scenario, "abstained"
-            )
+            status = {
+                "deployment": "proposed",
+                "missing_watermark": "incomplete",
+                "sparse_spans": "incomplete",
+                "stale_watermark": "incomplete",
+            }.get(scenario, "abstained")
             truth.append(
                 {
                     "case_id": case_id,
@@ -372,10 +389,21 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=3)
     parser.add_argument("--start-seed", type=int, default=0)
     parser.add_argument("--rows-per-cohort", type=int, default=40)
+    parser.add_argument(
+        "--extended-cases",
+        action="store_true",
+        help="Include sparse spans and stale collector checkpoints.",
+    )
     args = parser.parse_args()
     print(
         json.dumps(
-            generate(args.output, args.seeds, args.start_seed, args.rows_per_cohort)
+            generate(
+                args.output,
+                args.seeds,
+                args.start_seed,
+                args.rows_per_cohort,
+                extended_cases=args.extended_cases,
+            )
         )
     )
 

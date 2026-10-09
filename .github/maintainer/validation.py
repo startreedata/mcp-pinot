@@ -1,25 +1,22 @@
 """Run trusted validation commands inside the workflow's isolated container."""
 
-import argparse
-import json
 import os
 from pathlib import Path
 import shlex
 import subprocess
 
+from config import load_policy
+
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--prepared", type=Path, required=True)
-    args = parser.parse_args()
-    prepared = json.loads(args.prepared.read_text())
-    commands = prepared["setup_commands"] + prepared["validation_commands"]
-    if not prepared["validation_commands"] or not all(
+    policy = load_policy(Path(__file__).with_name("policy.toml"))
+    commands = policy["setup_commands"] + policy["validation_commands"]
+    if not policy["validation_commands"] or not all(
         isinstance(command, str) and command.strip() for command in commands
     ):
         raise ValueError("Validation requires nonempty trusted commands")
     env = dict(os.environ)
-    env.update(prepared["validation_env"])
+    env.update(policy["validation_env"])
     for command in commands:
         argv = shlex.split(command)
         print(f"Running: {shlex.join(argv)}", flush=True)

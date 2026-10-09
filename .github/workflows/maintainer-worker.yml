@@ -144,7 +144,7 @@ jobs:
             --mount "type=bind,source=$GITHUB_WORKSPACE/control,target=/control,readonly" \
             --mount "type=bind,source=$GITHUB_WORKSPACE/prepared,target=/prepared,readonly" \
             -e HOME=/tmp -e UV_CACHE_DIR=/tmp/uv-cache repo-maintainer-runtime \
-            python /control/.github/maintainer/validation.py --prepared /prepared/prepared.json
+            python /control/.github/maintainer/validation.py
 
   publish:
     needs: [prepare, validate]

@@ -79,10 +79,13 @@ def main() -> None:
     parser.add_argument("--extended-cases", action="store_true")
     parser.add_argument("--planned-collection", action="store_true")
     parser.add_argument("--compare-collection", action="store_true")
+    parser.add_argument("--host-telemetry", action="store_true")
     args = parser.parse_args()
     if args.planned_collection and args.compare_collection:
         parser.error("Choose planned collection or the paired comparison, not both.")
-    if args.mode == "scripted" and (args.planned_collection or args.compare_collection):
+    if args.mode == "scripted" and (
+        args.planned_collection or args.compare_collection or args.host_telemetry
+    ):
         parser.error("Collection strategies require model mode.")
     java = executable_path(args.java, program="java")
     java_version = subprocess.check_output(  # noqa: S603
@@ -139,6 +142,7 @@ def main() -> None:
     runtime = {
         "scope": "local synthetic replay; no production accuracy or cost claim",
         "fixture_suite": "extended" if args.extended_cases else "baseline",
+        "host_telemetry": args.host_telemetry,
         "collection_strategy": (
             "counterbalanced_paired"
             if args.compare_collection
@@ -259,6 +263,11 @@ def main() -> None:
                         *(
                             ["--planned-first"]
                             if mode == "model" and args.compare_collection and index % 2
+                            else []
+                        ),
+                        *(
+                            ["--host-telemetry"]
+                            if mode == "model" and args.host_telemetry
                             else []
                         ),
                     )

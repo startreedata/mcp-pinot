@@ -158,6 +158,32 @@ verified with the installed CLI before relying on the planned arm's score.
 The requested strategy and CLI feature flag alone do not prove a single-block
 execution; assess the actual call order and gaps from the retained receipts.
 
+## Capture host metadata
+
+Add `--host-telemetry` to a model or paired standalone run to record the host's
+selected model and observed token snapshots from that run's local CLI session.
+For example, add it to the comparison command above and use a fresh output
+directory. This option keeps the existing model selection and MCP receipt checks.
+
+The default host remains ephemeral. With this option, the CLI retains its raw
+session locally; the harness captures only allowlisted metadata bound to the
+actual CLI UUID, workspace, turn and execution window, then archives that generated
+session. Raw reasoning and messages stay local and are excluded from published
+evidence. `host-telemetry.json` contains source and selected-record hashes.
+
+`host_selected_model` describes local host selection; the provider-attested model
+and billing remain `UNKNOWN`. Token snapshots always carry `complete: false` and
+remain separate from completed `codex.exec` usage receipts, including on timeout.
+The scorer continues to require a completed usage receipt for every case before
+reporting full token totals. Unsupported storage formats or inconsistent binding
+produce `host_telemetry_error` while preserving the original investigation result.
+
+Capture and archival happen after the investigation's existing deadline and
+verification checks. `host_telemetry_capture_ms`, `host_session_archive_ms` and
+`telemetry_elapsed_ms` report this added work; `full_elapsed_ms` includes it.
+`elapsed_ms` retains the original investigation timing. Successful archival also
+checks that the raw session moved into the archive without changing its bytes.
+
 ## Read the score
 
 `correct_count` compares the raw delivered status and hypothesis with synthetic

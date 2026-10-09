@@ -111,6 +111,8 @@ spec:
             {{- end }}
             {{- $staticAuth := eq (include "mcp-pinot.authHas" (dict "root" . "name" "static")) "true" }}
             {{- $oauthAuth := eq (include "mcp-pinot.authHas" (dict "root" . "name" "oauth")) "true" }}
+            {{- $oauthPersistence := default (dict) .Values.mcp.oauth.persistence }}
+            {{- $oauthClaim := default "" $oauthPersistence.existingClaim }}
             {{- if and $staticAuth (ne (include "mcp-pinot.staticTokenFromEnv" .) "true") }}
             - name: MCP_STATIC_TOKEN
               valueFrom:
@@ -127,7 +129,7 @@ spec:
             - name: OAUTH_ENABLED
               value: {{ .Values.mcp.oauth.enabled | quote }}
             {{- if $oauthAuth }}
-            {{- if .Values.mcp.oauth.persistence.existingClaim }}
+            {{- if $oauthClaim }}
             - name: FASTMCP_HOME
               value: "/var/lib/fastmcp"
             {{- end }}
@@ -212,7 +214,7 @@ spec:
           {{- end }}
           
           volumeMounts:
-            {{- if and $oauthAuth .Values.mcp.oauth.persistence.existingClaim }}
+            {{- if and $oauthAuth $oauthClaim }}
             - name: oauth-state
               mountPath: /var/lib/fastmcp
             {{- end }}
@@ -241,10 +243,10 @@ spec:
       {{- end }}
       
       volumes:
-        {{- if and $oauthAuth .Values.mcp.oauth.persistence.existingClaim }}
+        {{- if and $oauthAuth $oauthClaim }}
         - name: oauth-state
           persistentVolumeClaim:
-            claimName: {{ .Values.mcp.oauth.persistence.existingClaim | quote }}
+            claimName: {{ $oauthClaim | quote }}
         {{- end }}
         - name: tmp
           emptyDir:

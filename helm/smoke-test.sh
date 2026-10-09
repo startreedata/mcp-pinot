@@ -214,6 +214,11 @@ done
 out=$(render --set mcp.oauth.enabled=true \
   --set mcp.oauth.persistence.existingClaim=oauth-state)
 matches 'claimName: "oauth-state"' || fail "legacy OAuth persistence missing"
+# Upgrades from charts released before persistence was added have no nested map.
+# Rendering must remain safe when Helm reuses those values.
+out=$(render --set mcp.auth.provider=oauth --set-json mcp.oauth.persistence=null)
+matches 'name: FASTMCP_HOME' && fail "OAuth persistence rendered with a null persistence value"
+matches 'persistentVolumeClaim:' && fail "OAuth volume rendered with a null persistence value"
 out=$(render)
 matches 'name: FASTMCP_HOME' && fail "persistent home rendered by default"
 matches 'persistentVolumeClaim:' && fail "persistent volume rendered by default"

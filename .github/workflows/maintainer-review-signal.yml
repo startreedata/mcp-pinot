@@ -6,8 +6,7 @@ on:
   pull_request_review_comment:
     types: [created, edited, deleted]
 
-# This workflow only wakes the trusted default-branch controller. It has no
-# checkout, secrets, artifacts, or authority to interpret a review as approval.
+# Wake the default-branch controller without checkout, credentials, or artifacts.
 permissions: {}
 
 jobs:

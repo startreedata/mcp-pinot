@@ -13,13 +13,14 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: read
-  actions: read
 
 concurrency:
   group: repo-maintainer-worker-${{ github.repository }}-${{ inputs.task }}
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   prepare:
@@ -30,13 +31,27 @@ jobs:
       expected_sha: ${{ steps.prepare.outputs.expected_sha }}
       control_sha: ${{ steps.control.outputs.sha }}
     steps:
+      - name: Check immutable runtime pin
+        env:
+          RUNTIME_REF: ${{ 'be550142a168b1b11f8b89fbb18cf287e24b6e98' }}
+        run: |
+          [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
+      - name: Checkout centralized runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: startreedata/startree-code-review-bot
+          ref: ${{ 'be550142a168b1b11f8b89fbb18cf287e24b6e98' }}
+          path: runtime
+          token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
+          persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
+          path: control
           persist-credentials: false
       - name: Record trusted control version
         id: control
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: echo "sha=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
@@ -60,7 +75,7 @@ jobs:
           MAINTAINER_MODE: ${{ vars.MAINTAINER_MODE }}
           TASK_KEY: ${{ inputs.task }}
           TASK_LEASE: ${{ inputs.lease }}
-        run: python .github/maintainer/worker.py prepare --task "$TASK_KEY" --lease "$TASK_LEASE" --output prepared.json
+        run: PYTHONPATH=runtime/src python -m startree_review_bot.maintainer worker prepare --policy control/.github/maintainer/policy.toml --task "$TASK_KEY" --lease "$TASK_LEASE" --output prepared.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: maintainer-prepared
@@ -73,6 +88,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Check immutable runtime pin
+        env:
+          RUNTIME_REF: ${{ 'be550142a168b1b11f8b89fbb18cf287e24b6e98' }}
+        run: |
+          [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
+      - name: Checkout centralized runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: startreedata/startree-code-review-bot
+          ref: ${{ 'be550142a168b1b11f8b89fbb18cf287e24b6e98' }}
+          path: runtime
+          token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
+          persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.control_sha }}
@@ -88,7 +116,7 @@ jobs:
           name: maintainer-prepared
           path: prepared
       - name: Build isolated worker runtime
-        run: docker build -t repo-maintainer-runtime -f control/.github/maintainer/worker.Dockerfile control/.github/maintainer
+        run: docker build -t repo-maintainer-runtime -f runtime/src/startree_review_bot/maintainer/worker.Dockerfile runtime
       - name: Edit with file tools and a bounded model budget
         env:
           ANTHROPIC_API_KEY: ${{ secrets.MAINTAINER_ANTHROPIC_API_KEY }}
@@ -100,7 +128,7 @@ jobs:
             --mount "type=bind,source=$GITHUB_WORKSPACE/prepared,target=/prepared,readonly" \
             --mount "type=bind,source=$GITHUB_WORKSPACE/output,target=/output" \
             -e ANTHROPIC_API_KEY repo-maintainer-runtime \
-            python /control/.github/maintainer/worker.py run --prepared /prepared/prepared.json --checkout /work --output /output
+            python -I -m startree_review_bot.maintainer worker run --prepared /prepared/prepared.json --checkout /work --output /output
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: maintainer-candidate
@@ -114,6 +142,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Check immutable runtime pin
+        env:
+          RUNTIME_REF: ${{ 'be550142a168b1b11f8b89fbb18cf287e24b6e98' }}
+        run: |
+          [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
+      - name: Checkout centralized runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: startreedata/startree-code-review-bot
+          ref: ${{ 'be550142a168b1b11f8b89fbb18cf287e24b6e98' }}
+          path: runtime
+          token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
+          persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.control_sha }}
@@ -136,9 +177,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply only a policy-compliant patch
-        run: python control/.github/maintainer/publish.py validate --policy control/.github/maintainer/policy.toml --prepared prepared/prepared.json --patch candidate/change.patch --checkout target
+        run: PYTHONPATH=runtime/src python -m startree_review_bot.maintainer publish validate --policy control/.github/maintainer/policy.toml --prepared prepared/prepared.json --patch candidate/change.patch --checkout target
       - name: Build isolated validation runtime
-        run: docker build -t repo-maintainer-runtime -f control/.github/maintainer/worker.Dockerfile control/.github/maintainer
+        run: docker build -t repo-maintainer-runtime -f runtime/src/startree_review_bot/maintainer/worker.Dockerfile runtime
       - name: Validate candidate without secrets or GitHub credentials
         run: |
           docker run --rm --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
@@ -146,7 +187,7 @@ jobs:
             --mount "type=bind,source=$GITHUB_WORKSPACE/control,target=/control,readonly" \
             --mount "type=bind,source=$GITHUB_WORKSPACE/prepared,target=/prepared,readonly" \
             -e HOME=/tmp -e UV_CACHE_DIR=/tmp/uv-cache repo-maintainer-runtime \
-            python /control/.github/maintainer/validation.py
+            python -I -m startree_review_bot.maintainer validate --control-root /control --checkout /work
 
   publish:
     needs: [prepare, validate]
@@ -154,6 +195,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Check immutable runtime pin
+        env:
+          RUNTIME_REF: ${{ 'be550142a168b1b11f8b89fbb18cf287e24b6e98' }}
+        run: |
+          [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
+      - name: Checkout centralized runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: startreedata/startree-code-review-bot
+          ref: ${{ 'be550142a168b1b11f8b89fbb18cf287e24b6e98' }}
+          path: runtime
+          token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
+          persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.control_sha }}
@@ -191,4 +245,4 @@ jobs:
           TASK_KEY: ${{ inputs.task }}
           TASK_LEASE: ${{ inputs.lease }}
           VALIDATION_RUN: ${{ github.run_id }}
-        run: python control/.github/maintainer/publish.py publish --policy control/.github/maintainer/policy.toml --task "$TASK_KEY" --lease "$TASK_LEASE" --patch candidate/change.patch --checkout target --validation-run "$VALIDATION_RUN"
+        run: PYTHONPATH=runtime/src python -m startree_review_bot.maintainer publish publish --policy control/.github/maintainer/policy.toml --task "$TASK_KEY" --lease "$TASK_LEASE" --patch candidate/change.patch --checkout target --validation-run "$VALIDATION_RUN"

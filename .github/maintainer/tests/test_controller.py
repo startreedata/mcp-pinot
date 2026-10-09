@@ -328,6 +328,67 @@ class ReconcileTests(unittest.TestCase):
             any(path.endswith("/dispatches") for path, _, _ in self.api.calls)
         )
 
+    def test_independent_app_change_requests_reach_the_writer_repair_context(self):
+        for mode in ("review", "approve"):
+            with self.subTest(mode=mode):
+                self.api = FakeGitHub()
+                self.policy["review"].update(
+                    {"mode": mode, "login": "independent[bot]", "identity_type": "Bot"}
+                )
+                self.api.ledger["tasks"] = {"issue:1": task()}
+                self.api.issues = [issue()]
+                self.api.prs[2] = pr()
+                self.api.reviews = [
+                    {
+                        "id": 1,
+                        "state": "CHANGES_REQUESTED",
+                        "commit_id": HEAD,
+                        "user": {"login": "independent[bot]", "type": "Bot"},
+                        "body": "Null input still loses its guard.",
+                    }
+                ]
+                self.controller().run()
+                repaired = self.api.ledger["tasks"]["issue:1"]
+                self.assertEqual(repaired["state"], "WORKING")
+                self.assertEqual(repaired["worker_kind"], "repair")
+                self.assertEqual(
+                    repaired["context"]["reviews"][0]["author"], "independent[bot]"
+                )
+
+    def test_withdrawn_app_change_request_does_not_start_a_repair(self):
+        self.policy["review"].update(
+            {"mode": "approve", "login": "independent[bot]", "identity_type": "Bot"}
+        )
+        self.api.ledger["tasks"] = {"issue:1": task()}
+        self.api.issues = [issue()]
+        self.api.prs[2] = pr()
+        self.api.checks = [
+            {
+                "id": 1,
+                "name": "unit",
+                "app": {"id": 15368},
+                "head_sha": HEAD,
+                "status": "completed",
+                "conclusion": "success",
+            }
+        ]
+        user = {"login": "independent[bot]", "type": "Bot"}
+        self.api.reviews = [
+            {
+                "id": 1,
+                "state": "CHANGES_REQUESTED",
+                "commit_id": HEAD,
+                "user": user,
+                "body": "Old request",
+            },
+            {"id": 2, "state": "APPROVED", "commit_id": HEAD, "user": user},
+        ]
+        self.controller().run()
+        self.assertEqual(self.api.ledger["tasks"]["issue:1"]["state"], "WAITING_REVIEW")
+        self.assertFalse(
+            any(path.endswith("/dispatches") for path, _, _ in self.api.calls)
+        )
+
     def test_human_commit_prevents_repair_and_merge(self):
         self.api.ledger["tasks"] = {"issue:1": task()}
         self.api.issues = [issue()]

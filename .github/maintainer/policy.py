@@ -157,7 +157,8 @@ def approver_logins(policy):
     return logins
 
 
-def _latest_reviews(api, pr):
+def latest_reviews(api, pr):
+    """Return each reviewer's latest decisive vote; comments do not clear requests."""
     reviews = api.paginate(f"pulls/{pr['number']}/reviews")
     latest = {}
     for review in reviews:
@@ -179,7 +180,7 @@ def _latest_reviews(api, pr):
 
 
 def _reviews(api, policy, pr, head, require_human):
-    latest = _latest_reviews(api, pr)
+    latest = latest_reviews(api, pr)
     reasons = []
     if any(review["state"] == "CHANGES_REQUESTED" for review in latest.values()):
         reasons.append("A reviewer still requests changes")
@@ -387,7 +388,7 @@ def approval_blockers(api, policy, pr, reviewer_login):
         if any(
             login != reviewer_login.casefold()
             and review["state"] == "CHANGES_REQUESTED"
-            for login, review in _latest_reviews(api, pr).items()
+            for login, review in latest_reviews(api, pr).items()
         ):
             reasons.append("Another reviewer still requests changes")
         if _threads(api, pr, head):

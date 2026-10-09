@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 import uuid
 
 from github_api import GitHub, GitHubError
-from policy import approver_logins, evaluate, merge_rule_blockers
+from policy import approver_logins, evaluate, latest_reviews, merge_rule_blockers
 from state import StateStore, initial_state, issue_hash
 from worker import writer_identity
 
@@ -310,6 +310,10 @@ class Controller:
             )
 
     def review_context(self, pr):
+        trusted_reviewers = {actor.casefold() for actor in approver_logins(self.policy)}
+        configured = self.policy["review"]
+        if configured["mode"] in {"review", "approve"} and configured["login"]:
+            trusted_reviewers.add(configured["login"].casefold())
         owner, name = self.api.repo.split("/", 1)
         cursor = None
         comments = []
@@ -334,8 +338,7 @@ class Controller:
                 for comment in thread["comments"]["nodes"]:
                     login = (comment.get("author") or {}).get("login", "")
                     if login and (
-                        login.casefold()
-                        in {actor.casefold() for actor in approver_logins(self.policy)}
+                        login.casefold() in trusted_reviewers
                         or self.write_permission(login)
                     ):
                         comments.append(
@@ -381,14 +384,16 @@ class Controller:
                         "output": check.get("output", {}),
                     }
                 )
-        reviews = self.api.paginate(f"pulls/{pr['number']}/reviews")
         formal = []
-        for review in reviews:
+        for review in latest_reviews(self.api, pr).values():
             login = review["user"]["login"]
             if (
                 review["state"] == "CHANGES_REQUESTED"
                 and review.get("commit_id") == pr["head"]["sha"]
-                and self.write_permission(login)
+                and (
+                    login.casefold() in trusted_reviewers
+                    or self.write_permission(login)
+                )
             ):
                 formal.append(
                     {

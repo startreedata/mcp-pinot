@@ -35,8 +35,10 @@ jobs:
       - name: Check model credential through the read-only Models API
         env:
           ANTHROPIC_API_KEY: ${{ secrets.MAINTAINER_REVIEWER_ANTHROPIC_API_KEY || secrets.ANTHROPIC_API_KEY }}
+          KEY_SOURCE: ${{ secrets.MAINTAINER_REVIEWER_ANTHROPIC_API_KEY != '' && 'dedicated' || 'fallback' }}
         run: |
           python3 - <<'PY'
+          import json
           import os
           import urllib.error
           import urllib.request
@@ -57,9 +59,29 @@ jobs:
                   status = response.status
           except urllib.error.HTTPError as error:
               status = error.code
+              try:
+                  details = json.loads(error.read(65536)).get("error", {})
+                  category = details.get("type", "")
+                  allowed = {"invalid_request_error", "authentication_error", "permission_error", "not_found_error", "rate_limit_error", "api_error", "overloaded_error"}
+                  print("Provider error type:", category if category in allowed else "unclassified")
+                  message = str(details.get("message", "")).lower()
+                  reasons = {
+                      "oauth": "oauth_credential_unsupported",
+                      "credit balance": "account_credit_balance",
+                      "billing": "account_billing",
+                      "api key": "api_key_rejected",
+                      "anthropic-version": "api_version_rejected",
+                      "organization": "organization_access",
+                  }
+                  for match, reason in reasons.items():
+                      if match in message:
+                          print("Provider error classification:", reason)
+              except (ValueError, AttributeError, TypeError):
+                  print("Provider error type: unclassified")
           except Exception:
               raise SystemExit("Model authentication probe failed before an HTTP response") from None
           print(f"Model authentication HTTP status: {status}")
+          print("Credential source:", os.environ["KEY_SOURCE"])
           if status != 200:
               raise SystemExit("Model credential did not pass the authentication probe")
           PY

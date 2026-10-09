@@ -77,7 +77,13 @@ def main() -> None:
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--cli-defaults", action="store_true")
     parser.add_argument("--extended-cases", action="store_true")
+    parser.add_argument("--planned-collection", action="store_true")
+    parser.add_argument("--compare-collection", action="store_true")
     args = parser.parse_args()
+    if args.planned_collection and args.compare_collection:
+        parser.error("Choose planned collection or the paired comparison, not both.")
+    if args.mode == "scripted" and (args.planned_collection or args.compare_collection):
+        parser.error("Collection strategies require model mode.")
     java = executable_path(args.java, program="java")
     java_version = subprocess.check_output(  # noqa: S603
         [java, "-version"], stderr=subprocess.STDOUT, text=True, shell=False
@@ -133,6 +139,13 @@ def main() -> None:
     runtime = {
         "scope": "local synthetic replay; no production accuracy or cost claim",
         "fixture_suite": "extended" if args.extended_cases else "baseline",
+        "collection_strategy": (
+            "counterbalanced_paired"
+            if args.compare_collection
+            else "planned_sequential"
+            if args.planned_collection
+            else "default_sequential"
+        ),
         "started_at": datetime.now(UTC).isoformat(),
         "jar": str(args.jar.resolve()),
         "jar_sha256": jar_hash,
@@ -191,8 +204,18 @@ def main() -> None:
                     raise RuntimeError(f"Native startup failed; inspect {log_path}")
                 time.sleep(1)
             modes = ["scripted", "model"] if args.mode == "both" else [args.mode]
+            result_modes = [
+                result_mode
+                for mode in modes
+                for result_mode in (
+                    ["model_default", "model_planned"]
+                    if mode == "model" and args.compare_collection
+                    else [mode]
+                )
+            ]
             combined_truth: list[dict] = []
-            combined: dict[str, list[dict]] = {mode: [] for mode in modes}
+            combined: dict[str, list[dict]] = {mode: [] for mode in result_modes}
+            comparisons: list[dict] = []
             for index, seed in enumerate(sorted(dataset.glob("seed_*"))):
                 run_script(
                     "load.py",
@@ -226,18 +249,48 @@ def main() -> None:
                         "--timeout",
                         str(args.timeout),
                         *(["--cli-defaults"] if args.cli_defaults else []),
+                        *(
+                            ["--compare-collection"]
+                            if mode == "model" and args.compare_collection
+                            else ["--planned-collection"]
+                            if mode == "model" and args.planned_collection
+                            else []
+                        ),
+                        *(
+                            ["--planned-first"]
+                            if mode == "model" and args.compare_collection and index % 2
+                            else []
+                        ),
                     )
-                    combined[mode] += json.loads(
-                        (target / "predictions.json").read_text()
-                    )["cases"]
+                    if mode == "model" and args.compare_collection:
+                        comparisons.append(
+                            json.loads((target / "comparison.json").read_text())
+                        )
+                        for arm in ("default", "planned"):
+                            combined[f"model_{arm}"] += json.loads(
+                                (target / arm / "predictions.json").read_text()
+                            )["cases"]
+                    else:
+                        combined[mode] += json.loads(
+                            (target / "predictions.json").read_text()
+                        )["cases"]
             write_json(
                 output / "truth.json", {"schema_version": 1, "cases": combined_truth}
             )
             if source_hashes(root) != source:
                 raise RuntimeError("Sources changed during replay; refusing to score.")
+            if comparisons:
+                write_json(output / "comparison.json", {"seeds": comparisons})
             for mode, cases in combined.items():
                 path = output / f"{mode}-predictions.json"
-                write_json(path, {"schema_version": 1, "mode": mode, "cases": cases})
+                write_json(
+                    path,
+                    {
+                        "schema_version": 1,
+                        "mode": "model" if mode.startswith("model_") else mode,
+                        "cases": cases,
+                    },
+                )
                 run_script(
                     "score.py",
                     "--predictions",

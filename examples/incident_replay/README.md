@@ -6,7 +6,8 @@ It compares a scripted investigation with a real Codex host using the same publi
 alerts. The scorer reads private synthetic labels after prediction and independently
 checks the recorded finish, evidence hashes, public scope, and host qualification.
 See [the original scored report](REPORT.md) and the
-[terminal-decision follow-up](TERMINAL-STATUS-REPORT.md) for measured results and
+[terminal-decision follow-up](TERMINAL-STATUS-REPORT.md), and
+[paired collection comparison](COLLECTION-EFFICIENCY-REPORT.md) for measured results and
 remaining gaps.
 
 The fixture has deployment, unrelated-change, confounded, and missing-watermark
@@ -117,6 +118,45 @@ It refuses occupied quickstart ports, bounds startup to 300 seconds, records the
 JAR, Python, dependency, and production/harness source identities, and invalidates
 scoring if source code changes during the run. Startup failures retain logs and
 are separate from model outcomes.
+
+## Compare collection strategies
+
+Run both collection strategies on every public case with a fresh output directory:
+
+```bash
+uv run --frozen python examples/incident_replay/live.py \
+  --jar /absolute/path/pinot-distribution-shaded.jar \
+  --java /absolute/path/jdk-25/bin/java \
+  --output examples/incident_replay/output/collection-comparison \
+  --seeds 3 --start-seed 300 --mode model --timeout 60 \
+  --cli-defaults --extended-cases --compare-collection
+```
+
+The default strategy uses the existing prompt; the planned strategy enables the
+CLI Code Mode feature and requests the five required observations sequentially
+in one block, through the same four MCP tools. Individual responses and citations
+remain intact.
+The host still checks every actual MCP response against the proxy audit.
+
+The first case runs default then planned; the next runs planned then default,
+alternating within each seed. The standalone run reverses the starting order
+on alternate seeds; direct `runner.py` comparisons can use `--planned-first`.
+Both arms use identical fixtures, model-selection settings, deadlines, budgets
+and scoring rules. `comparison.json` records the case IDs and execution order.
+Each arm retains its calls, CLI events and predictions. The standalone launcher
+writes aggregate `model_default-predictions.json`, `model_planned-predictions.json`
+and the corresponding `model_default-score.json` and `model_planned-score.json`
+in the output directory. Direct `runner.py` comparisons write predictions under
+`default/` and `planned/`; use `score.py` to score each arm separately.
+`--planned-collection` runs just the planned arm instead;
+the two flags are mutually exclusive and require model mode.
+
+Per-case timing records CLI launch-to-exit, launch-to-first-tool, last-response-to-exit
+and the union of tool execution intervals. These host measurements do not separate
+provider/network time from generation. Code Mode receipt compatibility must be
+verified with the installed CLI before relying on the planned arm's score.
+The requested strategy and CLI feature flag alone do not prove a single-block
+execution; assess the actual call order and gaps from the retained receipts.
 
 ## Read the score
 

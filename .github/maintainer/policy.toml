@@ -35,7 +35,7 @@ identity_type = "Bot"
 max_files = 30
 max_input_bytes = 200000
 per_run_usd = 5.0
-daily_usd = 20.0
+daily_usd = 50.0
 max_turns = 30
 lease_seconds = 5400
 

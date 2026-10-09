@@ -1,0 +1,190 @@
+name: Repo Maintainer Worker
+run-name: Repo Maintainer Worker | ${{ inputs.task }} | ${{ inputs.lease }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Authorized ledger task, for example issue:12
+        required: true
+        type: string
+      lease:
+        description: Controller-issued one-time lease UUID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: repo-maintainer-worker-${{ github.repository }}-${{ inputs.task }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: ${{ contains(fromJSON('["maintain","autopilot"]'), vars.MAINTAINER_MODE) && github.ref_name == github.event.repository.default_branch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      expected_sha: ${{ steps.prepare.outputs.expected_sha }}
+      control_sha: ${{ steps.control.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Record trusted control version
+        id: control
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Create read-only App token
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.MAINTAINER_APP_ID }}
+          private-key: ${{ secrets.MAINTAINER_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          permission-checks: read
+          permission-actions: read
+      - name: Verify live authorization and lease
+        id: prepare
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          MAINTAINER_MODE: ${{ vars.MAINTAINER_MODE }}
+          TASK_KEY: ${{ inputs.task }}
+          TASK_LEASE: ${{ inputs.lease }}
+        run: python .github/maintainer/worker.py prepare --task "$TASK_KEY" --lease "$TASK_LEASE" --output prepared.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maintainer-prepared
+          path: prepared.json
+          retention-days: 7
+          if-no-files-found: error
+
+  edit:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.control_sha }}
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.expected_sha }}
+          path: target
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: maintainer-prepared
+          path: prepared
+      - name: Build isolated worker runtime
+        run: docker build -t repo-maintainer-runtime -f control/.github/maintainer/worker.Dockerfile control/.github/maintainer
+      - name: Edit with file tools and a bounded model budget
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.MAINTAINER_ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p output
+          docker run --rm --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/target,target=/work" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/control,target=/control,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/prepared,target=/prepared,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/output,target=/output" \
+            -e ANTHROPIC_API_KEY repo-maintainer-runtime \
+            python /control/.github/maintainer/worker.py run --prepared /prepared/prepared.json --checkout /work --output /output
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maintainer-candidate
+          path: output/
+          retention-days: 7
+          if-no-files-found: error
+
+  validate:
+    name: validate
+    needs: [prepare, edit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.control_sha }}
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.expected_sha }}
+          path: target
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: maintainer-prepared
+          path: prepared
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: maintainer-candidate
+          path: candidate
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Apply only a policy-compliant patch
+        run: python control/.github/maintainer/publish.py validate --policy control/.github/maintainer/policy.toml --prepared prepared/prepared.json --patch candidate/change.patch --checkout target
+      - name: Build isolated validation runtime
+        run: docker build -t repo-maintainer-runtime -f control/.github/maintainer/worker.Dockerfile control/.github/maintainer
+      - name: Validate candidate without secrets or GitHub credentials
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/target,target=/work" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/control,target=/control,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/prepared,target=/prepared,readonly" \
+            -e HOME=/tmp -e UV_CACHE_DIR=/tmp/uv-cache repo-maintainer-runtime \
+            python /control/.github/maintainer/validation.py --prepared /prepared/prepared.json
+
+  publish:
+    needs: [prepare, validate]
+    if: ${{ contains(fromJSON('["maintain","autopilot"]'), vars.MAINTAINER_MODE) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.control_sha }}
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.expected_sha }}
+          path: target
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: maintainer-candidate
+          path: candidate
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Create publisher App token
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.MAINTAINER_APP_ID }}
+          private-key: ${{ secrets.MAINTAINER_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: read
+          permission-pull-requests: write
+          permission-actions: read
+      - name: Revalidate live state and publish from a clean checkout
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          MAINTAINER_MODE: ${{ vars.MAINTAINER_MODE }}
+          TASK_KEY: ${{ inputs.task }}
+          TASK_LEASE: ${{ inputs.lease }}
+          VALIDATION_RUN: ${{ github.run_id }}
+        run: python control/.github/maintainer/publish.py publish --policy control/.github/maintainer/policy.toml --task "$TASK_KEY" --lease "$TASK_LEASE" --patch candidate/change.patch --checkout target --validation-run "$VALIDATION_RUN"

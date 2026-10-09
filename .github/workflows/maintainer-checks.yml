@@ -1,0 +1,53 @@
+name: Repo Maintainer Checks
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/maintainer/**', '.github/workflows/maintainer-*.yml']
+  pull_request:
+    branches: [main]
+    paths: ['.github/maintainer/**', '.github/workflows/maintainer-*.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  maintainer-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s .github/maintainer/tests -v
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Build the pinned worker runtime without secrets
+        run: docker build -t repo-maintainer-runtime -f .github/maintainer/worker.Dockerfile .github/maintainer
+      - name: Verify the CLI pins and controller tests as an isolated non-root user
+        run: |
+          mkdir -p "$RUNNER_TEMP/maintainer-smoke-work"
+          docker run --rm -i --network none --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/control,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/maintainer-smoke-work,target=/work" \
+            repo-maintainer-runtime python - <<'PY'
+          import subprocess
+          import sys
+          subprocess.run(["claude", "--version"], check=True)
+          subprocess.run(["uv", "--version"], check=True)
+          subprocess.run(["node", "--version"], check=True)
+          subprocess.run(
+              [sys.executable, "-m", "unittest", "discover", "-s", "/control/.github/maintainer/tests", "-v"],
+              check=True,
+          )
+          PY

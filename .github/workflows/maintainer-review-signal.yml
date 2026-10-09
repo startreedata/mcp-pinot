@@ -1,0 +1,18 @@
+name: Repo Maintainer Review Signal
+
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+
+# This workflow only wakes the trusted default-branch controller. It has no
+# checkout, secrets, artifacts, or authority to interpret a review as approval.
+permissions: {}
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: ':'

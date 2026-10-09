@@ -121,20 +121,34 @@ are separate from model outcomes.
 
 ## Compare collection strategies
 
-Add `--compare-collection --mode model --cli-defaults` to the standalone JAR
-command to run both collection strategies on every public case. The default
-strategy uses the existing prompt; the planned strategy enables CLI Code Mode
-and asks it to collect the five required observations sequentially in one block,
-through the same four MCP tools. Individual responses and citations remain intact.
+Run both collection strategies on every public case with a fresh output directory:
+
+```bash
+uv run --frozen python examples/incident_replay/live.py \
+  --jar /absolute/path/pinot-distribution-shaded.jar \
+  --java /absolute/path/jdk-25/bin/java \
+  --output examples/incident_replay/output/collection-comparison \
+  --seeds 3 --start-seed 300 --mode model --timeout 60 \
+  --cli-defaults --extended-cases --compare-collection
+```
+
+The default strategy uses the existing prompt; the planned strategy enables the
+CLI Code Mode feature and requests the five required observations sequentially
+in one block, through the same four MCP tools. Individual responses and citations
+remain intact.
 The host still checks every actual MCP response against the proxy audit.
 
 The first case runs default then planned; the next runs planned then default,
 alternating within each seed. The standalone run reverses the starting order
 on alternate seeds; direct `runner.py` comparisons can use `--planned-first`.
-Both arms use identical fixtures, model-selection
-settings, deadlines, budgets and scoring rules. `comparison.json` records the
-case IDs and execution order. Each arm retains its calls, CLI events, predictions
-and independent score. `--planned-collection` runs just the planned arm instead;
+Both arms use identical fixtures, model-selection settings, deadlines, budgets
+and scoring rules. `comparison.json` records the case IDs and execution order.
+Each arm retains its calls, CLI events and predictions. The standalone launcher
+writes aggregate `model_default-predictions.json`, `model_planned-predictions.json`
+and the corresponding `model_default-score.json` and `model_planned-score.json`
+in the output directory. Direct `runner.py` comparisons write predictions under
+`default/` and `planned/`; use `score.py` to score each arm separately.
+`--planned-collection` runs just the planned arm instead;
 the two flags are mutually exclusive and require model mode.
 
 Per-case timing records CLI launch-to-exit, launch-to-first-tool, last-response-to-exit

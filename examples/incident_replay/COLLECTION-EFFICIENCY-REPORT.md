@@ -111,8 +111,8 @@ deployment association, unrelated change, version/zone confounding, absent
 watermark, sparse spans, and stale watermark. The same public cases, telemetry,
 profiles and private scoring labels are used by both arms. The prediction runner
 never reads private gold; the trusted launcher aggregates labels separately for
-scoring/export, outside the empty agent workspace. There are
-18 pairs, with nine default-first and nine planned-first; fixed extended-template
+scoring/export, outside the empty agent workspace. The 18 pairs include nine
+default-first and nine planned-first; fixed extended-template
 positions reverse their first arm on alternate seeds.
 
 Both arms use CLI defaults through the same installed CLI and signed-in account.

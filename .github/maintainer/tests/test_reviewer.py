@@ -16,7 +16,7 @@ from reviewer import (
     validate_result,
 )
 from state import StateStore, initial_state
-from test_controller import HEAD, FakeGitHub, policy, pr
+from test_controller import BASE, HEAD, FakeGitHub, policy, pr
 from worker import WorkError, writer_identity
 
 from config import load_policy

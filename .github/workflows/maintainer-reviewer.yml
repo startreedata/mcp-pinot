@@ -12,6 +12,11 @@ on:
         description: Pull request number to independently review
         required: true
         type: string
+      verify_model:
+        description: Verify model authentication without generating a review
+        required: false
+        default: false
+        type: boolean
 
 
 concurrency:
@@ -22,6 +27,43 @@ permissions:
   contents: read
 
 jobs:
+  verify-model:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_model }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check model credential through the read-only Models API
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.MAINTAINER_REVIEWER_ANTHROPIC_API_KEY || secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import urllib.error
+          import urllib.request
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          key = os.environ.get("ANTHROPIC_API_KEY", "")
+          if not key:
+              raise SystemExit("Model credential is unavailable")
+          request = urllib.request.Request(
+              "https://api.anthropic.com/v1/models?limit=1",
+              headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+          )
+          try:
+              with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
+                  status = response.status
+          except urllib.error.HTTPError as error:
+              status = error.code
+          except Exception:
+              raise SystemExit("Model authentication probe failed before an HTTP response") from None
+          print(f"Model authentication HTTP status: {status}")
+          if status != 200:
+              raise SystemExit("Model credential did not pass the authentication probe")
+          PY
+
   prepare:
     if: ${{ contains(fromJSON('["review","approve"]'), vars.MAINTAINER_REVIEWER_MODE) && github.ref_name == github.event.repository.default_branch }}
     runs-on: ubuntu-latest

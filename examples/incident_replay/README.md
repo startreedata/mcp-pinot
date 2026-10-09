@@ -184,6 +184,9 @@ verification checks. `host_telemetry_capture_ms`, `host_session_archive_ms` and
 `elapsed_ms` retains the original investigation timing. Successful archival also
 checks that the raw session moved into the archive without changing its bytes.
 
+See the [host receipts report](HOST-RECEIPTS-REPORT.md) for the completed paired
+comparison, retained injection failure and separately validated timeout probe.
+
 ## Read the score
 
 `correct_count` compares the raw delivered status and hypothesis with synthetic

@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import UTC, datetime
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -236,6 +237,11 @@ class ReconcileTests(unittest.TestCase):
     def setUp(self):
         self.api = FakeGitHub()
         self.policy = policy()
+        self.actor_patch = patch.dict(
+            os.environ, {"MAINTAINER_WRITER_ACTOR": "maintainer[bot]"}
+        )
+        self.actor_patch.start()
+        self.addCleanup(self.actor_patch.stop)
         self.store_patch = patch("controller.StateStore", MemoryStore)
         self.store_patch.start()
         self.addCleanup(self.store_patch.stop)

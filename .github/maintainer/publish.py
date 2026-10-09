@@ -21,6 +21,7 @@ from worker import (
     require_sha,
     safe_environment,
     trusted_policy,
+    writer_identity,
 )
 
 from config import load_policy, validate_paths
@@ -196,7 +197,7 @@ def _managed_pr(api: GitHub, policy: dict, task: dict) -> dict | None:
             "app_login"
         ] or marker not in str(matching[0].get("body") or ""):
             raise WorkError(
-                "Issue pull request is not owned by the configured App task"
+                "Issue pull request is not owned by the configured writer task"
             )
     return matching[0] if matching else None
 
@@ -204,6 +205,7 @@ def _managed_pr(api: GitHub, policy: dict, task: dict) -> dict | None:
 def publish(args: argparse.Namespace) -> None:
     api = GitHub()
     policy, _, control_sha = trusted_policy(args.policy, api)
+    writer_identity(api, policy)
     task, source, _ = authorize(api, policy, args.task, args.lease)
     receipt = validation_receipt(
         api, policy, args.task, args.lease, args.validation_run, control_sha
@@ -218,7 +220,7 @@ def publish(args: argparse.Namespace) -> None:
     remote_sha = _branch(api, task["branch"])
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
-        raise WorkError("An isolated App installation token is required")
+        raise WorkError("An isolated writer credential is required")
     remote = _remote_url(api)
     # Ignore worker-prepared metadata and the supplied candidate checkout entirely.
     with tempfile.TemporaryDirectory(prefix="maintainer-publish-") as temp:

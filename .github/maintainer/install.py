@@ -18,6 +18,7 @@ if not GIT:
 WORKFLOWS = (
     "maintainer-controller.yml",
     "maintainer-review-signal.yml",
+    "maintainer-reviewer.yml",
     "maintainer-worker.yml",
     "maintainer-checks.yml",
 )
@@ -82,6 +83,7 @@ def _plan(target: Path, branch: str, ci: list[str]) -> dict[Path, bytes]:
         "policy.py",
         "worker.py",
         "publish.py",
+        "reviewer.py",
     )
     for name in required:
         if not (source_dir / name).is_file():
@@ -107,7 +109,28 @@ def _plan(target: Path, branch: str, ci: list[str]) -> dict[Path, bytes]:
                 content,
             )
         if source.name == "maintainer-controller.yml":
-            names = [*ci, "Repo Maintainer Review Signal", "Repo Maintainer Worker"]
+            names = [
+                *ci,
+                "Repo Maintainer Review Signal",
+                "Repo Maintainer Worker",
+                "Repo Maintainer Reviewer",
+            ]
+            replacement = f"    workflows: {json.dumps(names)}".encode()
+            content = re.sub(
+                rb"(?m)^    workflows: .*?$",
+                lambda _, replacement=replacement: replacement,
+                content,
+            )
+        if source.name == "maintainer-reviewer.yml":
+            # Omit completion wakeups if this target has no Actions CI names.
+            if not ci:
+                content = re.sub(
+                    rb"(?m)^  workflow_run:\n    workflows: .*?\n"
+                    rb"    types: \[completed\]\n",
+                    b"",
+                    content,
+                )
+            names = ci
             replacement = f"    workflows: {json.dumps(names)}".encode()
             content = re.sub(
                 rb"(?m)^    workflows: .*?$",

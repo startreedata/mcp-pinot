@@ -70,6 +70,7 @@ DEFAULT_POLICY = {
     "mode": "observe",
     "default_branch": "main",
     "app_login": "",
+    "writer_type": "Bot",
     "state_issue": 0,
     "worker_workflow": "maintainer-worker.yml",
     "ready_label": "ai:ready",
@@ -99,6 +100,17 @@ DEFAULT_POLICY = {
         "required_checks": [],
         "policy_check_app_id": 0,
         "require_human_for_dependencies": True,
+    },
+    "review": {
+        "mode": "observe",
+        "login": "",
+        "identity_type": "Bot",
+        "max_files": 30,
+        "max_input_bytes": 200000,
+        "per_run_usd": 5.0,
+        "daily_usd": 20.0,
+        "max_turns": 30,
+        "lease_seconds": 5400,
     },
     "dependencies": {
         "enabled": True,
@@ -133,6 +145,15 @@ def _number(value, name, low, high, *, integer=False):
         raise ValueError(f"{name} must be between {low} and {high}")
 
 
+def _identity(login, identity_type, name, *, empty=False):
+    _string(login, name, empty=empty)
+    if not isinstance(identity_type, str) or identity_type not in {"Bot", "User"}:
+        raise ValueError(f"{name} identity type must be Bot or User")
+    pattern = r"[A-Za-z0-9_-]{1,39}" + (r"\[bot\]" if identity_type == "Bot" else "")
+    if login and not re.fullmatch(pattern, login):
+        raise ValueError(f"{name} must be a GitHub {identity_type} login")
+
+
 def _merge_defaults(raw, default, prefix=""):
     if not isinstance(raw, dict):
         raise ValueError(f"{prefix or 'policy'} must be a table")
@@ -158,6 +179,8 @@ def load_policy(path):
     ):
         if os.environ.get(variable):
             policy[field] = os.environ[variable]
+    if os.environ.get("MAINTAINER_REVIEWER_MODE"):
+        policy["review"]["mode"] = os.environ["MAINTAINER_REVIEWER_MODE"]
     if type(policy["version"]) is not int or policy["version"] != 1:
         raise ValueError("Only policy version 1 is supported")
     _string(policy["mode"], "mode")
@@ -173,6 +196,7 @@ def load_policy(path):
         "needs_human_label",
     ):
         _string(policy[field], field, empty=field == "app_login")
+    _identity(policy["app_login"], policy["writer_type"], "app_login", empty=True)
     if (
         policy["default_branch"].startswith(("/", "-"))
         or ".." in policy["default_branch"]
@@ -220,6 +244,29 @@ def load_policy(path):
         raise ValueError(
             "daily_usd must cover at least one full per_run_usd reservation"
         )
+    review = policy["review"]
+    _string(review["mode"], "review.mode")
+    if review["mode"] not in {"observe", "review", "approve"}:
+        raise ValueError("review.mode must be observe, review, or approve")
+    _identity(review["login"], review["identity_type"], "review.login", empty=True)
+    for field, (low, high) in {
+        "max_files": (1, 300),
+        "max_input_bytes": (1, 10485760),
+        "max_turns": (1, 100),
+        "lease_seconds": (3600, 86400),
+    }.items():
+        _number(review[field], f"review.{field}", low, high, integer=True)
+    for field in ("per_run_usd", "daily_usd"):
+        _number(review[field], f"review.{field}", 0.01, 1000)
+    if review["daily_usd"] < review["per_run_usd"]:
+        raise ValueError("review.daily_usd must cover one review reservation")
+    if review["mode"] != "observe":
+        if not policy["app_login"] or not review["login"]:
+            raise ValueError("Active reviewer needs writer and reviewer logins")
+        if review["login"].casefold() == policy["app_login"].casefold():
+            raise ValueError("Writer and reviewer identities must be different")
+        if not policy["state_issue"]:
+            raise ValueError("Active reviewer needs a dedicated state_issue")
     merge = policy["merge"]
     deps = policy["dependencies"]
     for table, fields in (
@@ -233,10 +280,10 @@ def load_policy(path):
     for login in merge["independent_approvers"]:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,39}(?:\[bot\])?", login):
             raise ValueError("independent_approvers must contain GitHub logins")
-    if not merge["require_human_for_dependencies"]:
-        raise ValueError(
-            "Dependencies require human approval until classification exists"
-        )
+    if policy["app_login"].casefold() in {
+        login.casefold() for login in merge["independent_approvers"]
+    }:
+        raise ValueError("Writer cannot be an independent approver")
     _number(
         merge["policy_check_app_id"],
         "merge.policy_check_app_id",
@@ -267,8 +314,8 @@ def load_policy(path):
             raise ValueError("dependencies.manifest_paths contains an unsafe path")
     _string(policy["slack"]["channel"], "slack.channel", empty=True)
     if policy["mode"] != "observe":
-        if not re.fullmatch(r"[A-Za-z0-9_-]+\[bot\]", policy["app_login"]):
-            raise ValueError("Active mode requires an app_login ending in [bot]")
+        if not policy["app_login"]:
+            raise ValueError("Active mode requires an app_login")
         if not policy["state_issue"]:
             raise ValueError("Active mode requires a dedicated state_issue")
         if not policy["allowed_paths"] or not policy["validation_commands"]:
@@ -276,7 +323,10 @@ def load_policy(path):
     if policy["mode"] == "autopilot" and not merge["enabled"]:
         raise ValueError("autopilot requires explicit merge.enabled = true")
     if merge["enabled"]:
-        if not checks or not merge["independent_approvers"]:
+        if not checks or not (
+            merge["independent_approvers"]
+            or (review["mode"] == "approve" and review["login"])
+        ):
             raise ValueError("Merge needs required_checks and independent_approvers")
         if not merge["policy_check_app_id"]:
             raise ValueError("Merge requires the policy check's GitHub App ID")

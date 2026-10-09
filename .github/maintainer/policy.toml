@@ -3,6 +3,7 @@ version = 1
 mode = "observe"
 default_branch = "main"
 app_login = ""
+writer_type = "Bot"
 state_issue = 0
 worker_workflow = "maintainer-worker.yml"
 ready_label = "ai:ready"
@@ -26,6 +27,17 @@ per_run_usd = 5.0
 daily_usd = 20.0
 lease_seconds = 5400
 max_turns = 30
+
+[review]
+mode = "observe"
+login = ""
+identity_type = "Bot"
+max_files = 30
+max_input_bytes = 200000
+per_run_usd = 5.0
+daily_usd = 20.0
+max_turns = 30
+lease_seconds = 5400
 
 [merge]
 enabled = false

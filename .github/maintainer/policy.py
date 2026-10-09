@@ -1,4 +1,4 @@
-"""Read-only, fail-closed merge gate for a managed pull request."""
+"""Read-only, fail-closed approval and merge gates."""
 
 import re
 from urllib.parse import quote
@@ -148,11 +148,20 @@ def _threads(api, pr, head):
     raise ValueError("Review threads exceeded the complete pagination limit")
 
 
-def _reviews(api, policy, pr, head, require_human):
+def approver_logins(policy):
+    """Include the separately configured approver in the native merge gate."""
+    logins = set(policy["merge"]["independent_approvers"])
+    review = policy.get("review", {})
+    if review.get("mode") == "approve" and review.get("login"):
+        logins.add(review["login"])
+    return logins
+
+
+def _latest_reviews(api, pr):
     reviews = api.paginate(f"pulls/{pr['number']}/reviews")
     latest = {}
     for review in reviews:
-        user = review.get("user")
+        user = review.get("user") if isinstance(review, dict) else None
         if (
             not isinstance(user, dict)
             or not isinstance(user.get("login"), str)
@@ -162,30 +171,40 @@ def _reviews(api, policy, pr, head, require_human):
             raise ValueError("Pull request review history is incomplete")
         if review["state"] not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}:
             continue
-        previous = latest.get(user["login"])
+        login = user["login"].casefold()
+        previous = latest.get(login)
         if previous is None or review["id"] > previous["id"]:
-            latest[user["login"]] = review
+            latest[login] = review
+    return latest
+
+
+def _reviews(api, policy, pr, head, require_human):
+    latest = _latest_reviews(api, pr)
     reasons = []
     if any(review["state"] == "CHANGES_REQUESTED" for review in latest.values()):
         reasons.append("A reviewer still requests changes")
-    author = pr.get("user", {}).get("login")
-    independent = {login.lower() for login in policy["merge"]["independent_approvers"]}
+    author = pr.get("user", {}).get("login", "").casefold()
+    writer = policy["app_login"].casefold()
+    automated_reviewer = policy.get("review", {}).get("login", "").casefold()
+    independent = {login.casefold() for login in approver_logins(policy)}
     approved = False
     for login, review in latest.items():
         if (
             review["state"] != "APPROVED"
             or review.get("commit_id") != head
             or review["user"].get("type") not in {"User", "Bot"}
-            or login == author
-            or login == policy["app_login"]
-            or login.lower() not in independent
+            or login in (author, writer)
+            or (require_human and login == automated_reviewer)
+            or login not in independent
         ):
             continue
         if review["user"]["type"] == "Bot":
             if not require_human:
                 approved = True
             continue
-        permission = api.request(f"collaborators/{quote(login, safe='')}/permission")
+        permission = api.request(
+            f"collaborators/{quote(review['user']['login'], safe='')}/permission"
+        )
         if (
             permission.get("permission") in {"admin", "maintain", "write"}
             and permission.get("user", {}).get("type") == "User"
@@ -225,6 +244,164 @@ def _checks(api, policy, head):
                 f"Current-head check has not succeeded: {requirement['name']}"
             )
     return reasons
+
+
+def _complete_patch(file):
+    """Require every supplied hunk and GitHub's change counters to agree."""
+    status = file.get("status")
+    additions, deletions = file.get("additions"), file.get("deletions")
+    if (
+        status not in {"added", "modified", "removed", "renamed"}
+        or type(additions) is not int
+        or type(deletions) is not int
+        or additions < 0
+        or deletions < 0
+        or (status == "renamed" and not isinstance(file.get("previous_filename"), str))
+    ):
+        return False
+    patch = file.get("patch")
+    if not patch and status == "renamed" and additions == deletions == 0:
+        return True
+    if not isinstance(patch, str) or not patch:
+        return False
+    expected, observed = None, [0, 0]
+    added = removed = 0
+    for line in patch.splitlines():
+        header = re.fullmatch(
+            r"@@ -[0-9]+(?:,([0-9]+))? \+[0-9]+(?:,([0-9]+))? @@.*", line
+        )
+        if header:
+            if expected is not None and observed != expected:
+                return False
+            expected = [
+                int(count) if count is not None else 1 for count in header.groups()
+            ]
+            observed = [0, 0]
+        elif expected is None:
+            return False
+        elif line == r"\ No newline at end of file":
+            continue
+        elif line.startswith(" "):
+            observed[0] += 1
+            observed[1] += 1
+        elif line.startswith("+"):
+            observed[1] += 1
+            added += 1
+        elif line.startswith("-"):
+            observed[0] += 1
+            removed += 1
+        else:
+            return False
+    return (
+        expected is not None
+        and observed == expected
+        and (added, removed)
+        == (
+            additions,
+            deletions,
+        )
+    )
+
+
+def approval_blockers(api, policy, pr, reviewer_login):
+    """Gate an independent native approval, including PRs written by other users."""
+    reasons = []
+    try:
+        head, number = pr["head"]["sha"], pr["number"]
+        if (
+            not isinstance(head, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", head)
+            or type(number) is not int
+            or number < 1
+        ):
+            raise ValueError("Pull request identity is incomplete")
+        author = pr["user"]["login"]
+        if (
+            not isinstance(author, str)
+            or not author
+            or not isinstance(reviewer_login, str)
+        ):
+            raise ValueError("Reviewer or pull request author identity is missing")
+        if not reviewer_login or reviewer_login.casefold() in {
+            author.casefold(),
+            policy["app_login"].casefold(),
+        }:
+            reasons.append(
+                "Reviewer must differ from the pull request author and writer"
+            )
+        if not policy["app_login"]:
+            reasons.append("Configured writer identity is missing")
+        review = policy["review"]
+        if review["identity_type"] == "User":
+            permission = api.request(
+                f"collaborators/{quote(reviewer_login, safe='')}/permission"
+            )
+            if (
+                permission.get("permission") not in {"admin", "maintain", "write"}
+                or permission.get("user", {}).get("type") != "User"
+            ):
+                reasons.append("Configured reviewer User does not have write access")
+        if pr.get("state") != "open" or pr.get("merged") is not False:
+            reasons.append("Pull request is not open and unmerged")
+        if pr.get("draft") is not False:
+            reasons.append("Draft status is true or unknown")
+        if policy["hold_label"] in _labels(pr):
+            reasons.append("Pull request is on hold")
+        if pr.get("mergeable") is not True:
+            reasons.append("GitHub mergeability is false or unknown")
+        base = api.request(f"git/ref/heads/{quote(policy['default_branch'], safe='')}")
+        base_sha = base["object"]["sha"]
+        if (
+            not isinstance(base_sha, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", base_sha)
+            or pr["base"].get("ref") != policy["default_branch"]
+            or pr["base"].get("sha") != base_sha
+        ):
+            reasons.append("Pull request base differs from the current default branch")
+        comparison = api.request(f"compare/{base_sha}...{head}")
+        if comparison.get("merge_base_commit", {}).get("sha") != base_sha:
+            reasons.append("Pull request does not include the current base branch")
+        files = api.paginate(f"pulls/{number}/files")
+        if (
+            type(pr.get("changed_files")) is not int
+            or len(files) != pr["changed_files"]
+        ):
+            reasons.append("Pull request file list is truncated or changed")
+        scope = {
+            **policy,
+            "limits": {**policy["limits"], "max_files": review["max_files"]},
+        }
+        reasons.extend(validate_paths(files, scope))
+        if any(
+            not isinstance(file, dict) or not _complete_patch(file) for file in files
+        ):
+            reasons.append("Pull request diff is binary, truncated, or incomplete")
+        input_bytes = sum(
+            len((file.get(field) or "").encode("utf-8"))
+            for file in files
+            for field in ("filename", "previous_filename", "patch")
+        )
+        if input_bytes > review["max_input_bytes"]:
+            reasons.append("Pull request diff exceeds review.max_input_bytes")
+        reasons.extend(_checks(api, policy, head))
+        if any(
+            login != reviewer_login.casefold()
+            and review["state"] == "CHANGES_REQUESTED"
+            for login, review in _latest_reviews(api, pr).items()
+        ):
+            reasons.append("Another reviewer still requests changes")
+        if _threads(api, pr, head):
+            reasons.append("Unresolved review threads remain")
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+        AttributeError,
+        UnicodeError,
+    ) as error:
+        reasons.append(f"Approval evidence is incomplete: {error}")
+    return list(dict.fromkeys(reasons))
 
 
 def evaluate(api, policy, pr, task, *, require_mergeable=True):
@@ -284,7 +461,16 @@ def evaluate(api, policy, pr, task, *, require_mergeable=True):
             task.get("kind") == "dependency"
             or pr.get("user", {}).get("login") in policy["dependencies"]["authors"]
         )
-        reasons.extend(_reviews(api, policy, pr, head, require_human=dependency))
+        reasons.extend(
+            _reviews(
+                api,
+                policy,
+                pr,
+                head,
+                require_human=dependency
+                and policy["merge"]["require_human_for_dependencies"],
+            )
+        )
         if _threads(api, pr, head):
             reasons.append("Unresolved review threads remain")
         if dependency:

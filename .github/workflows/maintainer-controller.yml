@@ -9,7 +9,7 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, closed, labeled, unlabeled, ready_for_review, converted_to_draft]
   workflow_run:
-    workflows: ["Build and Test", "Lint", "Test Pinot Quickstart", "Repo Maintainer Review Signal", "Repo Maintainer Worker"]
+    workflows: ["Build and Test", "Lint", "Test Pinot Quickstart", "Repo Maintainer Review Signal", "Repo Maintainer Worker", "Repo Maintainer Reviewer"]
     types: [completed]
   schedule:
     - cron: '*/15 * * * *'
@@ -43,12 +43,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MAINTAINER_MODE: observe
+          MAINTAINER_REVIEWER_MODE: ${{ vars.MAINTAINER_REVIEWER_MODE }}
         run: python .github/maintainer/controller.py --dry-run
 
   reconcile:
     if: ${{ contains(fromJSON('["maintain","autopilot"]'), vars.MAINTAINER_MODE) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -59,6 +63,7 @@ jobs:
           python-version: '3.12'
       - name: Create repository-scoped App token
         id: app
+        if: ${{ vars.MAINTAINER_WRITER_AUTH != 'user' }}
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ vars.MAINTAINER_APP_ID }}
@@ -70,7 +75,10 @@ jobs:
           permission-actions: write
       - name: Reconcile authorized work
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ vars.MAINTAINER_WRITER_AUTH == 'user' && secrets.MAINTAINER_WRITER_TOKEN || steps.app.outputs.token }}
+          MAINTAINER_WRITER_ACTOR: ${{ steps.app.outputs.app-slug != '' && format('{0}[bot]', steps.app.outputs.app-slug) || '' }}
+          MAINTAINER_POLICY_TOKEN: ${{ vars.MAINTAINER_WRITER_AUTH == 'user' && github.token || '' }}
           MAINTAINER_MODE: ${{ vars.MAINTAINER_MODE }}
+          MAINTAINER_REVIEWER_MODE: ${{ vars.MAINTAINER_REVIEWER_MODE }}
           SLACK_BOT_TOKEN: ${{ secrets.MAINTAINER_SLACK_BOT_TOKEN }}
         run: python .github/maintainer/controller.py

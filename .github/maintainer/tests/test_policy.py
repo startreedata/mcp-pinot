@@ -154,6 +154,40 @@ class PolicyTests(unittest.TestCase):
         self.pr["head"]["ref"] = self.task["branch"] = "dependabot/uv/dependency"
         self.assertTrue(self.blockers())
 
+    def test_automated_user_reviewer_does_not_satisfy_manual_dependency_gate(self):
+        self.policy["review"].update(
+            {
+                "mode": "approve",
+                "login": self.policy["merge"]["independent_approvers"][0],
+                "identity_type": "User",
+            }
+        )
+        self.task.update(
+            kind="dependency",
+            authorized_by="repository-policy",
+            dependency_author="dependabot[bot]",
+        )
+        self.pr["user"] = {"login": "dependabot[bot]", "type": "Bot"}
+        self.api.paginate_original = self.api.paginate
+
+        def files_for_dependency(path):
+            if path.endswith("/files"):
+                return [{"filename": "pyproject.toml", "status": "modified"}]
+            return self.api.paginate_original(path)
+
+        self.api.paginate = files_for_dependency
+        self.api.reviews = [
+            {
+                "id": 1,
+                "state": "APPROVED",
+                "commit_id": HEAD,
+                "user": {"login": "reviewer", "type": "User"},
+            }
+        ]
+        self.assertTrue(self.blockers())
+        self.policy["merge"]["require_human_for_dependencies"] = False
+        self.assertEqual(self.blockers(), [])
+
 
 class LedgerTests(unittest.TestCase):
     def test_forged_ledger_comment_is_rejected(self):

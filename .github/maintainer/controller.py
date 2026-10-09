@@ -15,8 +15,9 @@ from urllib.request import Request, urlopen
 import uuid
 
 from github_api import GitHub, GitHubError
-from policy import evaluate, merge_rule_blockers
+from policy import approver_logins, evaluate, merge_rule_blockers
 from state import StateStore, initial_state, issue_hash
+from worker import writer_identity
 
 from config import load_policy, validate_paths
 
@@ -54,6 +55,8 @@ class Controller:
         self.actions = []
         self.permissions = {}
         self.ci_ids = None
+        if not self.dry_run:
+            writer_identity(api, policy)
 
     def record(self, action, **fields):
         self.actions.append({"action": action, **fields})
@@ -331,7 +334,8 @@ class Controller:
                 for comment in thread["comments"]["nodes"]:
                     login = (comment.get("author") or {}).get("login", "")
                     if login and (
-                        login in self.policy["merge"]["independent_approvers"]
+                        login.casefold()
+                        in {actor.casefold() for actor in approver_logins(self.policy)}
                         or self.write_permission(login)
                     ):
                         comments.append(
@@ -565,7 +569,11 @@ class Controller:
             or "Current head satisfies controller policy. "
             "GitHub branch rules still apply."
         )
-        check = self.api.request(
+        policy_token = os.environ.get("MAINTAINER_POLICY_TOKEN")
+        check_api = (
+            GitHub(repo=self.api.repo, token=policy_token) if policy_token else self.api
+        )
+        check = check_api.request(
             "check-runs",
             "POST",
             {
@@ -656,7 +664,8 @@ class Controller:
                     comment
                     for comment in comments
                     if comment.get("user", {}).get("login") == self.policy["app_login"]
-                    and comment.get("user", {}).get("type") == "Bot"
+                    and comment.get("user", {}).get("type")
+                    == self.policy.get("writer_type", "Bot")
                     and marker in (comment.get("body") or "")
                     and published in (comment.get("body") or "")
                 ]

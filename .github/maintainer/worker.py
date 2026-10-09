@@ -106,6 +106,23 @@ def branch_for_task(key: str) -> str:
     return f"ai/{kind}-{number}"
 
 
+def writer_identity(api: GitHub, policy: dict) -> None:
+    """Check a user's real token owner or an App identity minted by the workflow."""
+    login = policy["app_login"]
+    expected_type = policy.get("writer_type", "Bot")
+    if expected_type == "User":
+        actor = api.request("/user")
+        if (
+            str(actor.get("login", "")).casefold() != login.casefold()
+            or actor.get("type") != "User"
+        ):
+            raise WorkError("Writer token does not belong to the configured user")
+    else:
+        actor = os.environ.get("MAINTAINER_WRITER_ACTOR", "")
+        if not actor or actor.casefold() != login.casefold():
+            raise WorkError("Writer App token does not match the configured identity")
+
+
 def trusted_policy(path: str, api: GitHub | None = None) -> tuple[dict, Path, str]:
     policy_path = Path(path).resolve()
     control = Path(
@@ -239,6 +256,7 @@ def github_outputs(values: dict) -> None:
 def prepare(args: argparse.Namespace) -> None:
     api = GitHub()
     policy, _, control_sha = trusted_policy(args.policy, api)
+    writer_identity(api, policy)
     task, source, _ = authorize(api, policy, args.task, args.lease)
     pr = None
     if task.get("pr_number"):

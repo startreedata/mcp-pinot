@@ -1,4 +1,4 @@
-"""One App-authored issue comment is the durable controller ledger."""
+"""One identity-authored issue comment is each controller's durable ledger."""
 
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -10,6 +10,7 @@ import uuid
 
 STATE_MARKER = "<!-- repo-maintainer-state:v1 -->"
 STATE_PREFIX = "<!-- repo-maintainer-state:"
+REVIEW_STATE_MARKER = "<!-- repo-reviewer-state:v1 -->"
 TASK_STATES = {
     "AUTHORIZED",
     "WORKING",
@@ -162,12 +163,27 @@ def _serialized(state):
 
 
 class StateStore:
-    def __init__(self, api, policy):
+    def __init__(self, api, policy, *, marker=STATE_MARKER):
         self.api = api
         self.policy = policy
+        if not isinstance(marker, str) or not re.fullmatch(
+            r"<!-- repo-[a-z-]+-state:v1 -->", marker
+        ):
+            raise ValueError("Controller ledger marker must identify a v1 ledger")
+        self.marker = marker
+        self.prefix = marker.split(":", 1)[0] + ":"
         self._comment_id = None
         self._revision = None
         self._loaded = False
+
+    def _authored_by_identity(self, comment):
+        user = comment.get("user") if isinstance(comment, dict) else None
+        return (
+            isinstance(user, dict)
+            and isinstance(user.get("login"), str)
+            and user["login"].casefold() == self.policy["app_login"].casefold()
+            and user.get("type") == self.policy.get("writer_type", "Bot")
+        )
 
     def _read(self):
         comments = self.api.paginate(f"issues/{self.policy['state_issue']}/comments")
@@ -176,20 +192,19 @@ class StateStore:
         ledgers = [
             comment
             for comment in comments
-            if isinstance(comment.get("body"), str) and STATE_PREFIX in comment["body"]
+            if isinstance(comment.get("body"), str) and self.prefix in comment["body"]
         ]
         if len(ledgers) > 1:
             raise ValueError("Multiple controller ledgers found; human repair required")
         if not ledgers:
             return None, None
         comment = ledgers[0]
-        user = comment.get("user", {})
-        if user.get("login") != self.policy["app_login"] or user.get("type") != "Bot":
+        if not self._authored_by_identity(comment):
             raise ValueError(
-                "Controller ledger is not authored by the configured App bot"
+                "Controller ledger is not authored by the configured identity"
             )
         match = re.fullmatch(
-            re.escape(STATE_MARKER) + r"\n```json\n(.+)\n```\n?",
+            re.escape(self.marker) + r"\n```json\n(.+)\n```\n?",
             comment["body"],
             flags=re.DOTALL,
         )
@@ -230,7 +245,7 @@ class StateStore:
         encoded = _serialized(state)
         if encoded == self._revision:
             return
-        body = f"{STATE_MARKER}\n```json\n{encoded}\n```"
+        body = f"{self.marker}\n```json\n{encoded}\n```"
         if len(body.encode("utf-8")) > 60000:
             raise ValueError("Controller ledger exceeds the safe comment size")
         if self._comment_id is None:
@@ -245,14 +260,12 @@ class StateStore:
                 method="PATCH",
                 data={"body": body},
             )
-        user = comment.get("user", {}) if isinstance(comment, dict) else {}
         if (
-            user.get("login") != self.policy["app_login"]
-            or user.get("type") != "Bot"
+            not self._authored_by_identity(comment)
             or comment.get("body") != body
             or type(comment.get("id")) is not int
         ):
             raise ValueError(
-                "GitHub did not confirm the authenticated App ledger write"
+                "GitHub did not confirm the authenticated identity ledger write"
             )
         self._comment_id, self._revision = comment["id"], encoded

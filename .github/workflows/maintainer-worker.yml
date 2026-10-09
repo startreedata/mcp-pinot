@@ -42,6 +42,7 @@ jobs:
           python-version: '3.12'
       - name: Create read-only App token
         id: app
+        if: ${{ vars.MAINTAINER_WRITER_AUTH != 'user' }}
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ vars.MAINTAINER_APP_ID }}
@@ -54,7 +55,8 @@ jobs:
       - name: Verify live authorization and lease
         id: prepare
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ vars.MAINTAINER_WRITER_AUTH == 'user' && secrets.MAINTAINER_WRITER_TOKEN || steps.app.outputs.token }}
+          MAINTAINER_WRITER_ACTOR: ${{ steps.app.outputs.app-slug != '' && format('{0}[bot]', steps.app.outputs.app-slug) || '' }}
           MAINTAINER_MODE: ${{ vars.MAINTAINER_MODE }}
           TASK_KEY: ${{ inputs.task }}
           TASK_LEASE: ${{ inputs.lease }}
@@ -172,6 +174,7 @@ jobs:
           python-version: '3.12'
       - name: Create publisher App token
         id: app
+        if: ${{ vars.MAINTAINER_WRITER_AUTH != 'user' }}
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ vars.MAINTAINER_APP_ID }}
@@ -182,7 +185,8 @@ jobs:
           permission-actions: read
       - name: Revalidate live state and publish from a clean checkout
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ vars.MAINTAINER_WRITER_AUTH == 'user' && secrets.MAINTAINER_WRITER_TOKEN || steps.app.outputs.token }}
+          MAINTAINER_WRITER_ACTOR: ${{ steps.app.outputs.app-slug != '' && format('{0}[bot]', steps.app.outputs.app-slug) || '' }}
           MAINTAINER_MODE: ${{ vars.MAINTAINER_MODE }}
           TASK_KEY: ${{ inputs.task }}
           TASK_LEASE: ${{ inputs.lease }}

@@ -26,11 +26,11 @@ reviewed full commit SHA:
 
 ```sh
 uv run startree-repo-maintainer install \
-  --target /path/to/mcp-pinot --profile mcp-pinot \
+  --target /path/to/mcp-pinot \
   --deployment local --ref CENTRAL_SHA --overwrite
 ```
 
 The installer preserves existing policy bytes. Configure the independent
 identities, state issue, repository secrets/variables, and current branch rules
-before activation. Use the same installer with `--profile generic` for other
-repositories and fill their paths, test commands, and CI policy.
+before activation. Use the same installer for other repositories and fill each
+consumer's own paths, test commands, and CI policy.

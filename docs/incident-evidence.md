@@ -87,16 +87,24 @@ import time
 
 from fastmcp import Client
 
+
 async def collect(client: Client, trace_id: str | None = None):
     end = int(time.time() * 1000)
-    opened = await client.call_tool("begin_investigation", {
-        "profile_id": "local-demo", "service": "checkout",
-        "baseline_start_ms": end - 20 * 60_000,
-        "start_ms": end - 10 * 60_000, "end_ms": end,
-    })
+    opened = await client.call_tool(
+        "begin_investigation",
+        {
+            "profile_id": "local-demo",
+            "service": "checkout",
+            "baseline_start_ms": end - 20 * 60_000,
+            "start_ms": end - 10 * 60_000,
+            "end_ms": end,
+        },
+    )
     run_id = opened.structured_content["run_id"]
-    requests = [("query_incident", {"kind": kind})
-                for kind in ("baseline", "incident", "watermark", "changes")]
+    requests = [
+        ("query_incident", {"kind": kind})
+        for kind in ("baseline", "incident", "watermark", "changes")
+    ]
     if trace_id is not None:  # An exact trace ID already observed in scoped telemetry.
         requests.append(("get_trace", {"trace_id": trace_id}))
     records, timings = [], []
@@ -108,15 +116,24 @@ async def collect(client: Client, trace_id: str | None = None):
         if not record["complete"]:
             break
     incomplete = any(not record["complete"] for record in records)
-    finished = await client.call_tool("finish_investigation", {
-        "run_id": run_id,
-        "citations": [record["evidence_id"] for record in records],
-        "status": "incomplete",
-        "reason": ("Evidence execution was incomplete, unknown, or truncated."
-                   if incomplete else "Coverage and association sufficiency have not been evaluated."),
-    })
-    return {"finish": finished.structured_content,
-            "evidence": records, "timings": timings}
+    finished = await client.call_tool(
+        "finish_investigation",
+        {
+            "run_id": run_id,
+            "citations": [record["evidence_id"] for record in records],
+            "status": "incomplete",
+            "reason": (
+                "Evidence execution was incomplete, unknown, or truncated."
+                if incomplete
+                else "Coverage and association sufficiency have not been evaluated."
+            ),
+        },
+    )
+    return {
+        "finish": finished.structured_content,
+        "evidence": records,
+        "timings": timings,
+    }
 ```
 
 Call `collect` inside an existing FastMCP `Client` session. This example collects

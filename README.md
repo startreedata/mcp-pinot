@@ -130,6 +130,8 @@ wire `_meta` through `result.meta`. `call_tool_mcp` also returns tool errors:
 
 ```python
 from fastmcp import Client
+
+
 async def read_timing():
     async with Client("http://localhost:8080/mcp") as client:
         result = await client.call_tool_mcp("read_query", {"query": "SELECT 1"})

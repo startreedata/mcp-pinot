@@ -188,6 +188,11 @@ mcp:
     issuer: ""
     audience: ""
     extraAuthorizeParams: {}
+    persistence:
+      # Optional existing PVC for FastMCP OAuth registrations and token state.
+      # The claim must be in this release's namespace and writable by UID/GID 1000.
+      # Keep it and the OAuth client secret across pod replacements/upgrades.
+      existingClaim: ""
 
 # Pinot Configuration
 pinot:

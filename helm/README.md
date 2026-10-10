@@ -62,6 +62,36 @@ existing Secret instead, leave `mcp.auth.staticToken` empty and supply
 `MCP_STATIC_TOKEN` through `env.additional` — the chart then renders no
 `MCP_STATIC_TOKEN` of its own, so the env var is not declared twice.
 
+## Preserve OAuth registrations across restarts
+
+By default, FastMCP stores OAuth registrations and token state under the
+container's temporary home directory. Kubernetes discards that state when the
+pod is replaced, so clients configured with a previously registered client ID
+must register again.
+
+For `oauth` or `oauth+static`, provision a persistent volume claim in the release
+namespace, then set:
+
+```yaml
+mcp:
+  oauth:
+    persistence:
+      existingClaim: mcp-pinot-oauth-state
+```
+
+The chart mounts the claim at `/var/lib/fastmcp` and sets `FASTMCP_HOME` to that
+path. The legacy `mcp.oauth.enabled: true` setting also supports this option.
+The claim must be writable by the configured pod user/group (1000 by default).
+The chart does not create or delete the claim; retain it across upgrades and pod
+replacements. Do not share this volume between separate server deployments.
+
+Keep `mcp.oauth.clientSecret` stable as well: FastMCP derives its signing and
+storage encryption keys from that secret. Replacing the secret or deleting the
+volume makes existing state unavailable and clients must register again. Treat
+the volume and its backups as sensitive OAuth state. This option preserves new
+registrations; it does not migrate registrations from an existing temporary
+volume. The default configuration remains ephemeral.
+
 ## Traefik Integration
 
 The chart includes Traefik IngressRoute support. Enable it by setting:

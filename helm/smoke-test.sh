@@ -209,4 +209,31 @@ if render --set replicas=2 >/dev/null 2>&1; then
   fail "multi-replica deployment rendered despite process-local security state"
 fi
 
+
+# OAuth state must use the existing claim instead of the ephemeral /tmp volume.
+for provider in oauth oauth+static; do
+  out=$(render --set mcp.auth.provider="$provider" \
+    --set mcp.oauth.persistence.existingClaim=oauth-state)
+  matches 'name: FASTMCP_HOME' || fail "persistent FastMCP home missing"
+  matches 'value: "/var/lib/fastmcp"' || fail "persistent FastMCP home wrong"
+  matches 'mountPath: /var/lib/fastmcp' || fail "OAuth state mount missing"
+  matches 'claimName: "oauth-state"' || fail "OAuth state claim missing"
+  matches 'readOnlyRootFilesystem: true' || fail "persistent state disabled read-only root"
+done
+out=$(render --set mcp.oauth.enabled=true \
+  --set mcp.oauth.persistence.existingClaim=oauth-state)
+matches 'claimName: "oauth-state"' || fail "legacy OAuth persistence missing"
+# Upgrades from charts released before persistence was added have no nested map.
+# Rendering must remain safe when Helm reuses those values.
+out=$(render --set mcp.auth.provider=oauth --set-json mcp.oauth.persistence=null)
+matches 'name: FASTMCP_HOME' && fail "OAuth persistence rendered with a null persistence value"
+matches 'persistentVolumeClaim:' && fail "OAuth volume rendered with a null persistence value"
+out=$(render)
+matches 'name: FASTMCP_HOME' && fail "persistent home rendered by default"
+matches 'persistentVolumeClaim:' && fail "persistent volume rendered by default"
+out=$(render --set mcp.auth.provider=static \
+  --set mcp.oauth.persistence.existingClaim=oauth-state)
+matches 'name: FASTMCP_HOME' && fail "OAuth persistence rendered for static auth"
+matches 'persistentVolumeClaim:' && fail "OAuth volume rendered for static auth"
+
 echo "OK"

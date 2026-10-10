@@ -34,14 +34,14 @@ jobs:
     steps:
       - name: Check immutable runtime pin
         env:
-          RUNTIME_REF: ${{ '2f632b5a9c4ce76927c6d347168cc082bbcdbea9' }}
+          RUNTIME_REF: ${{ 'bc7b6ca5cfeb98d37864eaf7c9f7828f7aaf4b1f' }}
         run: |
           [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
       - name: Checkout centralized runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: startreedata/startree-code-review-bot
-          ref: ${{ '2f632b5a9c4ce76927c6d347168cc082bbcdbea9' }}
+          ref: ${{ 'bc7b6ca5cfeb98d37864eaf7c9f7828f7aaf4b1f' }}
           path: runtime
           token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
           persist-credentials: false
@@ -70,14 +70,14 @@ jobs:
     steps:
       - name: Check immutable runtime pin
         env:
-          RUNTIME_REF: ${{ '2f632b5a9c4ce76927c6d347168cc082bbcdbea9' }}
+          RUNTIME_REF: ${{ 'bc7b6ca5cfeb98d37864eaf7c9f7828f7aaf4b1f' }}
         run: |
           [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
       - name: Checkout centralized runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: startreedata/startree-code-review-bot
-          ref: ${{ '2f632b5a9c4ce76927c6d347168cc082bbcdbea9' }}
+          ref: ${{ 'bc7b6ca5cfeb98d37864eaf7c9f7828f7aaf4b1f' }}
           path: runtime
           token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
           persist-credentials: false

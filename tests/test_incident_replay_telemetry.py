@@ -215,13 +215,17 @@ def test_fifo_source_is_rejected_without_blocking(owned):
     source = owned[3]
     source.unlink()
     os.mkfifo(source)
+    script = """
+from pathlib import Path
+import sys
+from examples.incident_replay.telemetry import _regular_bytes
+_regular_bytes(Path(sys.argv[1]), Path(sys.argv[2]))
+"""
     result = subprocess.run(  # noqa: S603
         [
             sys.executable,
             "-c",
-            "from pathlib import Path; import sys; "
-            "from examples.incident_replay.telemetry import _regular_bytes; "
-            "_regular_bytes(Path(sys.argv[1]), Path(sys.argv[2]))",
+            script,
             str(source),
             str(owned[0]),
         ],

@@ -87,7 +87,10 @@ def _regular_bytes(path: Path, root: Path) -> bytes:
             if current.is_symlink():
                 raise ValueError("Telemetry paths must not contain symlinks.")
         path.resolve().relative_to(root.resolve())
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+        )
         with os.fdopen(descriptor, "rb") as source:
             before = os.fstat(source.fileno())
             if not stat.S_ISREG(before.st_mode):

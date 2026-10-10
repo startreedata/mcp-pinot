@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 
 from examples.incident_replay.telemetry import capture_host_telemetry
@@ -206,6 +208,31 @@ def test_ambiguous_or_unsafe_sources_are_rejected(owned, kind):
             source.write("{malformed}\n")
     with pytest.raises(ValueError):
         capture(owned)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO requires POSIX")
+def test_fifo_source_is_rejected_without_blocking(owned):
+    source = owned[3]
+    source.unlink()
+    os.mkfifo(source)
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import sys; "
+            "from examples.incident_replay.telemetry import _regular_bytes; "
+            "_regular_bytes(Path(sys.argv[1]), Path(sys.argv[2]))",
+            str(source),
+            str(owned[0]),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Telemetry source must be a regular file." in result.stderr
 
 
 def test_bounded_local_date_lookup_and_flat_archive_are_supported(owned, monkeypatch):

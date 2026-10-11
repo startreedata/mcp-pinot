@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 from collections import Counter, defaultdict
+from datetime import UTC, datetime
 import hashlib
 import json
 import os
@@ -16,8 +17,10 @@ import tomllib
 
 if __package__:
     from .common import executable_path, loopback_url, replay_env
+    from .telemetry import capture_host_telemetry
 else:
     from common import executable_path, loopback_url, replay_env
+    from telemetry import capture_host_telemetry
 
 TOOLS = ("begin_investigation", "query_incident", "get_trace", "finish_investigation")
 NAMESPACE = "io.github.startreedata/mcp-pinot"
@@ -620,6 +623,8 @@ def model(
         "-C",
         str(workspace),
     ]
+    if getattr(args, "host_telemetry", False):
+        argv.remove("--ephemeral")
     for feature in DISABLED:
         argv += ["--disable", feature]
     argv += ["--enable", "skip_host_skill_discovery", "--enable", "code_mode_host"]
@@ -694,6 +699,7 @@ def model(
         (directory / "cli-stderr.log").open("x") as stderr,
     ):
         started_ns = time.monotonic_ns()
+        started_at = datetime.now(UTC)
         config["mcp_servers.incident_reader.args"] += [
             "--host-started-ns",
             str(started_ns),
@@ -722,6 +728,7 @@ def model(
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=5)
         exited_ns = time.monotonic_ns()
+        finished_at = datetime.now(UTC)
     audit = directory / "calls.jsonl"
     calls = (
         [json.loads(line) for line in audit.read_text().splitlines()]
@@ -741,6 +748,11 @@ def model(
         runtime["provider_receipt"] = {
             "source": "codex.exec",
             "usage": cli["model_usage"],
+        }
+    if getattr(args, "host_telemetry", False):
+        runtime["host_telemetry_window"] = {
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
         }
     return calls, runtime
 
@@ -823,6 +835,82 @@ async def _prediction(args: argparse.Namespace, case: dict, directory: Path) -> 
     }
     if error or not verified:
         prediction["error"] = error or "No verified finish within the host deadline."
+    if getattr(args, "host_telemetry", False):
+        telemetry_started = time.monotonic()
+        archive_started = None
+        try:
+            window = runtime["host_telemetry_window"]
+            telemetry = capture_host_telemetry(
+                directory / "events.jsonl",
+                directory / "workspace",
+                datetime.fromisoformat(window["started_at"]),
+                datetime.fromisoformat(window["finished_at"]),
+                runtime.get("model_usage", "UNKNOWN"),
+            )
+            prediction["host_telemetry"] = telemetry
+            prediction["host_telemetry_capture_ms"] = (
+                time.monotonic() - telemetry_started
+            ) * 1000
+            archive_started = time.monotonic()
+            archived = subprocess.run(  # noqa: S603
+                [
+                    executable_path(args.codex, program="codex"),
+                    "archive",
+                    telemetry["thread_id"],
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                shell=False,
+            )
+            prediction["host_session_archived"] = False
+            if archived.returncode != 0:
+                raise ValueError("Archiving the owned host session failed.")
+            preserved = capture_host_telemetry(
+                directory / "events.jsonl",
+                directory / "workspace",
+                datetime.fromisoformat(window["started_at"]),
+                datetime.fromisoformat(window["finished_at"]),
+                runtime.get("model_usage", "UNKNOWN"),
+            )
+            archived_path = Path(preserved["lineage"]["source_path"]).resolve()
+            archive_root = (
+                Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+                / "archived_sessions"
+            ).resolve()
+            if not archived_path.is_relative_to(archive_root):
+                raise ValueError("Owned host session remains outside the archive.")
+            if (
+                preserved["lineage"]["source_sha256"]
+                != telemetry["lineage"]["source_sha256"]
+            ):
+                raise ValueError("Archived host session changed its original bytes.")
+            telemetry["lineage"]["archived_source_path"] = str(archived_path)
+            prediction["host_session_archived"] = True
+            prediction["host_session_bytes_preserved"] = True
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+            prediction["host_telemetry_error"] = (
+                type(exc).__name__ + ": " + str(exc)[:512]
+            )
+        if archive_started is None:
+            prediction["host_telemetry_capture_ms"] = (
+                time.monotonic() - telemetry_started
+            ) * 1000
+        else:
+            prediction["host_session_archive_ms"] = (
+                time.monotonic() - archive_started
+            ) * 1000
+        if "host_telemetry" in prediction:
+            try:
+                write(directory / "host-telemetry.json", prediction["host_telemetry"])
+            except OSError as exc:
+                prediction["host_telemetry_error"] = (
+                    type(exc).__name__ + ": " + str(exc)[:512]
+                )
+        prediction["telemetry_elapsed_ms"] = (
+            time.monotonic() - telemetry_started
+        ) * 1000
+        prediction["full_elapsed_ms"] = (time.monotonic() - started) * 1000
     return prediction
 
 
@@ -830,6 +918,8 @@ async def run(args: argparse.Namespace) -> dict:
     planned = getattr(args, "planned_collection", False)
     compare = getattr(args, "compare_collection", False)
     planned_first = getattr(args, "planned_first", False)
+    if getattr(args, "host_telemetry", False) and args.mode != "model":
+        raise ValueError("Host telemetry requires model mode.")
     if (planned or compare) and args.mode != "model":
         raise ValueError("Collection strategies require model mode.")
     if planned and compare:
@@ -864,6 +954,7 @@ async def run(args: argparse.Namespace) -> dict:
             "timeout_seconds": args.timeout,
             "cli_defaults": args.cli_defaults,
             "planned_first": planned_first,
+            "host_telemetry": getattr(args, "host_telemetry", False),
             "configured_selection": model_selection(cli_defaults=args.cli_defaults),
             "codex": str(executable_path(args.codex, program="codex")),
             "broker": args.broker,
@@ -923,6 +1014,11 @@ def main() -> None:
         action="store_true",
         help="Start collection comparison with the planned arm instead of default",
     )
+    parser.add_argument(
+        "--host-telemetry",
+        action="store_true",
+        help="Capture owned local session metadata, then archive the generated session",
+    )
     args = parser.parse_args()
     args.dataset, args.output = args.dataset.resolve(), args.output.resolve()
     if not 0 < args.timeout <= 300:
@@ -931,6 +1027,8 @@ def main() -> None:
         parser.error("collection strategies require --mode model")
     if args.planned_first and not args.compare_collection:
         parser.error("--planned-first requires --compare-collection")
+    if args.host_telemetry and args.mode != "model":
+        parser.error("--host-telemetry requires --mode model")
     asyncio.run(run(args))
 
 

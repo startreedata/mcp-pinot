@@ -534,6 +534,8 @@ endpoint.
 
 - MCP tool definitions live in `mcp_pinot/server.py`; Pinot HTTP/DB operations
   live in `mcp_pinot/pinot_client.py`.
+- See [MCP SDK compatibility and migration](docs/mcp-compatibility.md) for the
+  dependency policy, SDK 2 integration changes, validation, and rollback.
 
 ### Build
 Build the project with

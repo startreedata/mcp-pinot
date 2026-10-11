@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only for org owners, so members could not pull a version from a laptop.
 
 ### Changed
+- Upgraded the MCP Python SDK and protocol models from 2.1.1 to stable 2.3.0.
 - Upgraded FastMCP from 4.0.0b5 to stable 4.0.2, including the locked
   `fastmcp-slim` runtime dependency.
 

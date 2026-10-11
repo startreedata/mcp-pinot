@@ -57,6 +57,34 @@ jobs:
         context: .
         platforms: linux/amd64
         push: false
+        load: true
         tags: mcp-pinot:ci
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    - name: Smoke test the built image over STDIO
+      run: |
+        docker run --rm -i --network none \
+          -e MCP_TRANSPORT=stdio -e AUTH_PROVIDER=none \
+          -e PINOT_CONTROLLER_URL=http://localhost:9000 \
+          -e PINOT_BROKER_URL=http://localhost:8000 \
+          -e FASTMCP_MCP_CAMELCASE_COMPAT=false \
+          --entrypoint python mcp-pinot:ci - <<'PY'
+        import asyncio
+        import os
+        from fastmcp import Client
+        from fastmcp.client.transports import StdioTransport
+
+        async def smoke():
+            transport = StdioTransport(command="/app/run.sh", args=[], env=dict(os.environ))
+            async with Client(transport, timeout=15, init_timeout=15) as client:
+                tools = await client.list_tools()
+                assert any(tool.name == "read_query" for tool in tools)
+                assert all(tool.input_schema and tool.output_schema for tool in tools)
+                assert {prompt.name for prompt in await client.list_prompts()} == {
+                    "pinot_query", "explore_table"
+                }
+                assert await client.list_resources()
+                assert await client.list_resource_templates()
+        asyncio.run(smoke())
+        PY

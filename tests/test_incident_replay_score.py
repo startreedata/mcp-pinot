@@ -4,8 +4,10 @@ from copy import deepcopy
 import hashlib
 import json
 
+from examples.incident_replay.runner import qualify
 from examples.incident_replay.score import score
 import pytest
+from test_incident_replay_runner import CASE, calls
 
 
 def documents():
@@ -89,7 +91,18 @@ def test_completion_is_bound_to_real_same_run_citations_and_finish(corrupt):
     case = predictions["cases"][0]
     run_id = "inc_" + "1" * 32
     evidence_id = "ev_" + "2" * 32
-    evidence = {"evidence_id": evidence_id, "run_id": run_id, "complete": True}
+    sql = "SELECT 'baseline'"
+    evidence = {
+        "evidence_id": evidence_id,
+        "run_id": run_id,
+        "kind": "baseline",
+        "complete": True,
+        "sql": sql,
+        "metadata": {
+            "request_id": "baseline",
+            "query_sha256": hashlib.sha256(sql.encode()).hexdigest(),
+        },
+    }
     digest = hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()
     evidence["sha256"] = digest
     finish = {
@@ -123,8 +136,15 @@ def test_completion_is_bound_to_real_same_run_citations_and_finish(corrupt):
         },
         {
             "tool": "query_incident",
-            "args": {"run_id": run_id},
-            "response": {"result": {"structuredContent": evidence}},
+            "args": {"run_id": run_id, "kind": "baseline"},
+            "response": {
+                "result": {
+                    "structuredContent": evidence,
+                    "_meta": {
+                        "io.github.startreedata/mcp-pinot": {"request_id": "baseline"}
+                    },
+                }
+            },
         },
         {
             "tool": "finish_investigation",
@@ -147,3 +167,69 @@ def test_completion_is_bound_to_real_same_run_citations_and_finish(corrupt):
     assert report["completed_count"] == int(corrupt is None)
     # Receipt binding does not turn missing cohorts/watermarks/trace into evidence.
     assert report["qualified_count"] == 0
+
+
+@pytest.mark.parametrize("coverage", ["all", "baseline", "duplicate", "incomplete"])
+def test_qualification_requires_finish_to_cite_selected_evidence(coverage):
+    recorded = calls()
+    run_id = "inc_" + "1" * 32
+    citations = {}
+    for index, call in enumerate(recorded):
+        record = call["response"]["result"]["structuredContent"]
+        record["run_id"] = run_id
+        if "run_id" in call["args"]:
+            call["args"]["run_id"] = run_id
+        if call["tool"] in ("query_incident", "get_trace"):
+            record["evidence_id"] = "ev_" + f"{index:032x}"
+            record["sha256"] = hashlib.sha256(
+                json.dumps(
+                    {key: value for key, value in record.items() if key != "sha256"},
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+            citations[record["evidence_id"]] = record["sha256"]
+    outcome = qualify(recorded, CASE)
+    finish = recorded[-1]
+    receipt = finish["response"]["result"]["structuredContent"]
+    if coverage == "duplicate":
+        duplicate = deepcopy(recorded[1])
+        record = duplicate["response"]["result"]["structuredContent"]
+        record["evidence_id"] = "ev_" + "9" * 32
+        record["sha256"] = hashlib.sha256(
+            json.dumps(
+                {key: value for key, value in record.items() if key != "sha256"},
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        recorded.insert(1, duplicate)
+        receipt["query_count"] += 1
+    if coverage in ("baseline", "incomplete"):
+        citations = dict(list(citations.items())[:1])
+    if coverage == "incomplete":
+        outcome = {"status": "incomplete", "hypothesis": None}
+        citations = {}
+    receipt.update(
+        status=outcome["status"], hypothesis=outcome["hypothesis"], citations=citations
+    )
+    finish["args"].update(
+        status=outcome["status"],
+        hypothesis=outcome["hypothesis"],
+        citations=list(citations),
+    )
+    case = {
+        **CASE,
+        "status": outcome["status"],
+        "hypothesis": outcome["hypothesis"],
+        "elapsed_ms": 10,
+        "calls": recorded,
+    }
+    report = score(
+        {"schema_version": 1, "mode": "test", "cases": [case]},
+        {
+            "schema_version": 1,
+            "cases": [{**case, "public_scope": CASE}],
+        },
+    )
+    assert report["correct_count"] == 1
+    assert report["completed_count"] == int(coverage != "baseline")
+    assert report["qualified_count"] == int(coverage in ("all", "duplicate"))

@@ -108,6 +108,8 @@ CASE = {
         (None, "proposed"),
         ("controls", "abstained"),
         ("baseline", "incomplete"),
+        ("baseline_cohort", "incomplete"),
+        ("incident_cohort", "incomplete"),
         ("parent", "incomplete"),
         ("cycle", "incomplete"),
         ("onset", "abstained"),
@@ -118,16 +120,24 @@ def test_qualification_requires_controls_actual_parent_and_preceding_change(
 ):
     records = evidence()
     if counterexample == "controls":
-        records["incident"]["record"]["rows"] = [
-            row
-            for row in records["incident"]["record"]["rows"]
-            if row["service"] != "payments" or row["version"] == "v2"
-        ]
+        for kind in ("baseline", "incident"):
+            records[kind]["record"]["rows"] = [
+                row
+                for row in records[kind]["record"]["rows"]
+                if row["service"] != "payments" or row["version"] == "v2"
+            ]
     elif counterexample == "baseline":
         records["baseline"]["record"]["rows"] = [
             row
             for row in records["baseline"]["record"]["rows"]
             if row["service"] != "checkout"
+        ]
+    elif counterexample in ("baseline_cohort", "incident_cohort"):
+        kind = counterexample.removesuffix("_cohort")
+        records[kind]["record"]["rows"] = [
+            row
+            for row in records[kind]["record"]["rows"]
+            if row["service"] != "checkout" or row["zone"] != "east"
         ]
     elif counterexample == "parent":
         records["trace"]["record"]["rows"][1]["parentSpanId"] = "missing"

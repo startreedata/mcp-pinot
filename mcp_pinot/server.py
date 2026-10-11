@@ -783,8 +783,8 @@ def test_connection() -> ConnectionDiagnostics:
     tables. Useful for troubleshooting configuration before using other tools.
 
     Failure recovery:
-        Individual check failures are returned in ``error``. Verify the broker and
-        controller URLs, credentials, and network, then retry only failed checks.
+    Individual check failures are returned in ``error``. Verify the broker and
+    controller URLs, credentials, and network, then retry only failed checks.
     """
     results = _call("test_connection", _HINT_READ, pinot_client.test_connection)
     return ConnectionDiagnostics.model_validate(results)
@@ -831,13 +831,13 @@ def reload_table_filters(
     the exact candidate atomically. Editing the file after preview invalidates the
     confirmation and requires another preview.
 
+    Failure recovery:
+    A missing setting/file or malformed YAML is non-retryable until corrected;
+    fix ``PINOT_TABLE_FILTER_FILE`` or its ``included_tables`` list, then retry.
+
     Returns:
         Preview/application status, whether it was applied, old/new patterns, and
         a confirmation token on previews.
-
-    Failure recovery:
-        A missing setting/file or malformed YAML is non-retryable until corrected;
-        fix ``PINOT_TABLE_FILTER_FILE`` or its ``included_tables`` list, then retry.
     """
     preview = _call(
         "reload_table_filters",
@@ -955,7 +955,7 @@ def begin_investigation(
     Supply closed baseline/incident windows in epoch milliseconds. The server
     checks scope, windows, and authorization before issuing an opaque run ID.
     Failure recovery:
-        Correct invalid scope/window inputs; expired runs require a new investigation.
+    Correct invalid scope/window inputs; expired runs require a new investigation.
     """
     return _call(
         "begin_investigation",
@@ -990,7 +990,7 @@ def query_incident(
     to onset queries. Failed, unknown, partial, truncated, or late execution is
     retained as incomplete evidence; it cannot support a qualified finish.
     Failure recovery:
-        Query attempts consume budget even on failure. Inspect evidence before retrying.
+    Query attempts consume budget even on failure. Inspect evidence before retrying.
     """
     return _call(
         "query_incident",
@@ -1021,7 +1021,7 @@ def get_trace(
     Configure both span columns in the server profile. This fetches recorded
     relationships and does not infer causality or validate instrumentation coverage.
     Failure recovery:
-        Use an exact scoped trace ID; inspect completeness before citing.
+    Use an exact scoped trace ID; inspect completeness before citing.
     """
     return _call(
         "get_trace",
@@ -1074,7 +1074,7 @@ def finish_investigation(
     execution completeness. Evidence sufficiency, the semantic choice, hypotheses,
     and dataset coverage remain unvalidated.
     Failure recovery:
-        Correct citation/status errors; a closed run cannot be reused.
+    Correct citation/status errors; a closed run cannot be reused.
     """
     return _call(
         "finish_investigation",
@@ -1140,10 +1140,10 @@ def read_query(
     metadata is unknown; complete execution does not establish dataset coverage.
 
     Failure recovery:
-        SQL/allow-list/permission failures require correcting the query or access;
-        do not retry unchanged. A timeout or connection failure can be retried after
-        ``test_connection`` succeeds. Check ``metadata.completeness`` even for
-        zero rows; no response is promoted to healthy empty evidence.
+    SQL/allow-list/permission failures require correcting the query or access;
+    do not retry unchanged. A timeout or connection failure can be retried after
+    ``test_connection`` succeeds. Check ``metadata.completeness`` even for
+    zero rows; no response is promoted to healthy empty evidence.
     """
     fetch_bound = offset + limit + 1
     execution = _call(
@@ -1195,8 +1195,8 @@ def list_tables(
     ``has_more`` flag to page through clusters with many tables.
 
     Failure recovery:
-        An empty page is success. For authentication/connectivity errors, verify the
-        controller with ``test_connection`` and retry after access is restored.
+    An empty page is success. For authentication/connectivity errors, verify the
+    controller with ``test_connection`` and retry after access is restored.
     """
     tables = sorted(_call("list_tables", _HINT_READ, pinot_client.get_tables))
     total = len(tables)
@@ -1239,9 +1239,9 @@ def get_table_size(
     replica is present.
 
     Failure recovery:
-        For not-found errors, copy an exact name from ``list_tables``. Fix permission
-        errors before retrying; retry transient controller failures after a health
-        check.
+    For not-found errors, copy an exact name from ``list_tables``. Fix permission
+    errors before retrying; retry transient controller failures after a health
+    check.
     """
     _validate_base_name(table_name, "table")
     raw = _call(
@@ -1294,8 +1294,8 @@ def list_segments(
     ``limit``/``offset`` and the ``has_more`` flag to page through them.
 
     Failure recovery:
-        An empty page is success. For not-found errors, use an exact name from
-        ``list_tables``; correct access errors, or retry transient controller errors.
+    An empty page is success. For not-found errors, use an exact name from
+    ``list_tables``; correct access errors, or retry transient controller errors.
     """
     _validate_base_name(table_name, "table")
     raw = _call(
@@ -1360,9 +1360,9 @@ def get_segment_index_metadata(
     declared index *configuration* (not per-segment state) use ``get_table_config``.
 
     Failure recovery:
-        A missing segment is non-retryable with the same value; refresh
-        ``list_segments`` and use an exact returned name. Retry transient controller
-        errors after ``test_connection`` succeeds.
+    A missing segment is non-retryable with the same value; refresh
+    ``list_segments`` and use an exact returned name. Retry transient controller
+    errors after ``test_connection`` succeeds.
     """
     _validate_base_name(table_name, "table")
     raw = _call(
@@ -1414,9 +1414,9 @@ def list_segment_metadata(
     false. Use ``list_segments`` when only names are needed.
 
     Failure recovery:
-        An empty page is success. For not-found errors, use ``list_tables``;
-        correct permissions before retrying, and retry transient server failures
-        only after ``test_connection`` succeeds.
+    An empty page is success. For not-found errors, use ``list_tables``;
+    correct permissions before retrying, and retry transient server failures
+    only after ``test_connection`` succeeds.
     """
     _validate_base_name(table_name, "table")
     raw = _call(
@@ -1471,9 +1471,9 @@ def create_schema(
     token with ``dry_run=false`` to apply. Replacement belongs in ``update_schema``.
 
     Failure recovery:
-        Invalid JSON, missing ``schemaName``, and controller validation failures are
-        non-retryable until corrected. Permission failures require access changes;
-        retry transient controller failures only after connectivity is restored.
+    Invalid JSON, missing ``schemaName``, and controller validation failures are
+    non-retryable until corrected. Permission failures require access changes;
+    retry transient controller failures only after connectivity is restored.
     """
     name, payload = _schema_payload(schema)
     options = {"override": False, "force": False}
@@ -1565,9 +1565,9 @@ def update_schema(
     confirmation token bound to the exact replacement.
 
     Failure recovery:
-        Invalid JSON/name or schema validation failures require a corrected payload;
-        do not retry unchanged. Fix permission errors first, and retry transient
-        controller failures only after connectivity is restored.
+    Invalid JSON/name or schema validation failures require a corrected payload;
+    do not retry unchanged. Fix permission errors first, and retry transient
+    controller failures only after connectivity is restored.
     """
     _validate_base_name(schema_name, "schema")
     name, payload = _schema_payload(schema, expected_name=schema_name)
@@ -1653,9 +1653,9 @@ def get_schema(
     output preserves additional fields introduced by the connected Pinot version.
 
     Failure recovery:
-        For not-found errors, pass the table's exact schema name (normally the table
-        name without a type suffix). Fix permissions before retrying; retry transient
-        controller failures after ``test_connection`` succeeds.
+    For not-found errors, pass the table's exact schema name (normally the table
+    name without a type suffix). Fix permissions before retrying; retry transient
+    controller failures after ``test_connection`` succeeds.
     """
     _validate_base_name(schema_name, "schema")
     raw = _call(
@@ -1697,9 +1697,9 @@ def create_table_config(
     to validate the payload and returns a confirmation token without applying.
 
     Failure recovery:
-        Invalid JSON, missing ``tableName``, and controller validation failures need
-        a corrected payload; do not retry unchanged. Fix access failures first, and
-        retry transient controller errors after connectivity is restored.
+    Invalid JSON, missing ``tableName``, and controller validation failures need
+    a corrected payload; do not retry unchanged. Fix access failures first, and
+    retry transient controller errors after connectivity is restored.
     """
     name, payload = _table_payload(table_config)
     options: dict[str, Any] = {"validation_types_to_skip": []}
@@ -1795,9 +1795,9 @@ def update_table_config(
     current configuration, and returns a token without applying.
 
     Failure recovery:
-        Invalid JSON/name or controller validation failures require a corrected
-        payload; do not retry unchanged. Fix access errors first, and retry transient
-        controller failures only after connectivity is restored.
+    Invalid JSON/name or controller validation failures require a corrected
+    payload; do not retry unchanged. Fix access errors first, and retry transient
+    controller failures only after connectivity is restored.
     """
     _validate_base_name(table_name, "table")
     name, payload = _table_payload(table_config, expected_name=table_name)
@@ -1902,9 +1902,9 @@ def get_table_config(
     ``table_type`` only when one side of a hybrid table is needed.
 
     Failure recovery:
-        For not-found errors, use an exact name from ``list_tables`` and a valid
-        table type. Fix permissions before retrying; retry transient controller
-        failures after ``test_connection`` succeeds.
+    For not-found errors, use an exact name from ``list_tables`` and a valid
+    table type. Fix permissions before retrying; retry transient controller
+    failures after ``test_connection`` succeeds.
     """
     _validate_base_name(table_name, "table")
     raw = _call(

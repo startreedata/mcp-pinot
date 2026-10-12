@@ -1,6 +1,6 @@
 # MCP SDK compatibility and migration
 
-The v5 development line uses stable MCP SDK 2.3.0 and FastMCP 4.1.0. FastMCP is
+Server 5.0.0 uses stable MCP SDK 2.3.0 and FastMCP 4.1.0. FastMCP is
 exactly pinned; MCP stays within major version 2. The committed `uv.lock` freezes
 both versions for CI, containers, and MCP bundles. Dependabot proposes updates;
 the existing OS/Python test matrix, lint, native Pinot quickstart, and Docker
@@ -8,8 +8,7 @@ runtime smoke must pass before an update lands.
 
 MCP SDK 2 is already stable and supported by FastMCP 4, so it runs in the main
 validation lane. The earlier proposal for a separate SDK 2 prerelease lane is
-superseded. The server's own release version remains `5.0.0-beta.1`; upgrading its
-dependencies does not publish a new stable server release.
+superseded. Server `5.0.0` promotes the v5 line to a stable release.
 
 ## Migrate an integration
 
@@ -29,7 +28,7 @@ helm lint helm/mcp-pinot
 bash helm/smoke-test.sh
 ```
 
-Before promoting v5 to a stable release, exercise your actual client's STDIO or
+Before rolling out v5, exercise your actual client's STDIO or
 Streamable HTTP workflow and, for hosted deployments, its identity provider login
 and OAuth/static authorization. Preserve the previous image/chart version and
 deployment configuration. CI validates authentication behavior with controlled

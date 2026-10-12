@@ -127,7 +127,8 @@ def policy(evidence: dict, case: dict, *, require_onset: bool = True) -> dict:
         )
         return n, errors / n if n else 0.0
 
-    services = {key[0] for cohorts in counts.values() for key in cohorts}
+    cohort_keys = {key for cohorts in counts.values() for key in cohorts}
+    services = {key[0] for key in cohort_keys}
     if case["service"] not in services:
         return decision("incomplete", "The alert service has no observed cohorts.")
     watermarks = {
@@ -151,7 +152,7 @@ def policy(evidence: dict, case: dict, *, require_onset: bool = True) -> dict:
             return decision(
                 "incomplete", "A service lacks baseline or incident samples."
             )
-        if any(sum(errors.values()) < 40 for errors in counts[kind].values()):
+        if any(sum(counts[kind].get(key, {}).values()) < 40 for key in cohort_keys):
             return decision(
                 "incomplete", "A service/version/zone cohort has fewer than 40 spans."
             )

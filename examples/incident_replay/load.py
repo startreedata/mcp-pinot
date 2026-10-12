@@ -49,7 +49,7 @@ def main() -> None:
             {key: int(value) if key in numeric else value for key, value in row.items()}
             for row in csv.DictReader(stream)
         ]
-    with httpx.Client(timeout=90, follow_redirects=False) as client:
+    with httpx.Client(timeout=90, follow_redirects=False, trust_env=False) as client:
         if not args.verify_only:
             response = client.get(controller + "/tables")
             response.raise_for_status()

@@ -94,8 +94,12 @@ def main() -> None:
     match = re.search(r'version "(\d+)', java_version)
     if match is None or int(match[1]) < 25:
         parser.error("Use an explicit JDK 25+ executable.")
-    if not args.jar.is_file() or not 1 <= args.seeds <= 10 or args.timeout <= 0:
-        parser.error("Require an existing JAR, 1..10 seeds, and a positive timeout.")
+    if (
+        not args.jar.is_file()
+        or not 1 <= args.seeds <= 10
+        or not 0 < args.timeout <= 300
+    ):
+        parser.error("Require an existing JAR, 1..10 seeds, and a timeout in 1..300.")
     # These ports belong to the BATCH quickstart. Never stop an existing process.
     for port in (
         2123,

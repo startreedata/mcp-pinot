@@ -11,9 +11,9 @@ import statistics
 from typing import Any
 
 if __package__:
-    from .runner import qualify
+    from .runner import evidence_from, qualify
 else:
-    from runner import qualify
+    from runner import evidence_from, qualify
 
 STATUSES = {"proposed", "abstained", "incomplete"}
 HYPOTHESIS_FIELDS = ("kind", "service", "version", "zone")
@@ -166,6 +166,12 @@ def _verified_finish(case: dict[str, Any], scope: dict[str, Any]) -> bool:
             evidence[identity] = value
         if not citations and finished["status"] != "incomplete":
             return False
+        if finished["status"] != "incomplete":
+            selected, error = evidence_from(calls)
+            if error or not {
+                entry["record"]["evidence_id"] for entry in selected.values()
+            }.issubset(citations):
+                return False
         return all(
             identity in evidence
             and evidence[identity]["sha256"] == digest

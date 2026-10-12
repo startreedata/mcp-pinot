@@ -7,11 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-10-11
+
+### Breaking Changes
+- Promoted v5 to a stable release with MCP Python SDK 2.3.0 and FastMCP 4.1.0.
+  Python integrations upgrading from SDK 1 must use snake-case model attributes
+  and the renamed `MCPError` exception. See [migration and rollout guidance](docs/mcp-compatibility.md).
+
 ### Added
 - A synthetic replay example for the four incident tools, with scripted and real
   host-model modes, independent receipt scoring, and native protocol/fault checks.
 - A Claude plugin, `plugins/startree-pinot`, for the Claude directory, which no
-  longer accepts `.mcpb` desktop extensions. It runs `mcp-pinot-server==4.1.0` through
+  longer accepts `.mcpb` desktop extensions. It runs `mcp-pinot-server==5.0.0` through
   `uvx`, asks for the controller and broker URLs and credentials through `userConfig`
   (tokens and passwords go to the system credential store), and adds a
   `pinot-analytics` skill for exploring tables and applying changes only after the
@@ -34,10 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Upgraded the MCP Python SDK and protocol models from 2.1.1 to stable 2.3.0.
-- Upgraded FastMCP from 4.0.0b5 to stable 4.0.2, including the locked
+- Upgraded FastMCP from 4.0.0b5 to stable 4.1.0, including the locked
   `fastmcp-slim` runtime dependency.
 
 ### Fixed
+- Raised Requests, python-dotenv and pytest minimum requirements to patched
+  versions, so regular pip installs reject affected versions (#185).
+- Replay scoring now requires cited evidence and treats missing cohorts as
+  incomplete; live runs reject timeouts over 300 seconds and loopback load checks
+  ignore ambient proxies (#184).
 - Pre-release tags are no longer published to the official MCP Registry, from the
   release workflow or the manual publish workflow. The registry marks the highest
   semver as latest, so `5.0.0-beta.1` had become the default version over `4.1.0`

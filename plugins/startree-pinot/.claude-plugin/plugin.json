@@ -1,7 +1,7 @@
 {
   "name": "startree-pinot",
   "displayName": "StarTree Pinot",
-  "version": "4.1.0",
+  "version": "5.0.0",
   "description": "Query and inspect Apache Pinot and StarTree Cloud: explore tables, schemas and segments, run validated read-only SQL, and preview schema and table-config changes before applying them.",
   "author": {
     "name": "StarTree",

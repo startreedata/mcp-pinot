@@ -18,7 +18,8 @@ for installation, identities, budgets, branch rules, hold/resume, and updates.
 - Reviewer state is stored on [issue #167](https://github.com/startreedata/mcp-pinot/issues/167).
   Budgets are $5 per review and $50 per UTC day, including retained reservations
   from failed attempts.
-- The reviewer sweeps existing open PRs every 15 minutes. A manual run with a
+- The reviewer runs when a PR is opened, synchronized, reopened, or marked ready,
+  with a 15-minute fallback sweep of the open PR backlog. A manual run with a
   blank PR number also processes the backlog. Missing or binary patches receive
   partial reviews with explicit coverage gaps and cannot receive approval.
 - The workflow runtime is pinned to one central commit. No runtime code or

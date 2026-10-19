@@ -1270,7 +1270,7 @@ wheels = [
 
 [[package]]
 name = "pinotdb"
-version = "9.2.1"
+version = "9.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ciso8601" },
@@ -1278,9 +1278,9 @@ dependencies = [
     { name = "httpx" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/da/c3b272db963d95758fe87b2cb98ff54137155940803d7b0aab2e4612dc9f/pinotdb-9.2.1.tar.gz", hash = "sha256:14adf5ccaed68d2b710410b2ebd9ade198ad611f75d8b89deb20363d32b9d6d7", size = 32331, upload-time = "2026-10-07T01:02:27.252Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b6/63/45d4a228d5c20965d9be40151c8107811b9903fe97c59fe61a991288c4c7/pinotdb-9.2.2.tar.gz", hash = "sha256:487637928c59e0546a8f36c31a1cdfe3dff965d555eec5da4f1e3a3c9bc9aead", size = 32427, upload-time = "2026-10-12T02:15:30.586Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3d/72/afd22627a28a792c91ec88a8fb627b6771031a8347196828a09c334a0d1e/pinotdb-9.2.1-py3-none-any.whl", hash = "sha256:00750c5f176e1857a3807478f820a9b7813a0eb031956faf756d54fd459c7d8e", size = 27350, upload-time = "2026-10-07T01:02:28.39Z" },
+    { url = "https://files.pythonhosted.org/packages/36/ba/12a0576caeefcac6bd5b93a464f08cf5baa6f6da39cc41359d4d8974abb4/pinotdb-9.2.2-py3-none-any.whl", hash = "sha256:7c1ce597cc04913d73feae48c89d71ac951dc30f99dc00df2b30692c82cb2040", size = 27451, upload-time = "2026-10-12T02:15:31.588Z" },
 ]
 
 [[package]]

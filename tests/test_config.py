@@ -1,6 +1,8 @@
+import logging
 import os
 import sys
 import tempfile
+import threading
 from typing import ClassVar
 from unittest.mock import patch
 
@@ -15,6 +17,7 @@ from mcp_pinot.config import (
     _parse_oauth_scopes,
     _parse_table_filter_config,
     _read_token_from_file,
+    _token_file_lock,
     load_oauth_config,
     load_pinot_config,
     load_server_config,
@@ -829,7 +832,7 @@ class TestLoadPinotConfigTokenFilename:
                 config = load_pinot_config()
                 # Token should be None since the file doesn't exist
                 assert config.token is None
-                assert config.token_filename == "/some/file/path"
+                assert config.token_filename is None
 
     def test_token_filename_picks_up_rotated_token(self, tmp_path):
         """A rotated token file is re-read instead of serving the startup token"""
@@ -850,30 +853,10 @@ class TestLoadPinotConfigTokenFilename:
         token_file.unlink()
         assert config.current_token() == "Bearer second"
 
-    def test_token_file_missing_at_startup_is_picked_up_later(self, tmp_path):
-        """A token file written after startup is used once it appears"""
-        token_file = tmp_path / "token"
-        env_vars = {
-            "PINOT_CONTROLLER_URL": "http://controller:9000",
-            "PINOT_TOKEN_FILENAME": str(token_file),
-        }
-
-        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
-            with patch.dict(os.environ, env_vars, clear=True):
-                config = load_pinot_config()
-
-        with patch("mcp_pinot.config.logger") as mock_logger:
-            assert config.current_token() is None
-            assert config.current_token() is None
-        assert mock_logger.error.call_count == mock_logger.warning.call_count == 0
-
-        token_file.write_text("late")
-        with patch("mcp_pinot.config.logger") as mock_logger:
-            assert config.current_token() == "Bearer late"
-        assert mock_logger.info.call_count == 1  # Token file is readable
-
-    def test_token_file_with_line_break_keeps_last_good_token(self, tmp_path):
-        """A malformed rotation keeps the last good token and never logs it"""
+    def test_token_file_failures_are_logged_once_and_keep_the_last_token(
+        self, tmp_path
+    ):
+        """Failures are logged when they start or change, never with the token"""
         token_file = tmp_path / "token"
         token_file.write_text("good")
         env_vars = {
@@ -885,15 +868,35 @@ class TestLoadPinotConfigTokenFilename:
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_pinot_config()
 
-        token_file.write_text("old.jwt\nnew.jwt")
         with patch("mcp_pinot.config.logger") as mock_logger:
-            assert config.current_token() == "Bearer good"
-        assert mock_logger.error.call_count == 1
+            token_file.unlink()
+            for _ in range(3):
+                assert config.current_token() == "Bearer good"
+            token_file.write_text("old.jwt\nnew.jwt")
+            for _ in range(3):
+                assert config.current_token() == "Bearer good"
+            token_file.write_text("next")
+            for _ in range(3):
+                assert config.current_token() == "Bearer next"
+            token_file.unlink()
+            assert config.current_token() == "Bearer next"
+
+        assert [c.args for c in mock_logger.log.call_args_list] == [
+            (logging.ERROR, f"Token file not found: {token_file}"),
+            (
+                logging.ERROR,
+                "Token file contains characters not allowed in an HTTP header: "
+                f"{token_file}",
+            ),
+            (logging.ERROR, f"Token file not found: {token_file}"),
+        ]
+        assert mock_logger.warning.call_count == 2  # Keeping the current token
+        assert mock_logger.info.call_count == 1  # Readable again
         logged = str(mock_logger.mock_calls)
         assert "old.jwt" not in logged and "new.jwt" not in logged
 
-    def test_unreadable_token_file_is_logged_once_until_it_recovers(self, tmp_path):
-        """An unreadable token file is reported once, not on every request"""
+    def test_token_file_reread_in_progress_returns_current_token(self, tmp_path):
+        """A caller that finds another re-read in progress does not wait for it"""
         token_file = tmp_path / "token"
         token_file.write_text("first")
         env_vars = {
@@ -905,24 +908,16 @@ class TestLoadPinotConfigTokenFilename:
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_pinot_config()
 
-        token_file.unlink()
-        with patch("mcp_pinot.config.logger") as mock_logger:
-            for _ in range(5):
-                assert config.current_token() == "Bearer first"
-        assert mock_logger.error.call_count == 1  # Token file not found
-        assert mock_logger.warning.call_count == 1  # Reusing the last token
-
         token_file.write_text("second")
-        with patch("mcp_pinot.config.logger") as mock_logger:
-            for _ in range(3):
-                assert config.current_token() == "Bearer second"
-        assert mock_logger.info.call_count == 1  # Readable again
-        assert mock_logger.error.call_count == mock_logger.warning.call_count == 0
-
-        token_file.unlink()
-        with patch("mcp_pinot.config.logger") as mock_logger:
-            assert config.current_token() == "Bearer second"
-        assert mock_logger.error.call_count == 1  # A new failure is reported
+        results: list[str | None] = []
+        with _token_file_lock:  # Another thread is re-reading the file
+            caller = threading.Thread(
+                target=lambda: results.append(config.current_token())
+            )
+            caller.start()
+            caller.join(timeout=5)
+        assert results == ["Bearer first"]
+        assert config.current_token() == "Bearer second"
 
 
 class TestParseTableFilterConfig:

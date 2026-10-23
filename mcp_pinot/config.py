@@ -51,8 +51,10 @@ def get_logger(name: str = "mcp-pinot") -> logging.Logger:
 # Create a default logger for this module
 logger = get_logger()
 
-# Serializes token-file re-reads so concurrent requests never move the cached
-# token back to an older read and each failure or recovery is logged once.
+# Held while a token file is re-read. A caller that finds it held uses the
+# current token instead of waiting, so a slow file never queues requests, and
+# reads apply one at a time, so the cached token never moves back to an older
+# read and each failure or recovery is logged once.
 _token_file_lock = threading.Lock()
 
 
@@ -77,50 +79,47 @@ class PinotConfig:
     controller_username: str | None = None
     controller_password: str | None = None
     controller_token: str | None = None
-    # Set when PINOT_TOKEN_FILENAME supplies the token (PINOT_TOKEN unset). The
-    # file is re-read on every request, so rotated tokens (e.g. projected
-    # Kubernetes service account tokens) and files written after startup are
-    # picked up.
+    # Set only when the token came from PINOT_TOKEN_FILENAME. The file is
+    # re-read as requests are made, so rotated tokens (e.g. projected
+    # Kubernetes service account tokens) are picked up.
     token_filename: str | None = None
-    _token_file_unreadable: bool = field(
-        default=False, init=False, repr=False, compare=False
+    # Message of the token-file failure last logged; None while reads succeed.
+    _token_file_failure: str | None = field(
+        default=None, init=False, repr=False, compare=False
     )
-
-    def __post_init__(self) -> None:
-        # A token file that has not produced a token yet counts as unreadable,
-        # so retries stay quiet until the file can be read.
-        self._token_file_unreadable = bool(self.token_filename) and not self.token
 
     def current_token(self) -> str | None:
         """Return the Pinot token, re-reading token_filename if one is set.
 
         While token_filename is set, the file is the source of truth: each
-        successful read replaces ``token`` (including a value assigned in code)
-        and is returned, so a rotated file takes effect on the next call. When
-        the file cannot be read, the last good token is returned, or None if the
-        file has never been read. A failure is logged at warning/error level only
-        when the file stops being readable, and recovery once at info level, so
-        an unreadable file does not log on every request. Safe to call from
-        multiple threads.
+        successful read replaces ``token`` (including a value assigned in code),
+        so a rotated file takes effect on the next call. If the file cannot be
+        read or holds an invalid token, the current token is kept. A failure is
+        logged when it starts or its reason changes, and recovery once at info
+        level, so a broken file does not log on every request. A call that finds
+        another thread re-reading the file returns the current token without
+        waiting.
         """
-        if not self.token_filename:
+        if not self.token_filename or not _token_file_lock.acquire(blocking=False):
             return self.token
-        with _token_file_lock:
-            fresh = _read_token_from_file(
-                self.token_filename, log_failures=not self._token_file_unreadable
-            )
+        try:
+            fresh, level, message = _load_token_file(self.token_filename)
             if fresh:
-                if self._token_file_unreadable:
-                    self._token_file_unreadable = False
-                    logger.info(f"Token file is readable: {self.token_filename}")
+                if self._token_file_failure is not None:
+                    self._token_file_failure = None
+                    logger.info(f"Token file is readable again: {self.token_filename}")
                 self.token = fresh
-            elif not self._token_file_unreadable:
-                self._token_file_unreadable = True
-                logger.warning(
-                    f"Reusing the last token read from {self.token_filename} "
-                    "until the file can be read again"
-                )
+            elif message != self._token_file_failure:
+                logger.log(level, message)
+                if self._token_file_failure is None:
+                    logger.warning(
+                        f"Keeping the current token until {self.token_filename} "
+                        "can be read again"
+                    )
+                self._token_file_failure = message
             return self.token
+        finally:
+            _token_file_lock.release()
 
 
 @dataclass
@@ -202,56 +201,71 @@ def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
         return "localhost", 80, "http"
 
 
-def _read_token_from_file(
-    token_filename: str, *, log_failures: bool = True
-) -> str | None:
-    """Read token from file and return it, handling errors gracefully.
+def _load_token_file(token_filename: str) -> tuple[str | None, int, str]:
+    """Read a token file without logging.
 
-    Returns None when the file is missing, empty, unreadable, or holds characters
-    that are not allowed in an HTTP header, such as line breaks. Those failures
-    are logged at warning/error level, or at debug level when log_failures is
-    False so callers that re-read the file repeatedly can avoid log floods.
+    Returns ``(token, level, message)``. On success, token carries a ``Bearer ``
+    prefix and message is a debug note. Otherwise token is None, and level and
+    message describe why: the file is missing, not a regular file, empty,
+    unreadable, or holds characters not allowed in an HTTP header, such as line
+    breaks. Messages never include file content.
     """
-    log_error = logger.error if log_failures else logger.debug
-    log_warning = logger.warning if log_failures else logger.debug
     try:
         if not os.path.exists(token_filename):
-            log_error(f"Token file not found: {token_filename}")
-            return None
+            return None, logging.ERROR, f"Token file not found: {token_filename}"
 
         if not os.path.isfile(token_filename):
-            log_error(f"Token path is not a file: {token_filename}")
-            return None
+            return None, logging.ERROR, f"Token path is not a file: {token_filename}"
 
         with open(token_filename, encoding="utf-8") as f:
             token = f.read().strip()
 
         if not token:
-            log_warning(f"Token file is empty: {token_filename}")
-            return None
+            return None, logging.WARNING, f"Token file is empty: {token_filename}"
 
         # HTTP clients reject such header values with errors that echo the
         # value, which would put the token in logs and tool error responses.
         if not (token.isascii() and token.isprintable()):
-            log_error(
+            return (
+                None,
+                logging.ERROR,
                 "Token file contains characters not allowed in an HTTP header: "
-                f"{token_filename}"
+                f"{token_filename}",
             )
-            return None
 
         # Add Bearer prefix if not already present
         if not token.startswith("Bearer "):
             token = f"Bearer {token}"
 
-        logger.debug(f"Successfully read token from file: {token_filename}")
-        return token
+        return (
+            token,
+            logging.DEBUG,
+            f"Successfully read token from file: {token_filename}",
+        )
 
     except PermissionError:
-        log_error(f"Permission denied reading token file: {token_filename}")
-        return None
+        return (
+            None,
+            logging.ERROR,
+            f"Permission denied reading token file: {token_filename}",
+        )
     except Exception as e:
-        log_error(f"Failed to read token from file {token_filename}: {e}")
-        return None
+        return (
+            None,
+            logging.ERROR,
+            f"Failed to read token from file {token_filename}: {e}",
+        )
+
+
+def _read_token_from_file(token_filename: str) -> str | None:
+    """Read token from file and return it, handling errors gracefully.
+
+    Logs the outcome of :func:`_load_token_file`, so a rejected file logs its
+    reason at warning/error level and returns None.
+    """
+    token, level, message = _load_token_file(token_filename)
+    logger.log(level, message)
+    return token
 
 
 def _validate_filter_file_path(filter_file_path: str | None) -> bool:
@@ -424,17 +438,17 @@ def load_pinot_config() -> PinotConfig:
     token = os.getenv("PINOT_TOKEN")
     token_filename = os.getenv("PINOT_TOKEN_FILENAME")
 
-    # A direct token wins. Otherwise read the token file now and keep its name,
-    # so requests re-read it and pick up rotated or late-written tokens.
+    # If no direct token but token filename is provided, read from file. Keep
+    # the filename only when it yielded a token, so requests re-read it later.
     if token:
         token_filename = None
     elif token_filename:
         token = _read_token_from_file(token_filename)
         if token is None:
             logger.warning(
-                f"Failed to read token from {token_filename}, continuing without "
-                "token until the file can be read"
+                f"Failed to read token from {token_filename}, continuing without token"
             )
+            token_filename = None
 
     # Load table filters from YAML file if configured
     filter_file_path = os.getenv("PINOT_TABLE_FILTER_FILE")

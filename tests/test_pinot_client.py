@@ -11,7 +11,7 @@ import requests
 from mcp_pinot.config import PinotConfig
 from mcp_pinot.incidents import IncidentProfile, IncidentService
 from mcp_pinot.models import QueryExecutionResult, QueryResult
-from mcp_pinot.pinot_client import PinotClient
+from mcp_pinot.pinot_client import PinotClient, get_auth_credentials
 
 
 @pytest.fixture
@@ -129,18 +129,28 @@ class TestPinotClient:
         assert headers["Authorization"] == "Bearer test_token"
 
     def test_create_auth_headers_rereads_token_file(self, mock_pinot_config, tmp_path):
-        """Headers carry the current token file contents, not the startup token."""
+        """Broker and controller headers each carry the current token file."""
         token_file = tmp_path / "token"
-        token_file.write_text("rotated")
         mock_pinot_config.token = "Bearer stale"
         mock_pinot_config.token_filename = str(token_file)
         pinot = PinotClient(mock_pinot_config)
 
-        assert pinot._create_auth_headers()["Authorization"] == "Bearer rotated"
+        token_file.write_text("broker")
+        assert pinot._create_auth_headers()["Authorization"] == "Bearer broker"
+        token_file.write_text("controller")
         assert (
             pinot._create_auth_headers(controller=True)["Authorization"]
-            == "Bearer rotated"
+            == "Bearer controller"
         )
+
+    def test_get_auth_credentials_rereads_token_file(self, mock_pinot_config, tmp_path):
+        """pinotdb credentials carry the current token file contents."""
+        token_file = tmp_path / "token"
+        token_file.write_text("rotated")
+        mock_pinot_config.token = "Bearer stale"
+        mock_pinot_config.token_filename = str(token_file)
+
+        assert get_auth_credentials(mock_pinot_config) == ("", "Bearer rotated")
 
     def test_create_auth_headers_with_username_password(self, mock_pinot_config):
         """Test auth headers creation with username/password authentication."""

@@ -952,8 +952,8 @@ class TestLoadPinotConfigTokenFilename:
         assert config.token == "Bearer old"  # Result of the re-read that ran
         assert config.current_token() == "Bearer new"
 
-    def test_stalled_token_file_reread_is_reported_once(self, tmp_path):
-        """A re-read that does not finish is reported instead of going silent"""
+    def test_stalled_token_file_reread_is_reported_once_per_stall(self, tmp_path):
+        """A re-read past the threshold is reported once, then when it ends"""
         token_file = tmp_path / "token"
         token_file.write_text("first")
         env_vars = {
@@ -965,25 +965,43 @@ class TestLoadPinotConfigTokenFilename:
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_pinot_config()
 
-        results: list[str | None] = []
-        caller = threading.Thread(
-            target=lambda: results.extend(
-                [config.current_token(), config.current_token()]
+        def calls_during_reread(count: int) -> list[str | None]:
+            """Call current_token() from another thread while a re-read runs"""
+            results: list[str | None] = []
+            caller = threading.Thread(
+                target=lambda: results.extend(
+                    config.current_token() for _ in range(count)
+                )
             )
-        )
-        with patch.object(_token_file_rereads, "stall_seconds", 0.0):
-            with patch("mcp_pinot.config.logger") as mock_logger:
-                assert _token_file_rereads.try_start(str(token_file))  # Stuck
-                try:
-                    caller.start()
-                    caller.join(timeout=5)
-                    assert results == ["Bearer first", "Bearer first"]
-                finally:
-                    _token_file_rereads.finish()
-        mock_logger.warning.assert_called_once_with(
+            assert _token_file_rereads.try_start(str(token_file))
+            try:
+                caller.start()
+                caller.join(timeout=5)
+                return list(results)  # Snapshot before the re-read ends
+            finally:
+                _token_file_rereads.finish()
+
+        with patch("mcp_pinot.config.logger") as mock_logger:
+            assert calls_during_reread(2) == ["Bearer first"] * 2  # Under 30s
+            assert mock_logger.warning.call_count == 0
+            assert mock_logger.info.call_count == 0
+            with patch.object(_token_file_rereads, "stall_seconds", 0.0):
+                assert calls_during_reread(2) == ["Bearer first"] * 2
+                assert calls_during_reread(2) == ["Bearer first"] * 2
+
+        stalled = (
             f"Re-reading token file {token_file} has not finished after 0s; "
             "keeping the current token"
         )
+        finished = f"Stalled re-read of token file {token_file} has finished"
+        assert [c.args for c in mock_logger.warning.call_args_list] == [
+            (stalled,),
+            (stalled,),
+        ]
+        assert [c.args for c in mock_logger.info.call_args_list] == [
+            (finished,),
+            (finished,),
+        ]
 
 
 class TestParseTableFilterConfig:

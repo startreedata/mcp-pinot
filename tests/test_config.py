@@ -677,6 +677,13 @@ class TestReadTokenFromFile:
             os.chmod(temp_file, 0o644)
             os.unlink(temp_file)
 
+    def test_read_token_from_file_rejects_header_unsafe_characters(self, tmp_path):
+        """Tokens that cannot be sent as an HTTP header value are rejected"""
+        token_file = tmp_path / "token"
+        for content in ("old.jwt\nnew.jwt", "a\rb", "a\x00b", "a\tb", "tok\u00e9n"):
+            token_file.write_text(content, encoding="utf-8")
+            assert _read_token_from_file(str(token_file)) is None
+
 
 class TestLoadPinotConfigTokenFilename:
     """Test token filename functionality in load_pinot_config"""
@@ -717,6 +724,12 @@ class TestLoadPinotConfigTokenFilename:
                 with patch.dict(os.environ, env_vars, clear=True):
                     config = load_pinot_config()
                     assert config.token == "direct_token"
+
+            # The file is not re-read, even after it changes
+            with open(temp_file, "w", encoding="utf-8") as f:
+                f.write("rotated")
+            assert config.token_filename is None
+            assert config.current_token() == "direct_token"
         finally:
             os.unlink(temp_file)
 
@@ -816,7 +829,7 @@ class TestLoadPinotConfigTokenFilename:
                 config = load_pinot_config()
                 # Token should be None since the file doesn't exist
                 assert config.token is None
-                assert config.token_filename is None
+                assert config.token_filename == "/some/file/path"
 
     def test_token_filename_picks_up_rotated_token(self, tmp_path):
         """A rotated token file is re-read instead of serving the startup token"""
@@ -837,13 +850,11 @@ class TestLoadPinotConfigTokenFilename:
         token_file.unlink()
         assert config.current_token() == "Bearer second"
 
-    def test_direct_token_is_not_overridden_by_token_file(self, tmp_path):
-        """PINOT_TOKEN keeps precedence even after the token file changes"""
+    def test_token_file_missing_at_startup_is_picked_up_later(self, tmp_path):
+        """A token file written after startup is used once it appears"""
         token_file = tmp_path / "token"
-        token_file.write_text("from_file")
         env_vars = {
             "PINOT_CONTROLLER_URL": "http://controller:9000",
-            "PINOT_TOKEN": "direct_token",
             "PINOT_TOKEN_FILENAME": str(token_file),
         }
 
@@ -851,9 +862,35 @@ class TestLoadPinotConfigTokenFilename:
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_pinot_config()
 
-        token_file.write_text("rotated")
-        assert config.token_filename is None
-        assert config.current_token() == "direct_token"
+        with patch("mcp_pinot.config.logger") as mock_logger:
+            assert config.current_token() is None
+            assert config.current_token() is None
+        assert mock_logger.error.call_count == mock_logger.warning.call_count == 0
+
+        token_file.write_text("late")
+        with patch("mcp_pinot.config.logger") as mock_logger:
+            assert config.current_token() == "Bearer late"
+        assert mock_logger.info.call_count == 1  # Token file is readable
+
+    def test_token_file_with_line_break_keeps_last_good_token(self, tmp_path):
+        """A malformed rotation keeps the last good token and never logs it"""
+        token_file = tmp_path / "token"
+        token_file.write_text("good")
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+            "PINOT_TOKEN_FILENAME": str(token_file),
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+
+        token_file.write_text("old.jwt\nnew.jwt")
+        with patch("mcp_pinot.config.logger") as mock_logger:
+            assert config.current_token() == "Bearer good"
+        assert mock_logger.error.call_count == 1
+        logged = str(mock_logger.mock_calls)
+        assert "old.jwt" not in logged and "new.jwt" not in logged
 
     def test_unreadable_token_file_is_logged_once_until_it_recovers(self, tmp_path):
         """An unreadable token file is reported once, not on every request"""

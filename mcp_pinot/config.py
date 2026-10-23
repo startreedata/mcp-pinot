@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+import threading
 from urllib.parse import urlparse
 
 from dotenv import find_dotenv, load_dotenv
@@ -50,6 +51,10 @@ def get_logger(name: str = "mcp-pinot") -> logging.Logger:
 # Create a default logger for this module
 logger = get_logger()
 
+# Serializes token-file re-reads so concurrent requests never move the cached
+# token back to an older read and each failure or recovery is logged once.
+_token_file_lock = threading.Lock()
+
 
 @dataclass
 class PinotConfig:
@@ -72,30 +77,42 @@ class PinotConfig:
     controller_username: str | None = None
     controller_password: str | None = None
     controller_token: str | None = None
-    # Set only when the token came from PINOT_TOKEN_FILENAME. Rotated tokens
-    # (e.g. projected Kubernetes service account tokens) are re-read from it.
+    # Set when PINOT_TOKEN_FILENAME supplies the token (PINOT_TOKEN unset). The
+    # file is re-read on every request, so rotated tokens (e.g. projected
+    # Kubernetes service account tokens) and files written after startup are
+    # picked up.
     token_filename: str | None = None
     _token_file_unreadable: bool = field(
         default=False, init=False, repr=False, compare=False
     )
 
+    def __post_init__(self) -> None:
+        # A token file that has not produced a token yet counts as unreadable,
+        # so retries stay quiet until the file can be read.
+        self._token_file_unreadable = bool(self.token_filename) and not self.token
+
     def current_token(self) -> str | None:
         """Return the Pinot token, re-reading token_filename if one is set.
 
-        A successful read replaces ``token``, so a rotated file takes effect on
-        the next call. When the file cannot be read, the last good token is
-        returned. Only the first failed read is logged at warning/error level and
-        recovery is logged once at info level, so an unreadable file does not
-        log on every request.
+        While token_filename is set, the file is the source of truth: each
+        successful read replaces ``token`` (including a value assigned in code)
+        and is returned, so a rotated file takes effect on the next call. When
+        the file cannot be read, the last good token is returned, or None if the
+        file has never been read. A failure is logged at warning/error level only
+        when the file stops being readable, and recovery once at info level, so
+        an unreadable file does not log on every request. Safe to call from
+        multiple threads.
         """
-        if self.token_filename:
+        if not self.token_filename:
+            return self.token
+        with _token_file_lock:
             fresh = _read_token_from_file(
                 self.token_filename, log_failures=not self._token_file_unreadable
             )
             if fresh:
                 if self._token_file_unreadable:
                     self._token_file_unreadable = False
-                    logger.info(f"Token file is readable again: {self.token_filename}")
+                    logger.info(f"Token file is readable: {self.token_filename}")
                 self.token = fresh
             elif not self._token_file_unreadable:
                 self._token_file_unreadable = True
@@ -103,7 +120,7 @@ class PinotConfig:
                     f"Reusing the last token read from {self.token_filename} "
                     "until the file can be read again"
                 )
-        return self.token
+            return self.token
 
 
 @dataclass
@@ -190,7 +207,8 @@ def _read_token_from_file(
 ) -> str | None:
     """Read token from file and return it, handling errors gracefully.
 
-    Returns None when the file is missing, empty, or unreadable. Those failures
+    Returns None when the file is missing, empty, unreadable, or holds characters
+    that are not allowed in an HTTP header, such as line breaks. Those failures
     are logged at warning/error level, or at debug level when log_failures is
     False so callers that re-read the file repeatedly can avoid log floods.
     """
@@ -210,6 +228,15 @@ def _read_token_from_file(
 
         if not token:
             log_warning(f"Token file is empty: {token_filename}")
+            return None
+
+        # HTTP clients reject such header values with errors that echo the
+        # value, which would put the token in logs and tool error responses.
+        if not (token.isascii() and token.isprintable()):
+            log_error(
+                "Token file contains characters not allowed in an HTTP header: "
+                f"{token_filename}"
+            )
             return None
 
         # Add Bearer prefix if not already present
@@ -397,17 +424,17 @@ def load_pinot_config() -> PinotConfig:
     token = os.getenv("PINOT_TOKEN")
     token_filename = os.getenv("PINOT_TOKEN_FILENAME")
 
-    # If no direct token but token filename is provided, read from file. Keep
-    # the filename only when it yielded a token, so requests re-read it later.
+    # A direct token wins. Otherwise read the token file now and keep its name,
+    # so requests re-read it and pick up rotated or late-written tokens.
     if token:
         token_filename = None
     elif token_filename:
         token = _read_token_from_file(token_filename)
         if token is None:
             logger.warning(
-                f"Failed to read token from {token_filename}, continuing without token"
+                f"Failed to read token from {token_filename}, continuing without "
+                "token until the file can be read"
             )
-            token_filename = None
 
     # Load table filters from YAML file if configured
     filter_file_path = os.getenv("PINOT_TABLE_FILTER_FILE")

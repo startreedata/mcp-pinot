@@ -855,6 +855,38 @@ class TestLoadPinotConfigTokenFilename:
         assert config.token_filename is None
         assert config.current_token() == "direct_token"
 
+    def test_unreadable_token_file_is_logged_once_until_it_recovers(self, tmp_path):
+        """An unreadable token file is reported once, not on every request"""
+        token_file = tmp_path / "token"
+        token_file.write_text("first")
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+            "PINOT_TOKEN_FILENAME": str(token_file),
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+
+        token_file.unlink()
+        with patch("mcp_pinot.config.logger") as mock_logger:
+            for _ in range(5):
+                assert config.current_token() == "Bearer first"
+        assert mock_logger.error.call_count == 1  # Token file not found
+        assert mock_logger.warning.call_count == 1  # Reusing the last token
+
+        token_file.write_text("second")
+        with patch("mcp_pinot.config.logger") as mock_logger:
+            for _ in range(3):
+                assert config.current_token() == "Bearer second"
+        assert mock_logger.info.call_count == 1  # Readable again
+        assert mock_logger.error.call_count == mock_logger.warning.call_count == 0
+
+        token_file.unlink()
+        with patch("mcp_pinot.config.logger") as mock_logger:
+            assert config.current_token() == "Bearer second"
+        assert mock_logger.error.call_count == 1  # A new failure is reported
+
 
 class TestParseTableFilterConfig:
     """Test the _parse_table_filter_config function"""

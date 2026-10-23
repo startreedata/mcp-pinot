@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 from typing import ClassVar
 from unittest.mock import patch
 
@@ -13,11 +14,12 @@ from mcp_pinot.config import (
     OAuthConfig,
     ServerConfig,
     _load_table_filters,
+    _load_token_file,
     _parse_broker_url,
     _parse_oauth_scopes,
     _parse_table_filter_config,
     _read_token_from_file,
-    _token_file_lock,
+    _token_file_rereads,
     load_oauth_config,
     load_pinot_config,
     load_server_config,
@@ -680,12 +682,22 @@ class TestReadTokenFromFile:
             os.chmod(temp_file, 0o644)
             os.unlink(temp_file)
 
-    def test_read_token_from_file_rejects_header_unsafe_characters(self, tmp_path):
-        """Tokens that cannot be sent as an HTTP header value are rejected"""
+    def test_read_token_from_file_rejects_non_printable_ascii(self, tmp_path):
+        """Token files holding anything but printable ASCII are rejected"""
         token_file = tmp_path / "token"
         for content in ("old.jwt\nnew.jwt", "a\rb", "a\x00b", "a\tb", "tok\u00e9n"):
             token_file.write_text(content, encoding="utf-8")
             assert _read_token_from_file(str(token_file)) is None
+
+    def test_read_token_from_file_logs_reason_without_file_content(self, tmp_path):
+        """A rejected file is logged by reason, never with bytes from the file"""
+        token_file = tmp_path / "token"
+        token_file.write_bytes(b"secret\xe9token")
+        with patch("mcp_pinot.config.logger") as mock_logger:
+            assert _read_token_from_file(str(token_file)) is None
+        mock_logger.log.assert_called_once_with(
+            logging.ERROR, f"Token file is not UTF-8: {token_file}"
+        )
 
 
 class TestLoadPinotConfigTokenFilename:
@@ -856,7 +868,7 @@ class TestLoadPinotConfigTokenFilename:
     def test_token_file_failures_are_logged_once_and_keep_the_last_token(
         self, tmp_path
     ):
-        """Failures are logged when they start or change, never with the token"""
+        """Each failure reason is logged once per outage, never with the token"""
         token_file = tmp_path / "token"
         token_file.write_text("good")
         env_vars = {
@@ -875,6 +887,10 @@ class TestLoadPinotConfigTokenFilename:
             token_file.write_text("old.jwt\nnew.jwt")
             for _ in range(3):
                 assert config.current_token() == "Bearer good"
+            token_file.write_text("")
+            assert config.current_token() == "Bearer good"
+            token_file.unlink()  # A reason already logged in this outage
+            assert config.current_token() == "Bearer good"
             token_file.write_text("next")
             for _ in range(3):
                 assert config.current_token() == "Bearer next"
@@ -885,9 +901,9 @@ class TestLoadPinotConfigTokenFilename:
             (logging.ERROR, f"Token file not found: {token_file}"),
             (
                 logging.ERROR,
-                "Token file contains characters not allowed in an HTTP header: "
-                f"{token_file}",
+                f"Token file holds characters other than printable ASCII: {token_file}",
             ),
+            (logging.WARNING, f"Token file is empty: {token_file}"),
             (logging.ERROR, f"Token file not found: {token_file}"),
         ]
         assert mock_logger.warning.call_count == 2  # Keeping the current token
@@ -895,8 +911,8 @@ class TestLoadPinotConfigTokenFilename:
         logged = str(mock_logger.mock_calls)
         assert "old.jwt" not in logged and "new.jwt" not in logged
 
-    def test_token_file_reread_in_progress_returns_current_token(self, tmp_path):
-        """A caller that finds another re-read in progress does not wait for it"""
+    def test_token_file_rereads_run_one_at_a_time_without_waiting(self, tmp_path):
+        """A call made during a re-read returns the current token at once"""
         token_file = tmp_path / "token"
         token_file.write_text("first")
         env_vars = {
@@ -908,16 +924,66 @@ class TestLoadPinotConfigTokenFilename:
             with patch.dict(os.environ, env_vars, clear=True):
                 config = load_pinot_config()
 
-        token_file.write_text("second")
+        reads: list[str] = []
+        paused, resume = threading.Event(), threading.Event()
+
+        def slow_load(path: str):
+            reads.append(path)
+            result = _load_token_file(path)
+            if len(reads) == 1:
+                paused.set()
+                resume.wait(5)
+            return result
+
+        token_file.write_text("old")
+        with patch("mcp_pinot.config._load_token_file", side_effect=slow_load):
+            reader = threading.Thread(target=config.current_token)
+            reader.start()
+            try:
+                assert paused.wait(5)
+                token_file.write_text("new")
+                started = time.monotonic()
+                assert config.current_token() == "Bearer first"
+                assert time.monotonic() - started < 1
+            finally:
+                resume.set()
+                reader.join(5)
+        assert reads == [str(token_file)]  # The second call did not read
+        assert config.token == "Bearer old"  # Result of the re-read that ran
+        assert config.current_token() == "Bearer new"
+
+    def test_stalled_token_file_reread_is_reported_once(self, tmp_path):
+        """A re-read that does not finish is reported instead of going silent"""
+        token_file = tmp_path / "token"
+        token_file.write_text("first")
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+            "PINOT_TOKEN_FILENAME": str(token_file),
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+
         results: list[str | None] = []
-        with _token_file_lock:  # Another thread is re-reading the file
-            caller = threading.Thread(
-                target=lambda: results.append(config.current_token())
+        caller = threading.Thread(
+            target=lambda: results.extend(
+                [config.current_token(), config.current_token()]
             )
-            caller.start()
-            caller.join(timeout=5)
-        assert results == ["Bearer first"]
-        assert config.current_token() == "Bearer second"
+        )
+        with patch.object(_token_file_rereads, "stall_seconds", 0.0):
+            with patch("mcp_pinot.config.logger") as mock_logger:
+                assert _token_file_rereads.try_start(str(token_file))  # Stuck
+                try:
+                    caller.start()
+                    caller.join(timeout=5)
+                    assert results == ["Bearer first", "Bearer first"]
+                finally:
+                    _token_file_rereads.finish()
+        mock_logger.warning.assert_called_once_with(
+            f"Re-reading token file {token_file} has not finished after 0s; "
+            "keeping the current token"
+        )
 
 
 class TestParseTableFilterConfig:

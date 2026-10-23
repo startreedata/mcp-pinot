@@ -11,9 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PINOT_TOKEN_FILENAME` is re-read as requests are made instead of only at
   startup, so rotated tokens such as projected Kubernetes service account tokens
   keep working. Previously, hosted deployments got 403 from Pinot once the startup
-  token expired, about 24 hours after the pod started. A token file whose
-  content is not a valid HTTP header value, such as two lines, is now rejected
-  instead of sent; a token read earlier stays in use.
+  token expired, about 24 hours after the pod started. A token file holding
+  anything other than printable ASCII, such as a second line, is now rejected
+  instead of sent; if a token was read earlier, it stays in use.
 
 ## [5.0.0] - 2026-10-11
 

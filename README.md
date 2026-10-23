@@ -251,7 +251,7 @@ by a checked-out file.
 | `PINOT_BROKER_SCHEME` | Parsed from `PINOT_BROKER_URL` | Optional scheme override, usually `http` or `https`. |
 | `PINOT_USERNAME` / `PINOT_PASSWORD` | unset | Basic authentication for Pinot. |
 | `PINOT_TOKEN` | unset | Bearer or raw token for Pinot; takes precedence over `PINOT_TOKEN_FILENAME`. |
-| `PINOT_TOKEN_FILENAME` | unset | File containing a Pinot token. The file is re-read as requests are made, so rotated tokens such as projected Kubernetes service account tokens are picked up. A missing or empty file at startup logs a warning and continues without token auth. If the file later becomes unreadable or holds an invalid token, the last token read stays in use and the failure is logged once, not on every request. |
+| `PINOT_TOKEN_FILENAME` | unset | File containing a Pinot token: one line of printable ASCII, with or without a `Bearer ` prefix. The file is re-read as requests are made, so rotated tokens such as projected Kubernetes service account tokens are picked up. If the file cannot be used at startup (missing, empty, unreadable, or invalid), the server logs a warning and runs without token auth until it is restarted. If that happens later, the last token read stays in use and the failure is logged once, not on every request. |
 | `PINOT_DATABASE` | empty | Optional database header for multi-database Pinot deployments. |
 | `PINOT_USE_MSQE` | `false` | Enables Pinot multi-stage query engine query option. |
 | `PINOT_REQUEST_TIMEOUT` | `60` | HTTP request timeout in seconds. |

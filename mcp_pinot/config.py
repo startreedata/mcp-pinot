@@ -59,14 +59,16 @@ class _TokenFileRereads:
     A caller that cannot start a re-read keeps the current token, so a slow file
     never queues requests, and re-reads apply one at a time, so the cached token
     never moves back to an older read. A re-read still running after
-    ``stall_seconds`` is reported once, because callers would otherwise keep the
-    current token with no sign that the file is no longer being read.
+    ``stall_seconds`` is reported once, and again when it finishes, because
+    callers would otherwise keep the current token with no sign that the file
+    is no longer being read.
     """
 
     stall_seconds = 30.0
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # Held for the whole re-read
+        self._state_lock = threading.Lock()  # Guards the fields below
         self._started: float | None = None
         self._filename = ""
         self._stall_reported = False
@@ -74,27 +76,35 @@ class _TokenFileRereads:
     def try_start(self, token_filename: str) -> bool:
         """Start a re-read of token_filename, or return False if one is running."""
         if self._lock.acquire(blocking=False):
-            self._started = time.monotonic()
-            self._filename = token_filename
-            self._stall_reported = False
+            with self._state_lock:
+                self._started = time.monotonic()
+                self._filename = token_filename
+                self._stall_reported = False
             return True
-        started = self._started
-        if (
-            started is not None
-            and not self._stall_reported
-            and time.monotonic() - started >= self.stall_seconds
-        ):
-            self._stall_reported = True
+        with self._state_lock:
+            stalled = (
+                self._started is not None
+                and not self._stall_reported
+                and time.monotonic() - self._started >= self.stall_seconds
+            )
+            if stalled:
+                self._stall_reported = True
+            filename = self._filename
+        if stalled:
             logger.warning(
-                f"Re-reading token file {self._filename} has not finished after "
+                f"Re-reading token file {filename} has not finished after "
                 f"{self.stall_seconds:g}s; keeping the current token"
             )
         return False
 
     def finish(self) -> None:
         """End the re-read begun by a successful try_start()."""
-        self._started = None
+        with self._state_lock:
+            stall_reported, filename = self._stall_reported, self._filename
+            self._started = None
         self._lock.release()
+        if stall_reported:
+            logger.info(f"Stalled re-read of token file {filename} has finished")
 
 
 _token_file_rereads = _TokenFileRereads()

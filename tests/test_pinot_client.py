@@ -128,6 +128,20 @@ class TestPinotClient:
 
         assert headers["Authorization"] == "Bearer test_token"
 
+    def test_create_auth_headers_rereads_token_file(self, mock_pinot_config, tmp_path):
+        """Headers carry the current token file contents, not the startup token."""
+        token_file = tmp_path / "token"
+        token_file.write_text("rotated")
+        mock_pinot_config.token = "Bearer stale"
+        mock_pinot_config.token_filename = str(token_file)
+        pinot = PinotClient(mock_pinot_config)
+
+        assert pinot._create_auth_headers()["Authorization"] == "Bearer rotated"
+        assert (
+            pinot._create_auth_headers(controller=True)["Authorization"]
+            == "Bearer rotated"
+        )
+
     def test_create_auth_headers_with_username_password(self, mock_pinot_config):
         """Test auth headers creation with username/password authentication."""
         mock_pinot_config.username = "test_user"

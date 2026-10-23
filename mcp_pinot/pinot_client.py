@@ -58,11 +58,9 @@ _EARLY_TERMINATION_REASONS: dict[str, QueryEarlyTerminationReason] = {
 
 def get_auth_credentials(config: PinotConfig) -> tuple[str | None, str | None]:
     """Extract authentication credentials for PinotDB connection"""
-    if config.token:
-        if config.token.startswith("Bearer "):
-            return "", config.token  # Empty username, full Bearer token as password
-        else:
-            return "", config.token
+    token = config.current_token()
+    if token:
+        return "", token  # Empty username, full token (incl. any Bearer) as password
     elif config.username and config.password:
         return config.username, config.password
     return None, None
@@ -541,9 +539,9 @@ class PinotClient:
         headers = {"accept": "application/json", "Content-Type": "application/json"}
 
         token = (
-            (self.config.controller_token or self.config.token)
+            (self.config.controller_token or self.config.current_token())
             if controller
-            else self.config.token
+            else self.config.current_token()
         )
         username = (
             (self.config.controller_username or self.config.username)

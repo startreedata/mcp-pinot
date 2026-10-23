@@ -72,6 +72,20 @@ class PinotConfig:
     controller_username: str | None = None
     controller_password: str | None = None
     controller_token: str | None = None
+    # Set only when the token came from PINOT_TOKEN_FILENAME. Rotated tokens
+    # (e.g. projected Kubernetes service account tokens) are re-read from it.
+    token_filename: str | None = None
+
+    def current_token(self) -> str | None:
+        """Return the Pinot token, re-reading token_filename if one is set.
+
+        Keeps the last good token when the file is temporarily unreadable.
+        """
+        if self.token_filename:
+            fresh = _read_token_from_file(self.token_filename)
+            if fresh:
+                self.token = fresh
+        return self.token
 
 
 @dataclass
@@ -356,13 +370,17 @@ def load_pinot_config() -> PinotConfig:
     token = os.getenv("PINOT_TOKEN")
     token_filename = os.getenv("PINOT_TOKEN_FILENAME")
 
-    # If no direct token but token filename is provided, read from file
-    if not token and token_filename:
+    # If no direct token but token filename is provided, read from file. Keep
+    # the filename only when it yielded a token, so requests re-read it later.
+    if token:
+        token_filename = None
+    elif token_filename:
         token = _read_token_from_file(token_filename)
         if token is None:
             logger.warning(
                 f"Failed to read token from {token_filename}, continuing without token"
             )
+            token_filename = None
 
     # Load table filters from YAML file if configured
     filter_file_path = os.getenv("PINOT_TABLE_FILTER_FILE")
@@ -386,6 +404,7 @@ def load_pinot_config() -> PinotConfig:
         controller_username=os.getenv("PINOT_CONTROLLER_USERNAME"),
         controller_password=os.getenv("PINOT_CONTROLLER_PASSWORD"),
         controller_token=os.getenv("PINOT_CONTROLLER_TOKEN"),
+        token_filename=token_filename,
     )
 
 

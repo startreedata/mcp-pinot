@@ -816,6 +816,44 @@ class TestLoadPinotConfigTokenFilename:
                 config = load_pinot_config()
                 # Token should be None since the file doesn't exist
                 assert config.token is None
+                assert config.token_filename is None
+
+    def test_token_filename_picks_up_rotated_token(self, tmp_path):
+        """A rotated token file is re-read instead of serving the startup token"""
+        token_file = tmp_path / "token"
+        token_file.write_text("first")
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+            "PINOT_TOKEN_FILENAME": str(token_file),
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+
+        assert config.current_token() == "Bearer first"
+        token_file.write_text("second")
+        assert config.current_token() == "Bearer second"
+        token_file.unlink()
+        assert config.current_token() == "Bearer second"
+
+    def test_direct_token_is_not_overridden_by_token_file(self, tmp_path):
+        """PINOT_TOKEN keeps precedence even after the token file changes"""
+        token_file = tmp_path / "token"
+        token_file.write_text("from_file")
+        env_vars = {
+            "PINOT_CONTROLLER_URL": "http://controller:9000",
+            "PINOT_TOKEN": "direct_token",
+            "PINOT_TOKEN_FILENAME": str(token_file),
+        }
+
+        with patch("mcp_pinot.config.load_dotenv"):  # Disable .env loading
+            with patch.dict(os.environ, env_vars, clear=True):
+                config = load_pinot_config()
+
+        token_file.write_text("rotated")
+        assert config.token_filename is None
+        assert config.current_token() == "direct_token"
 
 
 class TestParseTableFilterConfig:

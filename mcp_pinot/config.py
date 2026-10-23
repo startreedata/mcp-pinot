@@ -1,8 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import logging
 import os
 import sys
+import threading
+import time
 from urllib.parse import urlparse
 
 from dotenv import find_dotenv, load_dotenv
@@ -51,6 +53,63 @@ def get_logger(name: str = "mcp-pinot") -> logging.Logger:
 logger = get_logger()
 
 
+class _TokenFileRereads:
+    """Lets one token-file re-read run at a time without making callers wait.
+
+    A caller that cannot start a re-read keeps the current token, so a slow file
+    never queues requests, and re-reads apply one at a time, so the cached token
+    never moves back to an older read. A re-read still running after
+    ``stall_seconds`` is reported once, and again when it finishes, because
+    callers would otherwise keep the current token with no sign that the file
+    is no longer being read.
+    """
+
+    stall_seconds = 30.0
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()  # Held for the whole re-read
+        self._state_lock = threading.Lock()  # Guards the fields below
+        self._started: float | None = None
+        self._filename = ""
+        self._stall_reported = False
+
+    def try_start(self, token_filename: str) -> bool:
+        """Start a re-read of token_filename, or return False if one is running."""
+        if self._lock.acquire(blocking=False):
+            with self._state_lock:
+                self._started = time.monotonic()
+                self._filename = token_filename
+                self._stall_reported = False
+            return True
+        with self._state_lock:
+            stalled = (
+                self._started is not None
+                and not self._stall_reported
+                and time.monotonic() - self._started >= self.stall_seconds
+            )
+            if stalled:
+                self._stall_reported = True
+            filename = self._filename
+        if stalled:
+            logger.warning(
+                f"Re-reading token file {filename} has not finished after "
+                f"{self.stall_seconds:g}s; keeping the current token"
+            )
+        return False
+
+    def finish(self) -> None:
+        """End the re-read begun by a successful try_start()."""
+        with self._state_lock:
+            stall_reported, filename = self._stall_reported, self._filename
+            self._started = None
+        self._lock.release()
+        if stall_reported:
+            logger.info(f"Stalled re-read of token file {filename} has finished")
+
+
+_token_file_rereads = _TokenFileRereads()
+
+
 @dataclass
 class PinotConfig:
     """Configuration container for Pinot connection settings"""
@@ -72,6 +131,49 @@ class PinotConfig:
     controller_username: str | None = None
     controller_password: str | None = None
     controller_token: str | None = None
+    # Set only when the token came from PINOT_TOKEN_FILENAME. The file is
+    # re-read as requests are made, so rotated tokens (e.g. projected
+    # Kubernetes service account tokens) are picked up.
+    token_filename: str | None = None
+    # Token-file failure messages logged since the last successful read.
+    _token_file_failures: set[str] = field(
+        default_factory=set, init=False, repr=False, compare=False
+    )
+
+    def current_token(self) -> str | None:
+        """Return the Pinot token, re-reading token_filename if one is set.
+
+        While token_filename is set, the file is the source of truth: each
+        successful read replaces ``token`` (including a value assigned in code),
+        so a rotated file takes effect on the next call. If the file cannot be
+        read or holds an invalid token, the current token is kept. Each failure
+        reason is logged once until a read succeeds again, which is logged at
+        info level, so a broken file does not log on every request. A call that
+        finds another thread re-reading the file returns the current token
+        without waiting.
+        """
+        if not self.token_filename:
+            return self.token
+        if not _token_file_rereads.try_start(self.token_filename):
+            return self.token
+        try:
+            fresh, level, message = _load_token_file(self.token_filename)
+            if fresh:
+                if self._token_file_failures:
+                    self._token_file_failures.clear()
+                    logger.info(f"Token file is readable again: {self.token_filename}")
+                self.token = fresh
+            elif message not in self._token_file_failures:
+                logger.log(level, message)
+                if not self._token_file_failures:
+                    logger.warning(
+                        f"Keeping the current token until {self.token_filename} "
+                        "can be read again"
+                    )
+                self._token_file_failures.add(message)
+            return self.token
+        finally:
+            _token_file_rereads.finish()
 
 
 @dataclass
@@ -153,37 +255,75 @@ def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
         return "localhost", 80, "http"
 
 
-def _read_token_from_file(token_filename: str) -> str | None:
-    """Read token from file and return it, handling errors gracefully"""
+def _load_token_file(token_filename: str) -> tuple[str | None, int, str]:
+    """Read a token file without logging.
+
+    Returns ``(token, level, message)``. On success, token carries a ``Bearer ``
+    prefix and message is a debug note. Otherwise token is None, and level and
+    message describe why: the file is missing, not a regular file, unreadable,
+    not UTF-8, empty, or holds anything other than printable ASCII (such as a
+    line break or tab). Messages never include file content.
+    """
     try:
         if not os.path.exists(token_filename):
-            logger.error(f"Token file not found: {token_filename}")
-            return None
+            return None, logging.ERROR, f"Token file not found: {token_filename}"
 
         if not os.path.isfile(token_filename):
-            logger.error(f"Token path is not a file: {token_filename}")
-            return None
+            return None, logging.ERROR, f"Token path is not a file: {token_filename}"
 
         with open(token_filename, encoding="utf-8") as f:
             token = f.read().strip()
 
         if not token:
-            logger.warning(f"Token file is empty: {token_filename}")
-            return None
+            return None, logging.WARNING, f"Token file is empty: {token_filename}"
+
+        # Tokens are printable ASCII. HTTP clients reject header values with
+        # control characters such as line breaks, and their errors echo the
+        # value, which would put the token in logs and tool error responses.
+        if not (token.isascii() and token.isprintable()):
+            return (
+                None,
+                logging.ERROR,
+                "Token file holds characters other than printable ASCII: "
+                f"{token_filename}",
+            )
 
         # Add Bearer prefix if not already present
         if not token.startswith("Bearer "):
             token = f"Bearer {token}"
 
-        logger.debug(f"Successfully read token from file: {token_filename}")
-        return token
+        return (
+            token,
+            logging.DEBUG,
+            f"Successfully read token from file: {token_filename}",
+        )
 
     except PermissionError:
-        logger.error(f"Permission denied reading token file: {token_filename}")
-        return None
+        return (
+            None,
+            logging.ERROR,
+            f"Permission denied reading token file: {token_filename}",
+        )
+    except UnicodeDecodeError:
+        # The decoder's own message quotes the offending byte from the file.
+        return None, logging.ERROR, f"Token file is not UTF-8: {token_filename}"
     except Exception as e:
-        logger.error(f"Failed to read token from file {token_filename}: {e}")
-        return None
+        return (
+            None,
+            logging.ERROR,
+            f"Failed to read token from file {token_filename}: {e}",
+        )
+
+
+def _read_token_from_file(token_filename: str) -> str | None:
+    """Read token from file and return it, handling errors gracefully.
+
+    Logs the outcome of :func:`_load_token_file`, so a rejected file logs its
+    reason at warning/error level and returns None.
+    """
+    token, level, message = _load_token_file(token_filename)
+    logger.log(level, message)
+    return token
 
 
 def _validate_filter_file_path(filter_file_path: str | None) -> bool:
@@ -356,13 +496,17 @@ def load_pinot_config() -> PinotConfig:
     token = os.getenv("PINOT_TOKEN")
     token_filename = os.getenv("PINOT_TOKEN_FILENAME")
 
-    # If no direct token but token filename is provided, read from file
-    if not token and token_filename:
+    # If no direct token but token filename is provided, read from file. Keep
+    # the filename only when it yielded a token, so requests re-read it later.
+    if token:
+        token_filename = None
+    elif token_filename:
         token = _read_token_from_file(token_filename)
         if token is None:
             logger.warning(
                 f"Failed to read token from {token_filename}, continuing without token"
             )
+            token_filename = None
 
     # Load table filters from YAML file if configured
     filter_file_path = os.getenv("PINOT_TABLE_FILTER_FILE")
@@ -386,6 +530,7 @@ def load_pinot_config() -> PinotConfig:
         controller_username=os.getenv("PINOT_CONTROLLER_USERNAME"),
         controller_password=os.getenv("PINOT_CONTROLLER_PASSWORD"),
         controller_token=os.getenv("PINOT_CONTROLLER_TOKEN"),
+        token_filename=token_filename,
     )
 
 

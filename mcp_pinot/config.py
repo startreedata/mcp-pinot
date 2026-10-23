@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import logging
 import os
@@ -75,16 +75,34 @@ class PinotConfig:
     # Set only when the token came from PINOT_TOKEN_FILENAME. Rotated tokens
     # (e.g. projected Kubernetes service account tokens) are re-read from it.
     token_filename: str | None = None
+    _token_file_unreadable: bool = field(
+        default=False, init=False, repr=False, compare=False
+    )
 
     def current_token(self) -> str | None:
         """Return the Pinot token, re-reading token_filename if one is set.
 
-        Keeps the last good token when the file is temporarily unreadable.
+        A successful read replaces ``token``, so a rotated file takes effect on
+        the next call. When the file cannot be read, the last good token is
+        returned. Only the first failed read is logged at warning/error level and
+        recovery is logged once at info level, so an unreadable file does not
+        log on every request.
         """
         if self.token_filename:
-            fresh = _read_token_from_file(self.token_filename)
+            fresh = _read_token_from_file(
+                self.token_filename, log_failures=not self._token_file_unreadable
+            )
             if fresh:
+                if self._token_file_unreadable:
+                    self._token_file_unreadable = False
+                    logger.info(f"Token file is readable again: {self.token_filename}")
                 self.token = fresh
+            elif not self._token_file_unreadable:
+                self._token_file_unreadable = True
+                logger.warning(
+                    f"Reusing the last token read from {self.token_filename} "
+                    "until the file can be read again"
+                )
         return self.token
 
 
@@ -167,22 +185,31 @@ def _parse_broker_url(broker_url: str) -> tuple[str, int, str]:
         return "localhost", 80, "http"
 
 
-def _read_token_from_file(token_filename: str) -> str | None:
-    """Read token from file and return it, handling errors gracefully"""
+def _read_token_from_file(
+    token_filename: str, *, log_failures: bool = True
+) -> str | None:
+    """Read token from file and return it, handling errors gracefully.
+
+    Returns None when the file is missing, empty, or unreadable. Those failures
+    are logged at warning/error level, or at debug level when log_failures is
+    False so callers that re-read the file repeatedly can avoid log floods.
+    """
+    log_error = logger.error if log_failures else logger.debug
+    log_warning = logger.warning if log_failures else logger.debug
     try:
         if not os.path.exists(token_filename):
-            logger.error(f"Token file not found: {token_filename}")
+            log_error(f"Token file not found: {token_filename}")
             return None
 
         if not os.path.isfile(token_filename):
-            logger.error(f"Token path is not a file: {token_filename}")
+            log_error(f"Token path is not a file: {token_filename}")
             return None
 
         with open(token_filename, encoding="utf-8") as f:
             token = f.read().strip()
 
         if not token:
-            logger.warning(f"Token file is empty: {token_filename}")
+            log_warning(f"Token file is empty: {token_filename}")
             return None
 
         # Add Bearer prefix if not already present
@@ -193,10 +220,10 @@ def _read_token_from_file(token_filename: str) -> str | None:
         return token
 
     except PermissionError:
-        logger.error(f"Permission denied reading token file: {token_filename}")
+        log_error(f"Permission denied reading token file: {token_filename}")
         return None
     except Exception as e:
-        logger.error(f"Failed to read token from file {token_filename}: {e}")
+        log_error(f"Failed to read token from file {token_filename}: {e}")
         return None
 
 

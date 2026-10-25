@@ -34,14 +34,15 @@ jobs:
     steps:
       - name: Check immutable runtime pin
         env:
-          RUNTIME_REF: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          RUNTIME_REF: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
         run: |
           [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
       - name: Checkout centralized runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: startreedata/startree-code-review-bot
-          ref: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          repository: startreedata/internal-tooling
+          sparse-checkout: apps/code-review-bot
+          ref: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
           path: runtime
           token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
           persist-credentials: false
@@ -58,7 +59,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MAINTAINER_MODE: observe
           MAINTAINER_REVIEWER_MODE: ${{ vars.MAINTAINER_REVIEWER_MODE }}
-        run: PYTHONPATH=runtime/src python -m startree_review_bot.maintainer controller --policy control/.github/maintainer/policy.toml --dry-run
+        run: PYTHONPATH=runtime/apps/code-review-bot/src python -m startree_review_bot.maintainer controller --policy control/.github/maintainer/policy.toml --dry-run
 
   reconcile:
     if: ${{ contains(fromJSON('["maintain","autopilot"]'), vars.MAINTAINER_MODE) }}
@@ -70,14 +71,15 @@ jobs:
     steps:
       - name: Check immutable runtime pin
         env:
-          RUNTIME_REF: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          RUNTIME_REF: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
         run: |
           [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
       - name: Checkout centralized runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: startreedata/startree-code-review-bot
-          ref: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          repository: startreedata/internal-tooling
+          sparse-checkout: apps/code-review-bot
+          ref: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
           path: runtime
           token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
           persist-credentials: false
@@ -109,4 +111,4 @@ jobs:
           MAINTAINER_MODE: ${{ vars.MAINTAINER_MODE }}
           MAINTAINER_REVIEWER_MODE: ${{ vars.MAINTAINER_REVIEWER_MODE }}
           SLACK_BOT_TOKEN: ${{ secrets.MAINTAINER_SLACK_BOT_TOKEN }}
-        run: PYTHONPATH=runtime/src python -m startree_review_bot.maintainer controller --policy control/.github/maintainer/policy.toml
+        run: PYTHONPATH=runtime/apps/code-review-bot/src python -m startree_review_bot.maintainer controller --policy control/.github/maintainer/policy.toml

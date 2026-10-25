@@ -33,14 +33,15 @@ jobs:
     steps:
       - name: Check immutable runtime pin
         env:
-          RUNTIME_REF: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          RUNTIME_REF: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
         run: |
           [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
       - name: Checkout centralized runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: startreedata/startree-code-review-bot
-          ref: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          repository: startreedata/internal-tooling
+          sparse-checkout: apps/code-review-bot
+          ref: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
           path: runtime
           token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
           persist-credentials: false
@@ -75,7 +76,7 @@ jobs:
           MAINTAINER_MODE: ${{ vars.MAINTAINER_MODE }}
           TASK_KEY: ${{ inputs.task }}
           TASK_LEASE: ${{ inputs.lease }}
-        run: PYTHONPATH=runtime/src python -m startree_review_bot.maintainer worker prepare --policy control/.github/maintainer/policy.toml --task "$TASK_KEY" --lease "$TASK_LEASE" --output prepared.json
+        run: PYTHONPATH=runtime/apps/code-review-bot/src python -m startree_review_bot.maintainer worker prepare --policy control/.github/maintainer/policy.toml --task "$TASK_KEY" --lease "$TASK_LEASE" --output prepared.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: maintainer-prepared
@@ -90,14 +91,15 @@ jobs:
     steps:
       - name: Check immutable runtime pin
         env:
-          RUNTIME_REF: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          RUNTIME_REF: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
         run: |
           [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
       - name: Checkout centralized runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: startreedata/startree-code-review-bot
-          ref: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          repository: startreedata/internal-tooling
+          sparse-checkout: apps/code-review-bot
+          ref: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
           path: runtime
           token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
           persist-credentials: false
@@ -116,7 +118,7 @@ jobs:
           name: maintainer-prepared
           path: prepared
       - name: Build isolated worker runtime
-        run: docker build -t repo-maintainer-runtime -f runtime/src/startree_review_bot/maintainer/worker.Dockerfile runtime
+        run: docker build -t repo-maintainer-runtime -f runtime/apps/code-review-bot/src/startree_review_bot/maintainer/worker.Dockerfile runtime/apps/code-review-bot
       - name: Edit with file tools and a bounded model budget
         env:
           ANTHROPIC_API_KEY: ${{ secrets.MAINTAINER_ANTHROPIC_API_KEY }}
@@ -144,14 +146,15 @@ jobs:
     steps:
       - name: Check immutable runtime pin
         env:
-          RUNTIME_REF: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          RUNTIME_REF: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
         run: |
           [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
       - name: Checkout centralized runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: startreedata/startree-code-review-bot
-          ref: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          repository: startreedata/internal-tooling
+          sparse-checkout: apps/code-review-bot
+          ref: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
           path: runtime
           token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
           persist-credentials: false
@@ -177,9 +180,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply only a policy-compliant patch
-        run: PYTHONPATH=runtime/src python -m startree_review_bot.maintainer publish validate --policy control/.github/maintainer/policy.toml --prepared prepared/prepared.json --patch candidate/change.patch --checkout target
+        run: PYTHONPATH=runtime/apps/code-review-bot/src python -m startree_review_bot.maintainer publish validate --policy control/.github/maintainer/policy.toml --prepared prepared/prepared.json --patch candidate/change.patch --checkout target
       - name: Build isolated validation runtime
-        run: docker build -t repo-maintainer-runtime -f runtime/src/startree_review_bot/maintainer/worker.Dockerfile runtime
+        run: docker build -t repo-maintainer-runtime -f runtime/apps/code-review-bot/src/startree_review_bot/maintainer/worker.Dockerfile runtime/apps/code-review-bot
       - name: Validate candidate without secrets or GitHub credentials
         run: |
           docker run --rm --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
@@ -197,14 +200,15 @@ jobs:
     steps:
       - name: Check immutable runtime pin
         env:
-          RUNTIME_REF: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          RUNTIME_REF: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
         run: |
           [[ "$RUNTIME_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'runtime-ref must be a full lowercase commit SHA' >&2; exit 1; }
       - name: Checkout centralized runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: startreedata/startree-code-review-bot
-          ref: ${{ '7c17c48128ff0a89fb597004728a63d6b9f1f63e' }}
+          repository: startreedata/internal-tooling
+          sparse-checkout: apps/code-review-bot
+          ref: ${{ '0662e2361a379f38b697e2220ec03ab202aa6348' }}
           path: runtime
           token: ${{ secrets.MAINTAINER_RUNTIME_TOKEN || github.token }}
           persist-credentials: false
@@ -245,4 +249,4 @@ jobs:
           TASK_KEY: ${{ inputs.task }}
           TASK_LEASE: ${{ inputs.lease }}
           VALIDATION_RUN: ${{ github.run_id }}
-        run: PYTHONPATH=runtime/src python -m startree_review_bot.maintainer publish publish --policy control/.github/maintainer/policy.toml --task "$TASK_KEY" --lease "$TASK_LEASE" --patch candidate/change.patch --checkout target --validation-run "$VALIDATION_RUN"
+        run: PYTHONPATH=runtime/apps/code-review-bot/src python -m startree_review_bot.maintainer publish publish --policy control/.github/maintainer/policy.toml --task "$TASK_KEY" --lease "$TASK_LEASE" --patch candidate/change.patch --checkout target --validation-run "$VALIDATION_RUN"

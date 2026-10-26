@@ -52,7 +52,7 @@ jobs:
       - name: Record trusted control version
         id: control
         run: echo "sha=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
       - name: Create read-only App token
@@ -173,7 +173,7 @@ jobs:
         with:
           name: maintainer-candidate
           path: candidate
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
       - name: Apply only a policy-compliant patch
@@ -223,7 +223,7 @@ jobs:
         with:
           name: maintainer-candidate
           path: candidate
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
       - name: Create publisher App token

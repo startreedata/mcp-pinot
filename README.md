@@ -17,7 +17,6 @@
 - [Try a Prompt](#try-a-prompt)
 - [Security and Vulnerability Reporting](#security-and-vulnerability-reporting)
 - [Developer Notes](#developer-notes)
-- [Repo Maintainer](docs/repo-maintainer.md)
 
 ## Overview
 

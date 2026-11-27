@@ -112,6 +112,19 @@ class TableConfigInput(BaseModel):
     )
 
 
+class ReadQueryOptions(BaseModel):
+    """The Broker options callers may override for a single read query."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    num_groups_limit: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_001,
+        description="Override Pinot's GROUP BY group limit for this request.",
+    )
+
+
 QueryExecutionLimitName = Literal[
     "numGroupsLimitReached",
     "maxRowsInJoinReached",

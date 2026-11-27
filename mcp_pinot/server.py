@@ -63,6 +63,7 @@ from mcp_pinot.models import (
     PinotSchema,
     QueryExecutionResult,
     QueryResult,
+    ReadQueryOptions,
     SchemaInput,
     SegmentIndexDetails,
     SegmentList,
@@ -1127,11 +1128,16 @@ def read_query(
             le=_MAX_QUERY_OFFSET,
         ),
     ] = 0,
+    query_options: Annotated[
+        ReadQueryOptions | None,
+        Field(description="Allowed Pinot Broker overrides for this request only."),
+    ] = None,
 ) -> QueryResult:
     """Run a read-only SQL query against Pinot and return a page of rows.
 
     Only a single SELECT (or WITH ... SELECT) statement is allowed; the query is
-    rejected if it contains multiple statements or write/DDL/admin keywords.
+    rejected if it contains multiple statements, write/DDL/admin keywords, or
+    a SQL OPTION clause. Supply supported overrides via ``query_options``.
     Results are paginated to keep responses small — use ``limit``/``offset`` and
     the ``has_more`` flag to page through large result sets.
 
@@ -1146,6 +1152,7 @@ def read_query(
     zero rows; no response is promoted to healthy empty evidence.
     """
     fetch_bound = offset + limit + 1
+    overrides = {"query_options": query_options} if query_options is not None else {}
     execution = _call(
         "read_query",
         _HINT_READ,
@@ -1154,6 +1161,7 @@ def read_query(
         max_rows=fetch_bound,
         application_name="mcp-pinot",
         request_id=query_request_id(),
+        **overrides,
     )
     rows = execution.rows
     total = len(rows)

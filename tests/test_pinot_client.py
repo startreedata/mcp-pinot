@@ -10,7 +10,7 @@ import requests
 
 from mcp_pinot.config import PinotConfig
 from mcp_pinot.incidents import IncidentProfile, IncidentService
-from mcp_pinot.models import QueryExecutionResult, QueryResult
+from mcp_pinot.models import QueryExecutionResult, QueryResult, ReadQueryOptions
 from mcp_pinot.pinot_client import PinotClient, get_auth_credentials
 
 
@@ -1785,6 +1785,23 @@ class TestQueryExecutionEvidence:
         assert request.headers["database"] == "incident_db"
         assert mock_native_http.clients[0]["verify"] is True
         assert "useMultiStageEngine=true" in json.loads(request.content)["queryOptions"]
+
+    def test_group_limit_applies_only_to_the_current_request(
+        self, mock_pinot_config, mock_native_http, native_query_response
+    ):
+        client = PinotClient(mock_pinot_config)
+        query = "SELECT id FROM test_table"
+        client.execute_query_with_metadata(
+            query, query_options=ReadQueryOptions(num_groups_limit=1_000_001)
+        )
+        client.execute_query_with_metadata(query)
+
+        with_limit, without_limit = [
+            json.loads(request.content)["queryOptions"].split(";")
+            for request in mock_native_http.requests
+        ]
+        assert with_limit.count("numGroupsLimit=1000001") == 1
+        assert all(not option.startswith("numGroupsLimit=") for option in without_limit)
 
     @pytest.mark.parametrize("value", ["broken", True, {"private": "detail"}])
     def test_displayed_statistics_keep_numeric_validation(

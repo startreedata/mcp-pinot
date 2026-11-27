@@ -63,6 +63,7 @@ from mcp_pinot.models import (
     PinotSchema,
     QueryExecutionResult,
     QueryResult,
+    ReadQueryOptions,
     SchemaInput,
     SegmentIndexDetails,
     SegmentList,
@@ -84,7 +85,9 @@ from mcp_pinot.observability import (
 )
 from mcp_pinot.pinot_client import (
     MAX_QUERY_ROWS,
+    PinotBrokerQueryError,
     PinotClient,
+    broker_error_codes,
     validate_pinot_path_component,
 )
 from mcp_pinot.prompts import PROMPT_TEMPLATE
@@ -463,6 +466,7 @@ def _fail(action: str, exc: Exception, hint: str = "") -> ToolError:
     category = "server"
     retryable = False
     retry_after: int | None = None
+    native_codes: tuple[int, ...] = ()
     message = f"{action} failed."
     recovery_steps = [hint] if hint else ["Check server logs and configuration."]
 
@@ -486,6 +490,13 @@ def _fail(action: str, exc: Exception, hint: str = "") -> ToolError:
         and exc.response is not None
     ):
         status = exc.response.status_code
+        if action == "read_query" and isinstance(exc, httpx.HTTPStatusError):
+            try:
+                response_body = exc.response.json()
+            except ValueError:
+                response_body = None
+            if isinstance(response_body, dict):
+                native_codes = broker_error_codes(response_body.get("exceptions"))
         if status == 401:
             code, category = "PINOT_AUTHENTICATION_REQUIRED", "authentication"
             message = "Pinot rejected the configured service credential."
@@ -518,19 +529,17 @@ def _fail(action: str, exc: Exception, hint: str = "") -> ToolError:
             message = "Pinot rejected the request."
             recovery_steps = [hint or "Correct the request before retrying."]
 
-    return ToolError(
-        json.dumps(
-            {
-                "code": code,
-                "category": category,
-                "retryable": retryable,
-                "message": message,
-                "recovery_steps": recovery_steps,
-                "retry_after_seconds": retry_after,
-            },
-            separators=(",", ":"),
-        )
-    )
+    details = {
+        "code": code,
+        "category": category,
+        "retryable": retryable,
+        "message": message,
+        "recovery_steps": recovery_steps,
+        "retry_after_seconds": retry_after,
+    }
+    if native_codes:
+        details["broker_error_codes"] = native_codes
+    return ToolError(json.dumps(details, separators=(",", ":")))
 
 
 def _call[T](
@@ -547,19 +556,17 @@ def _call[T](
     except ToolError:
         raise
     except ValueError as e:
-        raise ToolError(
-            json.dumps(
-                {
-                    "code": "INVALID_INPUT",
-                    "category": "permanent",
-                    "retryable": False,
-                    "message": str(e),
-                    "recovery_steps": ["Correct the named input and retry."],
-                    "retry_after_seconds": None,
-                },
-                separators=(",", ":"),
-            )
-        ) from e
+        details = {
+            "code": "INVALID_INPUT",
+            "category": "permanent",
+            "retryable": False,
+            "message": str(e),
+            "recovery_steps": ["Correct the named input and retry."],
+            "retry_after_seconds": None,
+        }
+        if isinstance(e, PinotBrokerQueryError) and e.broker_error_codes:
+            details["broker_error_codes"] = e.broker_error_codes
+        raise ToolError(json.dumps(details, separators=(",", ":"))) from e
     except Exception as e:
         raise _fail(action, e, hint) from e
 
@@ -1127,11 +1134,16 @@ def read_query(
             le=_MAX_QUERY_OFFSET,
         ),
     ] = 0,
+    query_options: Annotated[
+        ReadQueryOptions | None,
+        Field(description="Allowed Pinot Broker overrides for this request only."),
+    ] = None,
 ) -> QueryResult:
     """Run a read-only SQL query against Pinot and return a page of rows.
 
     Only a single SELECT (or WITH ... SELECT) statement is allowed; the query is
-    rejected if it contains multiple statements or write/DDL/admin keywords.
+    rejected if it contains multiple statements, write/DDL/admin keywords, or
+    a SQL OPTION clause. Supply supported overrides via ``query_options``.
     Results are paginated to keep responses small — use ``limit``/``offset`` and
     the ``has_more`` flag to page through large result sets.
 
@@ -1146,6 +1158,7 @@ def read_query(
     zero rows; no response is promoted to healthy empty evidence.
     """
     fetch_bound = offset + limit + 1
+    overrides = {"query_options": query_options} if query_options is not None else {}
     execution = _call(
         "read_query",
         _HINT_READ,
@@ -1154,6 +1167,7 @@ def read_query(
         max_rows=fetch_bound,
         application_name="mcp-pinot",
         request_id=query_request_id(),
+        **overrides,
     )
     rows = execution.rows
     total = len(rows)

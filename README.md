@@ -78,6 +78,26 @@ write can still fail after a successful preview.
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@startreedata/mcp-pinot/badge" alt="StarTree Server for Apache Pinot MCP server" />
 </a>
 
+## Per-query options
+
+Pass `query_options` to configure one `read_query` call. Each field is optional.
+
+| Field | Type | Behavior |
+|---|---|---|
+| `use_multi_stage_engine` | Boolean | Requests the multi-stage engine with `true` or the single-stage engine with `false`. This overrides `PINOT_USE_MSQE` for this call. |
+| `auto_rewrite_aggregation_type` | Boolean | Controls Pinot's automatic aggregation type rewriting, such as for `MIN` or `MAX` on strings. |
+
+Only these option names and types are accepted. SQL `OPTION(...)` clauses
+and `SET` statements remain blocked. Query timeouts, row limits, and table
+access rules still apply.
+
+```json
+{
+  "query": "SELECT MIN(hostname) FROM events",
+  "query_options": {"auto_rewrite_aggregation_type": true}
+}
+```
+
 ## Query execution evidence
 
 `read_query` returns the existing page fields plus `metadata`. For example,
@@ -99,6 +119,11 @@ correlation with query history or broker logs when available. Python integration
 call `execute_query_with_metadata(..., timeout_seconds=5)` to bound native and
 HTTP timeouts without modifying shared configuration. HTTP timeouts are
 inactivity limits; late results are rejected, but this is not native cancellation.
+
+When available, native numeric errors from the Broker appear as
+`broker_error_codes` in the JSON tool error, for example `[700]`. The existing
+MCP `code` and error classification still apply. The tool returns its own
+sanitized message.
 
 Tool results, including tool errors, include timing evidence in the standard
 MCP response `_meta["io.github.startreedata/mcp-pinot"]`. Existing tool data and
@@ -252,7 +277,7 @@ by a checked-out file.
 | `PINOT_TOKEN` | unset | Bearer or raw token for Pinot; takes precedence over `PINOT_TOKEN_FILENAME`. |
 | `PINOT_TOKEN_FILENAME` | unset | File containing a Pinot token: one line of printable ASCII, with or without a `Bearer ` prefix. The file is re-read as requests are made, so rotated tokens such as projected Kubernetes service account tokens are picked up. If the file cannot be used at startup (missing, empty, unreadable, or invalid), the server logs a warning and runs without token auth until it is restarted. If that happens later, the last token read stays in use and the failure is logged once, not on every request. |
 | `PINOT_DATABASE` | empty | Optional database header for multi-database Pinot deployments. |
-| `PINOT_USE_MSQE` | `false` | Enables Pinot multi-stage query engine query option. |
+| `PINOT_USE_MSQE` | `false` | Enables the Pinot multi-stage query engine option by default. `read_query` can override this per request. |
 | `PINOT_REQUEST_TIMEOUT` | `60` | HTTP request timeout in seconds. |
 | `PINOT_CONNECTION_TIMEOUT` | `60` | HTTP connection timeout in seconds. |
 | `PINOT_QUERY_TIMEOUT` | `60` | SQL query timeout in seconds. |

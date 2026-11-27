@@ -12,7 +12,12 @@ from mcp.types import TextContent
 from mcp.types.version import LATEST_PROTOCOL_VERSION
 import pytest
 
-from mcp_pinot.models import QueryExecutionMetadata, QueryExecutionResult
+from mcp_pinot.models import (
+    QueryExecutionMetadata,
+    QueryExecutionResult,
+    ReadQueryOptions,
+)
+from mcp_pinot.pinot_client import PinotBrokerQueryError
 from mcp_pinot.server import (
     _CONFIRMATION_TTL_SECONDS,
     _is_loopback_host,
@@ -155,6 +160,7 @@ class TestFastMCPServer:
         assert props["limit"]["maximum"] == 500
         assert props["limit"]["minimum"] == 1
         assert props["offset"]["minimum"] == 0
+        assert "query_options" in props
 
     @pytest.mark.asyncio
     async def test_inspection_tools_document_output_fields(self):
@@ -396,6 +402,44 @@ class TestFastMCPServer:
         )
 
     @pytest.mark.asyncio
+    async def test_read_query_passes_typed_query_options(self, mock_pinot_client):
+        overrides = {
+            "use_multi_stage_engine": False,
+            "auto_rewrite_aggregation_type": True,
+        }
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "read_query", {"query": "SELECT 1", "query_options": overrides}
+            )
+
+        assert result.is_error is False
+        assert mock_pinot_client.execute_query_with_metadata.call_args.kwargs[
+            "query_options"
+        ] == ReadQueryOptions.model_validate(overrides)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "options",
+        [
+            {"timeoutMs": 90_000},
+            {"use_multi_stage_engine": "true"},
+            {"auto_rewrite_aggregation_type": 1},
+            {"num_groups_limit": 90_000},
+        ],
+    )
+    async def test_read_query_rejects_invalid_options_before_client_call(
+        self, mock_pinot_client, options
+    ):
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "read_query",
+                {"query": "SELECT 1", "query_options": options},
+                raise_on_error=False,
+            )
+        assert result.is_error is True
+        mock_pinot_client.execute_query_with_metadata.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_read_query_empty_retains_schema_and_unknown_evidence(
         self, mock_pinot_client
     ):
@@ -462,6 +506,35 @@ class TestFastMCPServer:
         assert "secret-host" not in message
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("http_error", [False, True])
+    async def test_read_query_preserves_broker_codes_without_private_messages(
+        self, mock_pinot_client, http_error
+    ):
+        exceptions = [{"errorCode": 710, "message": "private-column-name"}]
+        if http_error:
+            request = httpx.Request("POST", "http://broker.invalid/query/sql")
+            response = httpx.Response(
+                400, request=request, json={"exceptions": exceptions}
+            )
+            error = httpx.HTTPStatusError(
+                "query rejected", request=request, response=response
+            )
+            expected_code = "PINOT_REQUEST_REJECTED"
+        else:
+            error = PinotBrokerQueryError(exceptions)
+            expected_code = "INVALID_INPUT"
+        mock_pinot_client.execute_query_with_metadata.side_effect = error
+
+        async with Client(mcp) as client:
+            result = await client.call_tool_mcp("read_query", {"query": "SELECT 1"})
+
+        assert result.is_error is True
+        detail = json.loads(result.content[0].text)
+        assert detail["code"] == expected_code
+        assert detail["broker_error_codes"] == [710]
+        assert "private-column-name" not in result.model_dump_json()
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("failure", "code", "category", "retryable", "retry_after"),
         [
@@ -517,6 +590,7 @@ class TestFastMCPServer:
         assert classification["category"] == category
         assert classification["retryable"] is retryable
         assert classification["retry_after_seconds"] == retry_after
+        assert "broker_error_codes" not in classification
         assert classification["message"]
         assert classification["recovery_steps"]
         for private_value in (

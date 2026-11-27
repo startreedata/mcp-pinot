@@ -1,4 +1,4 @@
-"""Typed output models for the Pinot MCP tools.
+"""Typed input and output models for the Pinot MCP tools.
 
 Returning these instead of opaque JSON strings gives every tool a documented
 JSON Schema, advertised as ``outputSchema`` and returned as ``structuredContent``,
@@ -109,6 +109,21 @@ class TableConfigInput(BaseModel):
         default=None,
         alias="ingestionConfig",
         serialization_alias="ingestionConfig",
+    )
+
+
+class ReadQueryOptions(BaseModel):
+    """The Broker options callers may override for a single read query."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    use_multi_stage_engine: bool | None = Field(
+        default=None,
+        description="Select the multi-stage (true) or single-stage (false) engine.",
+    )
+    auto_rewrite_aggregation_type: bool | None = Field(
+        default=None,
+        description="Let Pinot select a SQL aggregation variant for the input type.",
     )
 
 

@@ -12,7 +12,11 @@ from mcp.types import TextContent
 from mcp.types.version import LATEST_PROTOCOL_VERSION
 import pytest
 
-from mcp_pinot.models import QueryExecutionMetadata, QueryExecutionResult
+from mcp_pinot.models import (
+    QueryExecutionMetadata,
+    QueryExecutionResult,
+    ReadQueryOptions,
+)
 from mcp_pinot.server import (
     _CONFIRMATION_TTL_SECONDS,
     _is_loopback_host,
@@ -394,6 +398,42 @@ class TestFastMCPServer:
             application_name="mcp-pinot",
             request_id=ANY,
         )
+
+    @pytest.mark.asyncio
+    async def test_read_query_passes_group_limit(self, mock_pinot_client):
+        options = {"num_groups_limit": 1_000_001}
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "read_query", {"query": "SELECT 1", "query_options": options}
+            )
+
+        assert result.is_error is False
+        assert mock_pinot_client.execute_query_with_metadata.call_args.kwargs[
+            "query_options"
+        ] == ReadQueryOptions.model_validate(options)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "options",
+        [
+            {"num_groups_limit": 0},
+            {"num_groups_limit": 1_000_002},
+            {"num_groups_limit": True},
+            {"num_groups_limit": "1000001"},
+            {"numGroupsLimit": 1_000_001},
+        ],
+    )
+    async def test_read_query_rejects_invalid_options_before_client_call(
+        self, mock_pinot_client, options
+    ):
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                "read_query",
+                {"query": "SELECT 1", "query_options": options},
+                raise_on_error=False,
+            )
+        assert result.is_error is True
+        mock_pinot_client.execute_query_with_metadata.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_read_query_empty_retains_schema_and_unknown_evidence(

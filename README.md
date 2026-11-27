@@ -78,6 +78,20 @@ write can still fail after a successful preview.
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@startreedata/mcp-pinot/badge" alt="StarTree Server for Apache Pinot MCP server" />
 </a>
 
+## Per-query group limit
+
+Pass `query_options.num_groups_limit` to override the Broker group limit for one
+`read_query` call. It accepts integers from `1` through `1000001`, inclusive.
+When omitted, Pinot uses its configured default. Higher limits can increase
+Pinot's memory usage. Inline SQL `OPTION` and `SET` remain blocked.
+
+```json
+{
+  "query": "SELECT service, COUNT(*) FROM events GROUP BY service LIMIT 10",
+  "query_options": {"num_groups_limit": 1000001}
+}
+```
+
 ## Query execution evidence
 
 `read_query` returns the existing page fields plus `metadata`. For example,

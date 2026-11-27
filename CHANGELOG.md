@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `read_query` accepts an optional, bounded `query_options.num_groups_limit`
+  and forwards it to Pinot as `numGroupsLimit`.
+
 ### Fixed
 - `PINOT_TOKEN_FILENAME` is re-read as requests are made instead of only at
   startup, so rotated tokens such as projected Kubernetes service account tokens

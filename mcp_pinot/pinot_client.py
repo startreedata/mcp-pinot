@@ -24,6 +24,7 @@ from .models import (
     QueryEarlyTerminationReason,
     QueryExecutionMetadata,
     QueryExecutionResult,
+    ReadQueryOptions,
 )
 
 logger = get_logger()
@@ -784,6 +785,7 @@ class PinotClient:
         timeout_seconds: float | None = None,
         request_id: str | None = None,
         application_name: str | None = None,
+        query_options: ReadQueryOptions | None = None,
     ) -> QueryExecutionResult:
         """Execute bounded read-only SQL once, retaining native evidence.
 
@@ -839,6 +841,11 @@ class PinotClient:
                 ]
                 if self.config.use_msqe:
                     options.append("useMultiStageEngine=true")
+                if (
+                    query_options is not None
+                    and query_options.num_groups_limit is not None
+                ):
+                    options.append(f"numGroupsLimit={query_options.num_groups_limit}")
                 if application_name is not None:
                     options.append(f"applicationName={application_name}")
                 timeout = httpx.Timeout(

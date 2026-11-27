@@ -24,6 +24,7 @@ from .models import (
     QueryEarlyTerminationReason,
     QueryExecutionMetadata,
     QueryExecutionResult,
+    ReadQueryOptions,
 )
 
 logger = get_logger()
@@ -54,6 +55,32 @@ _EARLY_TERMINATION_REASONS: dict[str, QueryEarlyTerminationReason] = {
     "DISTINCT_MAX_ROWS_WITHOUT_CHANGE": "DISTINCT_MAX_ROWS_WITHOUT_CHANGE",
     "DISTINCT_MAX_EXECUTION_TIME": "DISTINCT_MAX_EXECUTION_TIME",
 }
+
+
+def broker_error_codes(exceptions: object) -> tuple[int, ...]:
+    """Extract up to 32 distinct native error codes without copying error text."""
+    if not isinstance(exceptions, list):
+        return ()
+    codes: dict[int, None] = {}
+    for exception in exceptions:
+        if isinstance(exception, dict):
+            code = exception.get("errorCode")
+            if type(code) is int and -(2**31) <= code < 2**31:
+                codes[code] = None
+                if len(codes) == 32:
+                    break
+    return tuple(codes)
+
+
+class PinotBrokerQueryError(ValueError):
+    """A Broker query failure with public numeric codes and sanitized text."""
+
+    def __init__(self, exceptions: list[dict[str, Any]]) -> None:
+        super().__init__(
+            "Pinot rejected the SQL query. Check table and column names, "
+            "function arguments, and query syntax."
+        )
+        self.broker_error_codes = broker_error_codes(exceptions)
 
 
 def get_auth_credentials(config: PinotConfig) -> tuple[str | None, str | None]:
@@ -784,6 +811,7 @@ class PinotClient:
         timeout_seconds: float | None = None,
         request_id: str | None = None,
         application_name: str | None = None,
+        query_options: ReadQueryOptions | None = None,
     ) -> QueryExecutionResult:
         """Execute bounded read-only SQL once, retaining native evidence.
 
@@ -801,6 +829,7 @@ class PinotClient:
             raise ValueError(f"max_rows must be between 1 and {MAX_QUERY_ROWS}")
         query = self._bound_read_query(query, max_rows)
         self._validate_table_access(query)
+        overrides = query_options if query_options is not None else ReadQueryOptions()
         request_id = request_id if request_id is not None else uuid4().hex
         for value in (request_id, application_name):
             if value is not None and (
@@ -837,8 +866,14 @@ class PinotClient:
                     f"timeoutMs={native_timeout_ms}",
                     f"clientQueryId={request_id}",
                 ]
-                if self.config.use_msqe:
+                if overrides.use_multi_stage_engine is not None:
+                    engine = str(overrides.use_multi_stage_engine).lower()
+                    options.append(f"useMultiStageEngine={engine}")
+                elif self.config.use_msqe:
                     options.append("useMultiStageEngine=true")
+                if overrides.auto_rewrite_aggregation_type is not None:
+                    rewrite = str(overrides.auto_rewrite_aggregation_type).lower()
+                    options.append(f"autoRewriteAggregationType={rewrite}")
                 if application_name is not None:
                     options.append(f"applicationName={application_name}")
                 timeout = httpx.Timeout(
@@ -874,10 +909,7 @@ class PinotClient:
     ) -> QueryExecutionResult:
         """Project SDK evidence into a bounded, payload-safe MCP response."""
         if native.exceptions:
-            raise ValueError(
-                "Pinot rejected the SQL query. Check table and column names, "
-                "function arguments, and query syntax."
-            )
+            raise PinotBrokerQueryError(native.exceptions)
         if len(native.rows) > row_bound:
             raise ValueError("Pinot exceeded the bounded query row limit.")
         if len(set(native.columns)) != len(native.columns):
@@ -1022,7 +1054,8 @@ class PinotClient:
         if parse_statement != statement:
             raise ValueError(
                 "Pinot OPTION clauses are server-controlled; remove OPTION(...) "
-                "from the query."
+                "from the query and use read_query's query_options for "
+                "supported overrides."
             )
         try:
             expression = sqlglot.parse_one(parse_statement, read="trino")

@@ -10,8 +10,12 @@ import requests
 
 from mcp_pinot.config import PinotConfig
 from mcp_pinot.incidents import IncidentProfile, IncidentService
-from mcp_pinot.models import QueryExecutionResult, QueryResult
-from mcp_pinot.pinot_client import PinotClient, get_auth_credentials
+from mcp_pinot.models import QueryExecutionResult, QueryResult, ReadQueryOptions
+from mcp_pinot.pinot_client import (
+    PinotBrokerQueryError,
+    PinotClient,
+    get_auth_credentials,
+)
 
 
 @pytest.fixture
@@ -1786,6 +1790,39 @@ class TestQueryExecutionEvidence:
         assert mock_native_http.clients[0]["verify"] is True
         assert "useMultiStageEngine=true" in json.loads(request.content)["queryOptions"]
 
+    def test_query_options_override_only_the_current_request(
+        self, mock_pinot_config, mock_native_http, native_query_response
+    ):
+        mock_pinot_config.use_msqe = True
+        client = PinotClient(mock_pinot_config)
+        query = "SELECT id FROM test_table"
+        client.execute_query_with_metadata(
+            query,
+            max_rows=20,
+            request_id="with-options",
+            query_options=ReadQueryOptions(
+                use_multi_stage_engine=False,
+                auto_rewrite_aggregation_type=True,
+            ),
+        )
+        client.execute_query_with_metadata(query, request_id="without-options")
+
+        with_options, without_options = [
+            json.loads(request.content) for request in mock_native_http.requests
+        ]
+        assert with_options["sql"].endswith("LIMIT 20")
+        assert set(with_options["queryOptions"].split(";")) == {
+            "timeoutMs=60000",
+            "clientQueryId=with-options",
+            "useMultiStageEngine=false",
+            "autoRewriteAggregationType=true",
+        }
+        assert set(without_options["queryOptions"].split(";")) == {
+            "timeoutMs=60000",
+            "clientQueryId=without-options",
+            "useMultiStageEngine=true",
+        }
+
     @pytest.mark.parametrize("value", ["broken", True, {"private": "detail"}])
     def test_displayed_statistics_keep_numeric_validation(
         self, mock_pinot_config, native_query_response, value
@@ -1799,11 +1836,22 @@ class TestQueryExecutionEvidence:
     def test_native_errors_stay_sanitized(
         self, mock_pinot_config, native_query_response
     ):
-        native_query_response["exceptions"] = [{"message": "sensitive-server-detail"}]
-        with pytest.raises(ValueError, match="Pinot rejected the SQL query") as error:
+        native_query_response["exceptions"] = [
+            {"errorCode": 700, "message": "sensitive-server-detail"},
+            {"errorCode": 710},
+            {"errorCode": 700},
+            {"errorCode": "711"},
+            {"errorCode": True},
+            {"errorCode": 2**31},
+            {"message": "private-query-text"},
+        ]
+        with pytest.raises(
+            PinotBrokerQueryError, match="Pinot rejected the SQL query"
+        ) as error:
             PinotClient(mock_pinot_config).execute_query_with_metadata(
                 "SELECT id FROM test_table"
             )
+        assert error.value.broker_error_codes == (700, 710)
         assert "sensitive-server-detail" not in str(error.value)
 
     @pytest.mark.parametrize(
@@ -1820,7 +1868,10 @@ class TestQueryExecutionEvidence:
     ):
         mock_pinot_config.included_tables = ["allowed_table"]
         with pytest.raises(ValueError):
-            PinotClient(mock_pinot_config).execute_query_with_metadata(query)
+            PinotClient(mock_pinot_config).execute_query_with_metadata(
+                query,
+                query_options=ReadQueryOptions(auto_rewrite_aggregation_type=True),
+            )
         assert mock_native_http.requests == []
 
     def test_request_budget_caps_every_threshold_without_changing_config(

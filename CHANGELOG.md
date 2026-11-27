@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `read_query` accepts typed per-query options for engine selection and
+  aggregation type rewriting.
+- `read_query` tool errors include `broker_error_codes` when numeric Broker codes
+  are available, alongside the existing MCP error classification and sanitized
+  message.
+
 ### Fixed
 - `PINOT_TOKEN_FILENAME` is re-read as requests are made instead of only at
   startup, so rotated tokens such as projected Kubernetes service account tokens
